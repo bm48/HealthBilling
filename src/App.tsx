@@ -1,0 +1,132 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import Dashboard from '@/pages/Dashboard'
+import BillingTodo from '@/pages/BillingTodo'
+import PatientDatabase from '@/pages/PatientDatabase'
+import ProviderSheet from '@/pages/ProviderSheet'
+import Reports from '@/pages/Reports'
+import Timecards from '@/pages/Timecards'
+import AdminSettings from '@/pages/AdminSettings'
+import SuperAdminSettings from '@/pages/SuperAdminSettings'
+import Login from '@/pages/Login'
+import Signup from '@/pages/Signup'
+import Landing from '@/pages/Landing'
+import Layout from '@/components/Layout'
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+
+  return <>{children}</>
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
+      <Route path="/" element={<Landing />} />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Dashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/todo"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <BillingTodo />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/patients"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <PatientDatabase />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/provider-sheet"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ProviderSheet />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Reports />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/timecards"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Timecards />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin-settings"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AdminSettings />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/super-admin-settings"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <SuperAdminSettings />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </AuthProvider>
+  )
+}
