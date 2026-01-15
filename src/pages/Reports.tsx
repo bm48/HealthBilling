@@ -161,21 +161,21 @@ export default function Reports() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Reports</h1>
+      <h1 className="text-3xl font-bold text-white mb-6">Reports</h1>
 
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
         <div className="grid md:grid-cols-2 gap-6 mb-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-white/90 mb-2">
               Report Type
             </label>
             <select
               value={reportType}
               onChange={(e) => setReportType(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full px-4 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-lg focus:ring-2 focus:ring-primary-500"
             >
               {reportTypes.map((type) => (
-                <option key={type.value} value={type.value}>
+                <option key={type.value} value={type.value} className="bg-slate-900">
                   {type.label}
                 </option>
               ))}
@@ -183,16 +183,16 @@ export default function Reports() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-white/90 mb-2">
               Time Period
             </label>
             <select
               value={timeFilter}
               onChange={(e) => setTimeFilter(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full px-4 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-lg focus:ring-2 focus:ring-primary-500"
             >
               {timeFilters.map((filter) => (
-                <option key={filter.value} value={filter.value}>
+                <option key={filter.value} value={filter.value} className="bg-slate-900">
                   {filter.label}
                 </option>
               ))}
@@ -201,17 +201,17 @@ export default function Reports() {
 
           {(reportType === 'provider' || reportType === 'claim' || reportType === 'patient') && clinics.length > 0 && (
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-white/90 mb-2">
                 Clinic (optional)
               </label>
               <select
                 value={selectedClinic}
                 onChange={(e) => setSelectedClinic(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="w-full px-4 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-lg focus:ring-2 focus:ring-primary-500"
               >
-                <option value="">All Clinics</option>
+                <option value="" className="bg-slate-900">All Clinics</option>
                 {clinics.map(clinic => (
-                  <option key={clinic.id} value={clinic.id}>{clinic.name}</option>
+                  <option key={clinic.id} value={clinic.id} className="bg-slate-900">{clinic.name}</option>
                 ))}
               </select>
             </div>

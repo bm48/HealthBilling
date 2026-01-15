@@ -52,8 +52,8 @@ export default function Dashboard() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-600 mt-2">
+        <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+        <p className="text-white/70 mt-2">
           Welcome back, {userProfile?.full_name || userProfile?.email}
         </p>
       </div>
@@ -65,27 +65,27 @@ export default function Dashboard() {
             <Link
               key={action.path}
               to={action.path}
-              className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow border border-gray-200"
+              className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl hover:shadow-2xl transition-all border border-white/20 hover:border-primary-400/50 hover:scale-105"
             >
-              <Icon className="text-primary-600 mb-4" size={32} />
-              <h3 className="text-lg font-semibold text-gray-900">{action.label}</h3>
+              <Icon className="text-primary-400 mb-4" size={32} />
+              <h3 className="text-lg font-semibold text-white">{action.label}</h3>
             </Link>
           )
         })}
       </div>
 
       {clinics.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Your Clinics</h2>
+        <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
+          <h2 className="text-xl font-semibold text-white mb-4">Your Clinics</h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {clinics.map((clinic) => (
               <div
                 key={clinic.id}
-                className="border border-gray-200 rounded-lg p-4 hover:border-primary-300 transition-colors"
+                className="border border-white/20 rounded-lg p-4 hover:border-primary-400/50 transition-colors bg-white/5"
               >
-                <h3 className="font-semibold text-gray-900">{clinic.name}</h3>
+                <h3 className="font-semibold text-white">{clinic.name}</h3>
                 {clinic.address && (
-                  <p className="text-sm text-gray-600 mt-1">{clinic.address}</p>
+                  <p className="text-sm text-white/60 mt-1">{clinic.address}</p>
                 )}
               </div>
             ))}

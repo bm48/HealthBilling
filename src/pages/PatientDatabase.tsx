@@ -101,7 +101,7 @@ export default function PatientDatabase() {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Patient Database</h1>
+        <h1 className="text-3xl font-bold text-white">Patient Database</h1>
         {canEdit && (
           <button
             onClick={() => {
@@ -116,47 +116,47 @@ export default function PatientDatabase() {
         )}
       </div>
 
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
         <div className="mb-4">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/50" size={20} />
             <input
               type="text"
               placeholder="Search patients..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full pl-10 pr-4 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-lg focus:ring-2 focus:ring-primary-500 placeholder-white/50"
             />
           </div>
         </div>
 
         {loading ? (
-          <div className="text-center py-8">Loading...</div>
+          <div className="text-center py-8 text-white/70">Loading...</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/10 backdrop-blur-sm">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Patient ID</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Date of Birth</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Phone</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Email</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Insurance</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-white">Patient ID</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-white">Name</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-white">Date of Birth</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-white">Phone</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-white">Email</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-white">Insurance</th>
                   {canEdit && (
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Actions</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-white">Actions</th>
                   )}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-white/10">
                 {filteredPatients.map((patient) => (
-                  <tr key={patient.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm">{patient.patient_id}</td>
-                    <td className="px-4 py-3 text-sm font-medium">{patient.first_name} {patient.last_name}</td>
-                    <td className="px-4 py-3 text-sm">{patient.date_of_birth || '-'}</td>
-                    <td className="px-4 py-3 text-sm">{patient.phone || '-'}</td>
-                    <td className="px-4 py-3 text-sm">{patient.email || '-'}</td>
-                    <td className="px-4 py-3 text-sm">{patient.insurance || '-'}</td>
+                  <tr key={patient.id} className="hover:bg-white/5">
+                    <td className="px-4 py-3 text-sm text-white">{patient.patient_id}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-white">{patient.first_name} {patient.last_name}</td>
+                    <td className="px-4 py-3 text-sm text-white/70">{patient.date_of_birth || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-white/70">{patient.phone || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-white/70">{patient.email || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-white/70">{patient.insurance || '-'}</td>
                     {canEdit && (
                       <td className="px-4 py-3 text-sm">
                         <div className="flex items-center gap-2">
@@ -165,13 +165,13 @@ export default function PatientDatabase() {
                               setEditingPatient(patient)
                               setShowForm(true)
                             }}
-                            className="text-primary-600 hover:text-primary-700"
+                            className="text-primary-400 hover:text-primary-300"
                           >
                             <Edit size={16} />
                           </button>
                           <button
                             onClick={() => handleDelete(patient)}
-                            className="text-red-600 hover:text-red-700"
+                            className="text-red-400 hover:text-red-300"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -182,7 +182,7 @@ export default function PatientDatabase() {
                 ))}
                 {filteredPatients.length === 0 && (
                   <tr>
-                    <td colSpan={canEdit ? 7 : 6} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={canEdit ? 7 : 6} className="px-4 py-8 text-center text-white/50">
                       No patients found
                     </td>
                   </tr>

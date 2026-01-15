@@ -1,48 +1,48 @@
-import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
-import { Timecard, Clinic } from '@/types';
-import { useAuth } from '@/contexts/AuthContext';
-import { LogIn, LogOut, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { Timecard, Clinic } from '@/types'
+import { useAuth } from '@/contexts/AuthContext'
+import { LogIn, LogOut, Plus } from 'lucide-react'
 
 export default function Timecards() {
-  const { user, userProfile } = useAuth();
-  const [timecards, setTimecards] = useState<Timecard[]>([]);
-  const [clinics, setClinics] = useState<Clinic[]>([]);
-  const [selectedClinic, setSelectedClinic] = useState<string>('');
-  const [currentClockIn, setCurrentClockIn] = useState<Timecard | null>(null);
-  const [showModal, setShowModal] = useState(false);
+  const { user, userProfile } = useAuth()
+  const [timecards, setTimecards] = useState<Timecard[]>([])
+  const [clinics, setClinics] = useState<Clinic[]>([])
+  const [selectedClinic, setSelectedClinic] = useState<string>('')
+  const [currentClockIn, setCurrentClockIn] = useState<Timecard | null>(null)
+  const [showModal, setShowModal] = useState(false)
   const [formData, setFormData] = useState({
     clock_in: '',
     clock_out: '',
     notes: '',
-  });
+  })
 
   useEffect(() => {
     if (user && userProfile) {
-      loadClinics();
-      loadCurrentClockIn();
-      loadTimecards();
+      loadClinics()
+      loadCurrentClockIn()
+      loadTimecards()
     }
-  }, [user, userProfile]);
+  }, [user, userProfile])
 
   async function loadClinics() {
-    if (!userProfile?.clinic_ids.length) return;
+    if (!userProfile?.clinic_ids.length) return
 
     const { data } = await supabase
       .from('clinics')
       .select('*')
-      .in('id', userProfile.clinic_ids);
+      .in('id', userProfile.clinic_ids)
 
     if (data) {
-      setClinics(data);
+      setClinics(data)
       if (data.length > 0) {
-        setSelectedClinic(data[0].id);
+        setSelectedClinic(data[0].id)
       }
     }
   }
 
   async function loadCurrentClockIn() {
-    if (!user) return;
+    if (!user) return
     
     const { data } = await supabase
       .from('timecards')
@@ -51,53 +51,68 @@ export default function Timecards() {
       .is('clock_out', null)
       .order('clock_in', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle()
 
     if (data) {
-      setCurrentClockIn(data);
+      setCurrentClockIn(data)
     }
   }
 
   async function loadTimecards() {
-    if (!user) return;
+    if (!user) return
     
     const { data } = await supabase
       .from('timecards')
       .select('*')
       .eq('user_id', user.id)
       .order('clock_in', { ascending: false })
-      .limit(50);
+      .limit(50)
 
     if (data) {
-      setTimecards(data);
+      setTimecards(data)
     }
   }
 
   const handleClockIn = async () => {
-    if (!selectedClinic || !user) return;
+    if (!selectedClinic || !user) return
 
-    const { data } = await supabase
+    const now = new Date()
+    // Calculate week start date (Monday of current week)
+    const weekStart = new Date(now)
+    const day = weekStart.getDay()
+    const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1) // Adjust when day is Sunday
+    weekStart.setDate(diff)
+    weekStart.setHours(0, 0, 0, 0)
+
+    const { data, error } = await supabase
       .from('timecards')
       .insert({
         user_id: user.id,
         clinic_id: selectedClinic,
-        clock_in: new Date().toISOString(),
+        clock_in: now.toISOString(),
+        week_start_date: weekStart.toISOString().split('T')[0], // YYYY-MM-DD format
       })
       .select()
-      .single();
+      .maybeSingle()
+
+    if (error) {
+      console.error('Error clocking in:', error)
+      alert('Failed to clock in. Please try again.')
+      return
+    }
 
     if (data) {
-      setCurrentClockIn(data);
-      loadTimecards();
+      setCurrentClockIn(data)
+      loadTimecards()
     }
-  };
+  }
 
   const handleClockOut = async () => {
-    if (!currentClockIn) return;
+    if (!currentClockIn) return
 
-    const clockOutTime = new Date();
-    const clockInTime = new Date(currentClockIn.clock_in);
-    const hours = (clockOutTime.getTime() - clockInTime.getTime()) / (1000 * 60 * 60);
+    const clockOutTime = new Date()
+    const clockInTime = new Date(currentClockIn.clock_in)
+    const hours = (clockOutTime.getTime() - clockInTime.getTime()) / (1000 * 60 * 60)
 
     await supabase
       .from('timecards')
@@ -105,59 +120,73 @@ export default function Timecards() {
         clock_out: clockOutTime.toISOString(),
         hours: Math.round(hours * 100) / 100,
       })
-      .eq('id', currentClockIn.id);
+      .eq('id', currentClockIn.id)
 
-    setCurrentClockIn(null);
-    loadTimecards();
-  };
+    setCurrentClockIn(null)
+    loadTimecards()
+  }
 
   const handleManualEntry = async () => {
-    if (!selectedClinic || !formData.clock_in || !formData.clock_out || !user) return;
+    if (!selectedClinic || !formData.clock_in || !formData.clock_out || !user) return
 
-    const clockOutTime = new Date(formData.clock_out);
-    const clockInTime = new Date(formData.clock_in);
-    const hours = (clockOutTime.getTime() - clockInTime.getTime()) / (1000 * 60 * 60);
+    const clockOutTime = new Date(formData.clock_out)
+    const clockInTime = new Date(formData.clock_in)
+    const hours = (clockOutTime.getTime() - clockInTime.getTime()) / (1000 * 60 * 60)
 
-    await supabase.from('timecards').insert({
+    // Calculate week start date (Monday of the week containing clock_in)
+    const weekStart = new Date(clockInTime)
+    const day = weekStart.getDay()
+    const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1) // Adjust when day is Sunday
+    weekStart.setDate(diff)
+    weekStart.setHours(0, 0, 0, 0)
+
+    const { error } = await supabase.from('timecards').insert({
       user_id: user.id,
       clinic_id: selectedClinic,
       clock_in: formData.clock_in,
       clock_out: formData.clock_out,
       hours: Math.round(hours * 100) / 100,
       notes: formData.notes || null,
-    });
+      week_start_date: weekStart.toISOString().split('T')[0], // YYYY-MM-DD format
+    })
 
-    setShowModal(false);
-    setFormData({ clock_in: '', clock_out: '', notes: '' });
-    loadTimecards();
-  };
+    if (error) {
+      console.error('Error creating manual entry:', error)
+      alert('Failed to create time entry. Please try again.')
+      return
+    }
+
+    setShowModal(false)
+    setFormData({ clock_in: '', clock_out: '', notes: '' })
+    loadTimecards()
+  }
 
   const totalHours = timecards
     .filter((tc) => tc.hours)
-    .reduce((sum, tc) => sum + (tc.hours || 0), 0);
+    .reduce((sum, tc) => sum + (tc.hours || 0), 0)
 
   return (
-    <div className="p-8">
+    <div>
       <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2">Timecards</h1>
-        <p className="text-gray-600">Track your work hours</p>
+        <h1 className="text-3xl font-bold text-white mb-2">Timecards</h1>
+        <p className="text-white/70">Track your work hours</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold mb-4">Clock In/Out</h2>
+        <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
+          <h2 className="text-xl font-semibold text-white mb-4">Clock In/Out</h2>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-white/90 mb-2">
               Clinic
             </label>
             <select
               value={selectedClinic}
               onChange={(e) => setSelectedClinic(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-md"
             >
-              <option value="">Select clinic</option>
+              <option value="" className="bg-slate-900">Select clinic</option>
               {clinics.map((clinic) => (
-                <option key={clinic.id} value={clinic.id}>
+                <option key={clinic.id} value={clinic.id} className="bg-slate-900">
                   {clinic.name}
                 </option>
               ))}
@@ -165,7 +194,7 @@ export default function Timecards() {
           </div>
           {currentClockIn ? (
             <div>
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-white/70 mb-4">
                 Clocked in at: {new Date(currentClockIn.clock_in).toLocaleString()}
               </p>
               <button
@@ -188,58 +217,58 @@ export default function Timecards() {
           )}
           <button
             onClick={() => setShowModal(true)}
-            className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 border border-gray-300 rounded-md hover:bg-gray-50"
+            className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 border border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-md"
           >
             <Plus className="w-5 h-5" />
             Manual Entry
           </button>
         </div>
 
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold mb-4">Summary</h2>
+        <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
+          <h2 className="text-xl font-semibold text-white mb-4">Summary</h2>
           <div className="space-y-2">
             <div className="flex justify-between">
-              <span className="text-gray-600">Total Hours:</span>
-              <span className="font-semibold">{totalHours.toFixed(2)}</span>
+              <span className="text-white/70">Total Hours:</span>
+              <span className="font-semibold text-white">{totalHours.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Total Entries:</span>
-              <span className="font-semibold">{timecards.length}</span>
+              <span className="text-white/70">Total Entries:</span>
+              <span className="font-semibold text-white">{timecards.length}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow-md overflow-hidden">
-        <div className="p-4 border-b">
-          <h2 className="font-semibold">Recent Timecards</h2>
+      <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl overflow-hidden border border-white/20">
+        <div className="p-4 border-b border-white/20">
+          <h2 className="font-semibold text-white">Recent Timecards</h2>
         </div>
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+        <table className="min-w-full divide-y divide-white/10">
+          <thead className="bg-white/10 backdrop-blur-sm">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Clock In</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Clock Out</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hours</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notes</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase">Date</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase">Clock In</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase">Clock Out</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase">Hours</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase">Notes</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="divide-y divide-white/10">
             {timecards.map((timecard) => (
-              <tr key={timecard.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
+              <tr key={timecard.id} className="hover:bg-white/5">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
                   {new Date(timecard.clock_in).toLocaleDateString()}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-white/70">
                   {new Date(timecard.clock_in).toLocaleTimeString()}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-white/70">
                   {timecard.clock_out ? new Date(timecard.clock_out).toLocaleTimeString() : '-'}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
                   {timecard.hours ? timecard.hours.toFixed(2) : '-'}
                 </td>
-                <td className="px-6 py-4 text-sm">{timecard.notes || '-'}</td>
+                <td className="px-6 py-4 text-sm text-white/70">{timecard.notes || '-'}</td>
               </tr>
             ))}
           </tbody>
@@ -247,34 +276,34 @@ export default function Timecards() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">Manual Time Entry</h2>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800/95 backdrop-blur-md rounded-lg p-6 w-full max-w-md border border-white/20">
+            <h2 className="text-xl font-bold text-white mb-4">Manual Time Entry</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Clock In</label>
+                <label className="block text-sm font-medium text-white/90 mb-1">Clock In</label>
                 <input
                   type="datetime-local"
                   value={formData.clock_in}
                   onChange={(e) => setFormData({ ...formData, clock_in: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-md"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Clock Out</label>
+                <label className="block text-sm font-medium text-white/90 mb-1">Clock Out</label>
                 <input
                   type="datetime-local"
                   value={formData.clock_out}
                   onChange={(e) => setFormData({ ...formData, clock_out: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-md"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <label className="block text-sm font-medium text-white/90 mb-1">Notes</label>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-md placeholder-white/50"
                   rows={3}
                 />
               </div>
@@ -282,10 +311,10 @@ export default function Timecards() {
             <div className="mt-6 flex gap-4 justify-end">
               <button
                 onClick={() => {
-                  setShowModal(false);
-                  setFormData({ clock_in: '', clock_out: '', notes: '' });
+                  setShowModal(false)
+                  setFormData({ clock_in: '', clock_out: '', notes: '' })
                 }}
-                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                className="px-4 py-2 border border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-md"
               >
                 Cancel
               </button>
@@ -300,5 +329,5 @@ export default function Timecards() {
         </div>
       )}
     </div>
-  );
+  )
 }

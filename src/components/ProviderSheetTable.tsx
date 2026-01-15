@@ -100,18 +100,11 @@ export default function ProviderSheetTable({
     permissions[col]?.visible !== false
   )
 
-  const getPatientName = (patientId: string | null) => {
-    if (!patientId) return ''
-    const patient = patients.find(p => p.patient_id === patientId)
-    return patient ? `${patient.first_name} ${patient.last_name}` : patientId
-  }
-
   const renderCell = (row: SheetRow, column: string) => {
     const perm = permissions[column]
     if (!perm?.visible) return null
 
     const isEditable = perm.editable
-    const value = getCellValue(row, column)
 
     switch (column) {
       case 'A': // Patient ID
@@ -120,11 +113,11 @@ export default function ProviderSheetTable({
             value={row.patient_id || ''}
             onChange={(e) => onUpdateRow(row.id, 'patient_id', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
           >
-            <option value="">Select...</option>
+            <option value="" className="bg-slate-900">Select...</option>
             {patients.map(p => (
-              <option key={p.id} value={p.patient_id}>
+              <option key={p.id} value={p.patient_id} className="bg-slate-900">
                 {p.patient_id} - {p.first_name} {p.last_name}
               </option>
             ))}
@@ -138,7 +131,7 @@ export default function ProviderSheetTable({
             value={row.appointment_date || ''}
             onChange={(e) => onUpdateRow(row.id, 'appointment_date', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
           />
         )
 
@@ -149,7 +142,7 @@ export default function ProviderSheetTable({
             value={row.appointment_time || ''}
             onChange={(e) => onUpdateRow(row.id, 'appointment_time', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
           />
         )
 
@@ -160,7 +153,7 @@ export default function ProviderSheetTable({
             value={row.visit_type || ''}
             onChange={(e) => onUpdateRow(row.id, 'visit_type', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
             placeholder="Visit type"
           />
         )
@@ -172,7 +165,7 @@ export default function ProviderSheetTable({
             value={row.notes || ''}
             onChange={(e) => onUpdateRow(row.id, 'notes', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
             placeholder="Notes"
           />
         )
@@ -187,12 +180,12 @@ export default function ProviderSheetTable({
               onUpdateRow(row.id, 'billing_code_color', code?.color || null)
             }}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
             style={{ backgroundColor: row.billing_code_color || undefined }}
           >
-            <option value="">Select...</option>
+            <option value="" className="bg-slate-900">Select...</option>
             {billingCodes.map(code => (
-              <option key={code.id} value={code.code}>
+              <option key={code.id} value={code.code} className="bg-slate-900">
                 {code.code} - {code.description}
               </option>
             ))}
@@ -205,11 +198,11 @@ export default function ProviderSheetTable({
             value={row.appointment_status || ''}
             onChange={(e) => onUpdateRow(row.id, 'appointment_status', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
           >
-            <option value="">Select...</option>
+            <option value="" className="bg-slate-900">Select...</option>
             {APPOINTMENT_STATUSES.map(status => (
-              <option key={status} value={status}>{status}</option>
+              <option key={status} value={status} className="bg-slate-900">{status}</option>
             ))}
           </select>
         )
@@ -220,11 +213,11 @@ export default function ProviderSheetTable({
             value={row.claim_status || ''}
             onChange={(e) => onUpdateRow(row.id, 'claim_status', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
           >
-            <option value="">Select...</option>
+            <option value="" className="bg-slate-900">Select...</option>
             {CLAIM_STATUSES.map(status => (
-              <option key={status} value={status}>{status}</option>
+              <option key={status} value={status} className="bg-slate-900">{status}</option>
             ))}
           </select>
         )
@@ -236,7 +229,7 @@ export default function ProviderSheetTable({
             value={row.submit_date || ''}
             onChange={(e) => onUpdateRow(row.id, 'submit_date', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
           />
         )
 
@@ -248,7 +241,7 @@ export default function ProviderSheetTable({
             value={row.insurance_payment || ''}
             onChange={(e) => onUpdateRow(row.id, 'insurance_payment', e.target.value ? parseFloat(e.target.value) : null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100 text-right"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
           />
         )
 
@@ -260,7 +253,7 @@ export default function ProviderSheetTable({
             value={row.insurance_adjustment || ''}
             onChange={(e) => onUpdateRow(row.id, 'insurance_adjustment', e.target.value ? parseFloat(e.target.value) : null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100 text-right"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
           />
         )
 
@@ -272,7 +265,7 @@ export default function ProviderSheetTable({
             value={row.invoice_amount || ''}
             onChange={(e) => onUpdateRow(row.id, 'invoice_amount', e.target.value ? parseFloat(e.target.value) : null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100 text-right"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
           />
         )
 
@@ -284,7 +277,7 @@ export default function ProviderSheetTable({
             value={row.collected_from_patient || ''}
             onChange={(e) => onUpdateRow(row.id, 'collected_from_patient', e.target.value ? parseFloat(e.target.value) : null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100 text-right"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
           />
         )
 
@@ -294,11 +287,11 @@ export default function ProviderSheetTable({
             value={row.patient_pay_status || ''}
             onChange={(e) => onUpdateRow(row.id, 'patient_pay_status', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
           >
-            <option value="">Select...</option>
+            <option value="" className="bg-slate-900">Select...</option>
             {PATIENT_PAY_STATUSES.map(status => (
-              <option key={status} value={status}>{status}</option>
+              <option key={status} value={status} className="bg-slate-900">{status}</option>
             ))}
           </select>
         )
@@ -310,26 +303,26 @@ export default function ProviderSheetTable({
             value={row.payment_date || ''}
             onChange={(e) => onUpdateRow(row.id, 'payment_date', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
           />
         )
 
-      case 'Z': // AR Type (Column Z per requirements)
+      case 'Z': // AR Type
         return (
           <select
             value={row.ar_type || ''}
             onChange={(e) => onUpdateRow(row.id, 'ar_type', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
           >
-            <option value="">Select...</option>
+            <option value="" className="bg-slate-900">Select...</option>
             {AR_TYPES.map(type => (
-              <option key={type} value={type}>{type}</option>
+              <option key={type} value={type} className="bg-slate-900">{type}</option>
             ))}
           </select>
         )
 
-      case 'X': // AR Amount (Column X per requirements)
+      case 'X': // AR Amount
         return (
           <input
             type="number"
@@ -337,7 +330,7 @@ export default function ProviderSheetTable({
             value={row.ar_amount || ''}
             onChange={(e) => onUpdateRow(row.id, 'ar_amount', e.target.value ? parseFloat(e.target.value) : null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100 text-right"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
           />
         )
 
@@ -348,7 +341,7 @@ export default function ProviderSheetTable({
             value={row.ar_notes || ''}
             onChange={(e) => onUpdateRow(row.id, 'ar_notes', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
             placeholder="AR notes"
           />
         )
@@ -361,7 +354,7 @@ export default function ProviderSheetTable({
             value={row.provider_payment_amount || ''}
             onChange={(e) => onUpdateRow(row.id, 'provider_payment_amount', e.target.value ? parseFloat(e.target.value) : null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100 text-right"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
           />
         )
 
@@ -372,7 +365,7 @@ export default function ProviderSheetTable({
             value={row.provider_payment_date || ''}
             onChange={(e) => onUpdateRow(row.id, 'provider_payment_date', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
           />
         )
 
@@ -383,40 +376,13 @@ export default function ProviderSheetTable({
             value={row.provider_payment_notes || ''}
             onChange={(e) => onUpdateRow(row.id, 'provider_payment_notes', e.target.value || null)}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-gray-300 rounded text-sm disabled:bg-gray-100"
+            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
             placeholder="Payment notes"
           />
         )
 
       default:
-        return <div className="px-2 py-1 text-sm text-gray-400">{value || ''}</div>
-    }
-  }
-
-  const getCellValue = (row: SheetRow, column: string): string => {
-    switch (column) {
-      case 'A': return row.patient_id || ''
-      case 'B': return row.appointment_date || ''
-      case 'C': return row.appointment_time || ''
-      case 'D': return row.visit_type || ''
-      case 'E': return row.notes || ''
-      case 'H': return row.billing_code || ''
-      case 'I': return row.appointment_status || ''
-      case 'J': return row.claim_status || ''
-      case 'K': return row.submit_date || ''
-      case 'L': return row.insurance_payment?.toString() || ''
-      case 'M': return row.insurance_adjustment?.toString() || ''
-      case 'N': return row.invoice_amount?.toString() || ''
-      case 'O': return row.collected_from_patient?.toString() || ''
-      case 'P': return row.patient_pay_status || ''
-      case 'Q': return row.payment_date || ''
-      case 'Z': return row.ar_type || ''
-      case 'X': return row.ar_amount?.toString() || ''
-      case 'AA': return row.ar_notes || ''
-      case 'AC': return row.provider_payment_amount?.toString() || ''
-      case 'AD': return row.provider_payment_date || ''
-      case 'AE': return row.provider_payment_notes || ''
-      default: return ''
+        return <div className="px-2 py-1 text-sm text-white/50"></div>
     }
   }
 
@@ -425,7 +391,7 @@ export default function ProviderSheetTable({
       <div className="mb-4 flex items-center justify-between">
         <button
           onClick={onToggleColumnsJ_M}
-          className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
+          className="flex items-center gap-2 px-4 py-2 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 backdrop-blur-sm"
         >
           {showColumnsJ_M ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           {showColumnsJ_M ? 'Hide' : 'Show'} Claim Status (J-M)
@@ -439,10 +405,10 @@ export default function ProviderSheetTable({
         </button>
       </div>
 
-      <table className="min-w-full border-collapse border border-gray-300">
+      <table className="min-w-full border-collapse border border-white/20">
         <thead>
-          <tr className="bg-gray-100">
-            <th className="border border-gray-300 px-2 py-2 text-left text-xs font-semibold text-gray-700 w-12">
+          <tr className="bg-white/10 backdrop-blur-sm">
+            <th className="border border-white/20 px-2 py-2 text-left text-xs font-semibold text-white w-12">
               #
             </th>
             {visibleColumns.map(col => {
@@ -452,13 +418,13 @@ export default function ProviderSheetTable({
               return (
                 <th
                   key={col}
-                  className={`border border-gray-300 px-2 py-2 text-left text-xs font-semibold text-gray-700 ${def.width}`}
+                  className={`border border-white/20 px-2 py-2 text-left text-xs font-semibold text-white ${def.width}`}
                 >
                   {def.label || col}
                 </th>
               )
             })}
-            <th className="border border-gray-300 px-2 py-2 text-left text-xs font-semibold text-gray-700 w-12">
+            <th className="border border-white/20 px-2 py-2 text-left text-xs font-semibold text-white w-12">
               Actions
             </th>
           </tr>
@@ -467,24 +433,24 @@ export default function ProviderSheetTable({
           {rows.map((row, index) => (
             <tr
               key={row.id}
-              className="hover:bg-gray-50"
-              style={{ backgroundColor: row.highlight_color || undefined }}
+              className="hover:bg-white/5"
+              style={{ backgroundColor: row.highlight_color ? `${row.highlight_color}40` : undefined }}
             >
-              <td className="border border-gray-300 px-2 py-1 text-sm text-center text-gray-600">
+              <td className="border border-white/20 px-2 py-1 text-sm text-center text-white/70">
                 {index + 1}
               </td>
               {visibleColumns.map(col => {
                 if (!showColumnsJ_M && ['J', 'K', 'L', 'M'].includes(col)) return null
                 return (
-                  <td key={col} className="border border-gray-300 px-1 py-1">
+                  <td key={col} className="border border-white/20 px-1 py-1">
                     {renderCell(row, col)}
                   </td>
                 )
               })}
-              <td className="border border-gray-300 px-2 py-1">
+              <td className="border border-white/20 px-2 py-1">
                 <button
                   onClick={() => onDeleteRow(row.id)}
-                  className="text-red-600 hover:text-red-700"
+                  className="text-red-400 hover:text-red-300"
                   disabled={!permissions['A']?.editable}
                 >
                   <Trash2 size={16} />
@@ -494,7 +460,7 @@ export default function ProviderSheetTable({
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={visibleColumns.length + 2} className="text-center py-8 text-gray-500">
+              <td colSpan={visibleColumns.length + 2} className="text-center py-8 text-white/50">
                 No rows yet. Click "Add Row" to get started.
               </td>
             </tr>

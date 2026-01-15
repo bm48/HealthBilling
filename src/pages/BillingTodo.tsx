@@ -118,7 +118,7 @@ export default function BillingTodo() {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Billing To-Do List</h1>
+        <h1 className="text-3xl font-bold text-white">Billing To-Do List</h1>
         {canEdit && (
           <button
             onClick={() => setShowForm(true)}
@@ -130,9 +130,9 @@ export default function BillingTodo() {
         )}
       </div>
 
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
         {loading ? (
-          <div className="text-center py-8">Loading...</div>
+          <div className="text-center py-8 text-white/70">Loading...</div>
         ) : (
           <div className="space-y-4">
             {todos.map((todo) => (
@@ -146,7 +146,7 @@ export default function BillingTodo() {
               />
             ))}
             {todos.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-white/50">
                 No items in your To-Do list
               </div>
             )}
@@ -155,16 +155,16 @@ export default function BillingTodo() {
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className="flex justify-between items-center p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Add To-Do Item</h2>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800/95 backdrop-blur-md rounded-lg shadow-2xl max-w-md w-full mx-4 border border-white/20">
+            <div className="flex justify-between items-center p-6 border-b border-white/20">
+              <h2 className="text-xl font-semibold text-white">Add To-Do Item</h2>
               <button
                 onClick={() => {
                   setShowForm(false)
                   setFormData({ title: '', status: 'Open', claim_reference: '' })
                 }}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-white/60 hover:text-white"
               >
                 <X size={24} />
               </button>
@@ -172,7 +172,7 @@ export default function BillingTodo() {
 
             <form onSubmit={handleCreate} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-white/90 mb-1">
                   Title *
                 </label>
                 <input
@@ -180,33 +180,33 @@ export default function BillingTodo() {
                   required
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-lg focus:ring-2 focus:ring-primary-500 placeholder-white/50"
                   placeholder="Enter task title..."
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-white/90 mb-1">
                   Status
                 </label>
                 <input
                   type="text"
                   value={formData.status}
                   onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-lg focus:ring-2 focus:ring-primary-500 placeholder-white/50"
                   placeholder="Open"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-white/90 mb-1">
                   Claim Reference (optional)
                 </label>
                 <input
                   type="text"
                   value={formData.claim_reference}
                   onChange={(e) => setFormData({ ...formData, claim_reference: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-lg focus:ring-2 focus:ring-primary-500 placeholder-white/50"
                   placeholder="Link to a claim..."
                 />
               </div>
@@ -218,7 +218,7 @@ export default function BillingTodo() {
                     setShowForm(false)
                     setFormData({ title: '', status: 'Open', claim_reference: '' })
                   }}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  className="px-4 py-2 text-white/70 bg-white/10 hover:bg-white/20 rounded-lg border border-white/20"
                 >
                   Cancel
                 </button>

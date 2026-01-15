@@ -4,7 +4,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import { ProviderSheet, Clinic } from '@/types'
 import { Lock, Unlock, FileText, Calculator, Calendar } from 'lucide-react'
 import MonthCloseDialog from '@/components/MonthCloseDialog'
-import { formatCurrency } from '@/lib/utils'
 
 export default function AdminSettings() {
   const { userProfile } = useAuth()
@@ -165,24 +164,24 @@ export default function AdminSettings() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Admin Settings</h1>
+      <h1 className="text-3xl font-bold text-white mb-6">Admin Settings</h1>
 
       <div className="grid md:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+        <div className="bg-white/10 rounded-lg shadow-md p-6">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <Calendar size={20} />
             Month Close & Locking
           </h2>
           
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Clinic</label>
+              <label className="block text-sm font-medium text-white/90 mb-2">Clinic</label>
               <select
                 value={selectedClinic}
                 onChange={(e) => setSelectedClinic(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-lg focus:ring-2 focus:ring-primary-500"
               >
-                <option value="">Select clinic...</option>
+                <option value="" className="bg-slate-900">Select clinic...</option>
                 {clinics.map(clinic => (
                   <option key={clinic.id} value={clinic.id}>{clinic.name}</option>
                 ))}
@@ -191,14 +190,14 @@ export default function AdminSettings() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Month</label>
+                <label className="block text-sm font-medium text-white/90 mb-2">Month</label>
                 <select
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-lg focus:ring-2 focus:ring-primary-500"
                 >
                   {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                    <option key={m} value={m}>
+                    <option key={m} value={m} className="bg-slate-900">
                       {new Date(2000, m - 1).toLocaleString('default', { month: 'long' })}
                     </option>
                   ))}
@@ -206,11 +205,11 @@ export default function AdminSettings() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Year</label>
+                <label className="block text-sm font-medium text-white/90 mb-2">Year</label>
                 <select
                   value={selectedYear}
                   onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-lg focus:ring-2 focus:ring-primary-500"
                 >
                   {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(y => (
                     <option key={y} value={y}>{y}</option>
@@ -261,13 +260,13 @@ export default function AdminSettings() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+        <div className="bg-white/10 rounded-lg shadow-md p-6">
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <Calculator size={20} />
             Provider Payment Calculation
           </h2>
           
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-sm text-white/90 mb-4">
             Calculate provider payments based on insurance payments, patient payments, and AR for the selected month.
           </p>
 

@@ -91,18 +91,18 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
   const canEdit = ['billing_staff', 'admin', 'super_admin'].includes(userProfile?.role || '')
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+    <div className="border border-white/20 rounded-lg p-4 hover:bg-white/5 transition-all bg-white/5">
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
-            <h3 className="font-semibold text-gray-900">{todo.title}</h3>
+            <h3 className="font-semibold text-white">{todo.title}</h3>
             {editingStatus ? (
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={newStatus}
                   onChange={(e) => setNewStatus(e.target.value)}
-                  className="px-2 py-1 border border-gray-300 rounded text-sm"
+                  className="px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleUpdateStatus()
                     if (e.key === 'Escape') {
@@ -114,7 +114,7 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
                 />
                 <button
                   onClick={handleUpdateStatus}
-                  className="text-green-600 hover:text-green-700"
+                  className="text-green-400 hover:text-green-300"
                 >
                   <CheckCircle size={16} />
                 </button>
@@ -123,14 +123,14 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
                     setEditingStatus(false)
                     setNewStatus(todo.status)
                   }}
-                  className="text-gray-600 hover:text-gray-700"
+                  className="text-white/60 hover:text-white"
                 >
                   <X size={16} />
                 </button>
               </div>
             ) : (
               <span
-                className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium cursor-pointer hover:bg-blue-200"
+                className="px-2 py-1 bg-primary-500/30 text-primary-200 rounded text-xs font-medium cursor-pointer hover:bg-primary-500/40 border border-primary-400/30"
                 onClick={() => canEdit && setEditingStatus(true)}
               >
                 {todo.status}
@@ -139,12 +139,12 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
           </div>
 
           {todo.claim_reference && (
-            <p className="text-sm text-primary-600 mb-2">
+            <p className="text-sm text-primary-400 mb-2">
               Claim Reference: {todo.claim_reference}
             </p>
           )}
 
-          <div className="flex items-center gap-4 text-xs text-gray-500">
+          <div className="flex items-center gap-4 text-xs text-white/50">
             <span>Created: {formatDateTime(todo.created_at)}</span>
             {notes.length > 0 && (
               <span>{notes.length} note{notes.length !== 1 ? 's' : ''}</span>
@@ -157,14 +157,14 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
             <>
               <button
                 onClick={() => setShowNotes(!showNotes)}
-                className="p-2 text-gray-600 hover:text-primary-600 hover:bg-gray-100 rounded"
+                className="p-2 text-white/60 hover:text-primary-400 hover:bg-white/10 rounded"
                 title="Toggle notes"
               >
                 <MessageSquare size={18} />
               </button>
               <button
                 onClick={() => onComplete(todo.id)}
-                className="p-2 text-green-600 hover:text-green-700 hover:bg-green-50 rounded"
+                className="p-2 text-green-400 hover:text-green-300 hover:bg-green-500/20 rounded"
                 title="Mark complete"
               >
                 <CheckCircle size={18} />
@@ -175,7 +175,7 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
                     onDelete(todo.id)
                   }
                 }}
-                className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded"
+                className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded"
                 title="Delete"
               >
                 <Trash2 size={18} />
@@ -186,19 +186,19 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
       </div>
 
       {showNotes && (
-        <div className="mt-4 pt-4 border-t border-gray-200">
+        <div className="mt-4 pt-4 border-t border-white/20">
           <div className="space-y-3">
             {notes.map((note) => (
-              <div key={note.id} className="bg-gray-50 rounded p-3">
+              <div key={note.id} className="bg-white/5 rounded p-3 border border-white/10">
                 <div className="flex justify-between items-start mb-1">
-                  <span className="text-xs font-medium text-gray-700">
+                  <span className="text-xs font-medium text-white/80">
                     {getUserName(note.created_by)}
                   </span>
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-white/50">
                     {formatDateTime(note.created_at)}
                   </span>
                 </div>
-                <p className="text-sm text-gray-800">{note.note}</p>
+                <p className="text-sm text-white/90">{note.note}</p>
               </div>
             ))}
 
@@ -215,7 +215,7 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
                     }
                   }}
                   placeholder="Add a note..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm"
+                  className="flex-1 px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm placeholder-white/50"
                 />
                 <button
                   onClick={handleAddNote}

@@ -191,9 +191,9 @@ export default function SuperAdminSettings() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Super Admin Settings</h1>
+      <h1 className="text-3xl font-bold text-white mb-6">Super Admin Settings</h1>
 
-      <div className="bg-white rounded-lg shadow-md">
+      <div className="bg-white/10 rounded-lg shadow-md">
         <div className="border-b border-gray-200">
           <nav className="flex space-x-1 p-1">
             {tabs.map((tab) => {
@@ -205,7 +205,7 @@ export default function SuperAdminSettings() {
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                     activeTab === tab.id
                       ? 'bg-primary-100 text-primary-700 font-medium'
-                      : 'text-gray-600 hover:bg-gray-100'
+                      : 'text-white/90 hover:bg-white/10'
                   }`}
                 >
                   <Icon size={18} />
@@ -218,13 +218,13 @@ export default function SuperAdminSettings() {
 
         <div className="p-6">
           {loading ? (
-            <div className="text-center py-8">Loading...</div>
+            <div className="text-center py-8 text-gray-700">Loading...</div>
           ) : (
             <>
               {activeTab === 'users' && (
                 <div>
                   <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold text-gray-900">User Management</h2>
+                    <h2 className="text-xl font-semibold text-white">User Management</h2>
                     <button
                       onClick={() => {
                         setEditingUser(null)
@@ -251,7 +251,7 @@ export default function SuperAdminSettings() {
                       </thead>
                       <tbody className="divide-y divide-gray-200">
                         {users.map((user) => (
-                          <tr key={user.id} className="hover:bg-gray-50">
+                          <tr key={user.id} className="hover:bg-white/10">
                             <td className="px-4 py-3 text-sm">{user.email}</td>
                             <td className="px-4 py-3 text-sm">{user.full_name || '-'}</td>
                             <td className="px-4 py-3 text-sm">
@@ -294,7 +294,7 @@ export default function SuperAdminSettings() {
               {activeTab === 'billing-codes' && (
                 <div>
                   <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-semibold text-gray-900">Billing Codes</h2>
+                    <h2 className="text-xl font-semibold text-white">Billing Codes</h2>
                     <button
                       onClick={() => {
                         setEditingBillingCode(null)
@@ -316,9 +316,9 @@ export default function SuperAdminSettings() {
                       >
                         <div className="flex justify-between items-start mb-2">
                           <div>
-                            <h3 className="font-semibold text-gray-900">{code.code}</h3>
+                            <h3 className="font-semibold text-white">{code.code}</h3>
                             {code.description && (
-                              <p className="text-sm text-gray-600">{code.description}</p>
+                              <p className="text-sm text-white/90">{code.description}</p>
                             )}
                           </div>
                           <div className="flex items-center gap-2">
@@ -351,7 +351,7 @@ export default function SuperAdminSettings() {
 
               {activeTab === 'audit-logs' && (
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Audit Logs</h2>
+                  <h2 className="text-xl font-semibold text-white mb-4">Audit Logs</h2>
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-gray-50">
@@ -387,7 +387,7 @@ export default function SuperAdminSettings() {
 
               {activeTab === 'unlock' && (
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900 mb-4">Locked Sheets</h2>
+                  <h2 className="text-xl font-semibold text-white mb-4">Locked Sheets</h2>
                   <div className="space-y-4">
                     {lockedSheets.map((sheet) => (
                       <div

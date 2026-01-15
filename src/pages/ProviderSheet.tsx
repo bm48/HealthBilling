@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { SheetRow, ProviderSheet as ProviderSheetType, BillingCode, Patient } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import ProviderSheetTable from '@/components/ProviderSheetTable'
-import { Calendar, Lock, Unlock } from 'lucide-react'
+import { Calendar, Lock } from 'lucide-react'
 
 export default function ProviderSheet() {
   const { providerId } = useParams()
@@ -20,49 +20,89 @@ export default function ProviderSheet() {
   const [year, setYear] = useState(new Date().getFullYear())
 
   useEffect(() => {
-    if (providerId) {
+    // Use providerId from params, or current user's ID, or allow Super Admin to work without it
+    const effectiveProviderId = providerId || userProfile?.id
+    if (effectiveProviderId) {
       fetchSheet()
       fetchBillingCodes()
       fetchPatients()
+    } else if (!loading) {
+      setLoading(false)
     }
-  }, [providerId, month, year])
+  }, [providerId, userProfile?.id, month, year])
 
   const fetchSheet = async () => {
+    const effectiveProviderId = providerId || userProfile?.id
+    if (!effectiveProviderId) {
+      setLoading(false)
+      return
+    }
+
     try {
       setLoading(true)
       const { data, error } = await supabase
         .from('provider_sheets')
         .select('*')
-        .eq('provider_id', providerId)
+        .eq('provider_id', effectiveProviderId)
         .eq('month', month)
         .eq('year', year)
-        .single()
+        .maybeSingle()
 
-      if (error && error.code !== 'PGRST116') throw error
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching sheet:', error)
+        setLoading(false)
+        return
+      }
 
       if (data) {
         setSheet(data)
         setRows(Array.isArray(data.row_data) ? data.row_data : [])
       } else {
-        // Create new sheet for selected month
-        const newSheet = {
-          provider_id: providerId,
-          clinic_id: userProfile?.clinic_ids[0] || '',
-          month: month,
-          year: year,
-          row_data: [],
-          locked: false,
-          locked_columns: [],
+        // For Super Admin, we need to get a clinic_id first
+        let clinicId = userProfile?.clinic_ids[0]
+        
+        // If Super Admin has no clinic_ids, get the first clinic
+        if (!clinicId && userProfile?.role === 'super_admin') {
+          const { data: clinics, error: clinicError } = await supabase
+            .from('clinics')
+            .select('id')
+            .limit(1)
+            .maybeSingle()
+          
+          if (clinicError && clinicError.code !== 'PGRST116') {
+            console.error('Error fetching clinic:', clinicError)
+          } else if (clinics) {
+            clinicId = clinics.id
+          }
         }
-        const { data: created, error: createError } = await supabase
-          .from('provider_sheets')
-          .insert(newSheet)
-          .select()
-          .single()
 
-        if (createError) throw createError
-        setSheet(created)
-        setRows([])
+        // Only create if we have a clinic_id
+        if (clinicId) {
+          const newSheet = {
+            provider_id: effectiveProviderId,
+            clinic_id: clinicId,
+            month: month,
+            year: year,
+            row_data: [],
+            locked: false,
+            locked_columns: [],
+          }
+          const { data: created, error: createError } = await supabase
+            .from('provider_sheets')
+            .insert(newSheet)
+            .select()
+            .single()
+
+          if (createError) {
+            console.error('Error creating sheet:', createError)
+            setLoading(false)
+            return
+          }
+          setSheet(created)
+          setRows([])
+        } else {
+          console.error('No clinic ID available to create sheet')
+        }
       }
     } catch (error) {
       console.error('Error fetching sheet:', error)
@@ -86,14 +126,19 @@ export default function ProviderSheet() {
   }
 
   const fetchPatients = async () => {
-    if (!userProfile?.clinic_ids.length) return
-
     try {
-      const { data, error } = await supabase
-        .from('patients')
-        .select('*')
-        .in('clinic_id', userProfile.clinic_ids)
-        .order('last_name')
+      let query = supabase.from('patients').select('*')
+      
+      // For Super Admin, get all patients
+      if (userProfile?.role === 'super_admin') {
+        // No filter needed - Super Admin can see all
+      } else if (userProfile?.clinic_ids.length) {
+        query = query.in('clinic_id', userProfile.clinic_ids)
+      } else {
+        return // No clinic access
+      }
+
+      const { data, error } = await query.order('last_name')
 
       if (error) throw error
       setPatients(data || [])
@@ -179,45 +224,45 @@ export default function ProviderSheet() {
     }
   }, [saveSheet])
 
-  const isOwnSheet = userProfile?.id === providerId
-  const canEdit = userProfile?.role === 'super_admin' || 
-                  (userProfile?.role === 'admin' && userProfile.clinic_ids.includes(sheet?.clinic_id || '')) ||
-                  (userProfile?.role === 'billing_staff' && userProfile.clinic_ids.includes(sheet?.clinic_id || '')) ||
-                  (userProfile?.role === 'provider' && isOwnSheet) ||
-                  (userProfile?.role === 'office_staff' && userProfile.clinic_ids.includes(sheet?.clinic_id || ''))
+  const effectiveProviderId = providerId || userProfile?.id
+  const isOwnSheet = userProfile?.id === effectiveProviderId
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-400"></div>
       </div>
     )
   }
 
   if (!sheet) {
-    return <div>Sheet not found</div>
+    return (
+      <div className="bg-white/10 backdrop-blur-md rounded-lg p-6 border border-white/20">
+        <p className="text-white">Sheet not found. Please select a provider first.</p>
+      </div>
+    )
   }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Provider Schedule & Billing Sheet</h1>
+        <h1 className="text-3xl font-bold text-white">Provider Schedule & Billing Sheet</h1>
         {saving && (
-          <span className="text-sm text-gray-600">Saving...</span>
+          <span className="text-sm text-white/70">Saving...</span>
         )}
       </div>
 
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 mb-6 border border-white/20">
         <div className="flex items-center gap-4 mb-4">
           <div className="flex items-center gap-2">
-            <Calendar size={20} className="text-gray-600" />
+            <Calendar size={20} className="text-white/70" />
             <select
               value={month}
               onChange={(e) => setMonth(parseInt(e.target.value))}
-              className="px-3 py-2 border border-gray-300 rounded-lg"
+              className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white backdrop-blur-sm"
             >
               {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                <option key={m} value={m}>
+                <option key={m} value={m} className="bg-slate-900">
                   {new Date(2000, m - 1).toLocaleString('default', { month: 'long' })}
                 </option>
               ))}
@@ -225,16 +270,16 @@ export default function ProviderSheet() {
             <select
               value={year}
               onChange={(e) => setYear(parseInt(e.target.value))}
-              className="px-3 py-2 border border-gray-300 rounded-lg"
+              className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white backdrop-blur-sm"
             >
               {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(y => (
-                <option key={y} value={y}>{y}</option>
+                <option key={y} value={y} className="bg-slate-900">{y}</option>
               ))}
             </select>
           </div>
 
           {sheet.locked && (
-            <div className="flex items-center gap-2 text-orange-600">
+            <div className="flex items-center gap-2 text-orange-400">
               <Lock size={20} />
               <span className="text-sm font-medium">Sheet is locked</span>
             </div>
