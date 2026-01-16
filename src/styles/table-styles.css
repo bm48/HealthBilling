@@ -1,0 +1,276 @@
+/* Centralized Table Stylesheet for Spreadsheet-like Tables */
+
+/* Base Table Styles */
+.table-spreadsheet {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  background-color: #ffffff;
+}
+
+/* Table Header Styles */
+.table-spreadsheet thead {
+  background-color: #1e3a8a; /* Dark blue header */
+  color: #ffffff;
+}
+
+.table-spreadsheet thead th {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  border: 1px solid #3b82f6;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Table Body Styles */
+.table-spreadsheet tbody tr {
+  background-color: #ffffff;
+  transition: background-color 0.15s ease;
+}
+
+.table-spreadsheet tbody tr:nth-child(even) {
+  background-color: #f8f9fa; /* Light gray for alternating rows */
+}
+
+.table-spreadsheet tbody tr:hover {
+  background-color: #e9ecef; /* Slightly darker on hover */
+}
+
+.table-spreadsheet tbody tr.editing {
+  background-color: #fff3cd; /* Yellow highlight for editing row */
+}
+
+/* Table Cell Styles */
+.table-spreadsheet td {
+  padding: 6px 12px;
+  border: 1px solid #dee2e6;
+  vertical-align: middle;
+  min-height: 32px;
+}
+
+.table-spreadsheet td:focus-within {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+  background-color: #ffffff;
+}
+
+/* Input Styles within Table Cells */
+.table-spreadsheet input,
+.table-spreadsheet select,
+.table-spreadsheet textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 4px 6px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #212529;
+  outline: none;
+}
+
+.table-spreadsheet input:focus,
+.table-spreadsheet select:focus,
+.table-spreadsheet textarea:focus {
+  background-color: #ffffff;
+  border-radius: 2px;
+}
+
+.table-spreadsheet input[type="number"] {
+  text-align: right;
+}
+
+.table-spreadsheet input[type="date"],
+.table-spreadsheet input[type="time"] {
+  cursor: pointer;
+}
+
+/* Select Dropdown Styles */
+.table-spreadsheet select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23333' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 24px;
+}
+
+.table-spreadsheet select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: #f8f9fa;
+}
+
+/* Disabled/Locked Cell Styles */
+.table-spreadsheet td.locked,
+.table-spreadsheet td:has(input:disabled),
+.table-spreadsheet td:has(select:disabled) {
+  background-color: #f8f9fa;
+  color: #6c757d;
+  cursor: not-allowed;
+}
+
+/* But locked cells can still have styling applied */
+.table-spreadsheet td.locked.styled {
+  /* Allow background color to be set even when locked */
+}
+
+/* Status Badge/Tag Styles */
+.table-spreadsheet .status-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Currency/Number Display */
+.table-spreadsheet .currency {
+  text-align: right;
+  font-family: 'Courier New', monospace;
+  font-weight: 500;
+}
+
+/* Accounts Receivable Table Specific Styles */
+.table-ar {
+  /* Same base styles as table-spreadsheet */
+}
+
+.table-ar thead {
+  background-color: #1e3a8a;
+}
+
+/* Provider Payment Table Specific Styles */
+.table-provider-payment {
+  /* Same base styles as table-spreadsheet */
+}
+
+.table-provider-payment thead {
+  background-color: #1e3a8a;
+}
+
+/* Dark Theme Override (for existing dark tables) */
+.dark-theme .table-spreadsheet {
+  background-color: transparent;
+}
+
+.dark-theme .table-spreadsheet thead {
+  background-color: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dark-theme .table-spreadsheet thead th {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dark-theme .table-spreadsheet tbody tr {
+  background-color: transparent;
+}
+
+.dark-theme .table-spreadsheet tbody tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.dark-theme .table-spreadsheet tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark-theme .table-spreadsheet tbody tr.editing {
+  background-color: rgba(255, 243, 205, 0.3);
+}
+
+.dark-theme .table-spreadsheet td {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.dark-theme .table-spreadsheet input,
+.dark-theme .table-spreadsheet select,
+.dark-theme .table-spreadsheet textarea {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 4px;
+}
+
+/* Patient Database specific override - black text on white background */
+.dark-theme .table-spreadsheet input.patient-input-edit,
+.dark-theme .table-spreadsheet textarea.patient-input-edit,
+.dark-theme .table-spreadsheet select.patient-input-edit {
+  color: #000000 !important;
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid rgba(0, 0, 0, 0.2) !important;
+}
+
+.dark-theme .table-spreadsheet select.patient-input-edit option {
+  color: #000000 !important;
+  background-color: #ffffff !important;
+}
+
+.dark-theme .table-spreadsheet input::placeholder,
+.dark-theme .table-spreadsheet textarea::placeholder {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.dark-theme .table-spreadsheet input:focus,
+.dark-theme .table-spreadsheet select:focus,
+.dark-theme .table-spreadsheet textarea:focus {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  outline: none;
+}
+
+.dark-theme .table-spreadsheet input[type="date"],
+.dark-theme .table-spreadsheet input[type="time"] {
+  color: #ffffff !important;
+}
+
+.dark-theme .table-spreadsheet input[type="date"]::-webkit-calendar-picker-indicator,
+.dark-theme .table-spreadsheet input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
+
+.dark-theme .table-spreadsheet td.locked,
+.dark-theme .table-spreadsheet td:has(input:disabled),
+.dark-theme .table-spreadsheet td:has(select:disabled) {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Responsive Table Container */
+.table-container {
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+}
+
+.dark-theme .table-container {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Loading State */
+.table-spreadsheet tbody tr.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Empty State */
+.table-spreadsheet tbody tr.empty-row td {
+  text-align: center;
+  padding: 24px;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.dark-theme .table-spreadsheet tbody tr.empty-row td {
+  color: rgba(255, 255, 255, 0.5);
+}

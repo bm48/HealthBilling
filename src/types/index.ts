@@ -57,17 +57,34 @@ export interface Clinic {
   updated_at: string
 }
 
+export interface Provider {
+  id: string
+  clinic_id: string
+  first_name: string
+  last_name: string
+  specialty: string | null
+  npi: string | null
+  email: string | null
+  phone: string | null
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface Patient {
   id: string
   clinic_id: string
   patient_id: string
   first_name: string
   last_name: string
+  subscriber_id: string | null
+  insurance: string | null
+  copay: number | null
+  coinsurance: number | null
   date_of_birth: string | null
   phone: string | null
   email: string | null
   address: string | null
-  insurance: string | null
   created_at: string
   updated_at: string
 }
@@ -154,6 +171,7 @@ export interface TodoNote {
   note: string
   created_by: string
   created_at: string
+  note_type?: string // 'regular' | 'follow_up'
 }
 
 export interface Timecard {

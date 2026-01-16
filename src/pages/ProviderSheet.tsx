@@ -5,6 +5,7 @@ import { SheetRow, ProviderSheet as ProviderSheetType, BillingCode, Patient } fr
 import { useAuth } from '@/contexts/AuthContext'
 import ProviderSheetTable from '@/components/ProviderSheetTable'
 import { Calendar, Lock } from 'lucide-react'
+import { useDebouncedSave } from '@/lib/useDebouncedSave'
 
 export default function ProviderSheet() {
   const { providerId } = useParams()
@@ -18,25 +19,27 @@ export default function ProviderSheet() {
   const [showColumnsJ_M, setShowColumnsJ_M] = useState(true)
   const [month, setMonth] = useState(new Date().getMonth() + 1)
   const [year, setYear] = useState(new Date().getFullYear())
+  const [editingCell, setEditingCell] = useState<{ rowId: string; field: string } | null>(null)
 
   useEffect(() => {
-    // Use providerId from params, or current user's ID, or allow Super Admin to work without it
-    const effectiveProviderId = providerId || userProfile?.id
-    if (effectiveProviderId) {
+    // providerId from URL params is required - it must be a provider ID from the providers table
+    if (providerId) {
       fetchSheet()
       fetchBillingCodes()
       fetchPatients()
     } else if (!loading) {
       setLoading(false)
     }
-  }, [providerId, userProfile?.id, month, year])
+  }, [providerId, month, year])
 
   const fetchSheet = async () => {
-    const effectiveProviderId = providerId || userProfile?.id
-    if (!effectiveProviderId) {
+    // providerId must be provided and must be from the providers table, not users table
+    if (!providerId) {
       setLoading(false)
       return
     }
+    
+    const effectiveProviderId = providerId
 
     try {
       setLoading(true)
@@ -58,6 +61,26 @@ export default function ProviderSheet() {
         setSheet(data)
         setRows(Array.isArray(data.row_data) ? data.row_data : [])
       } else {
+        // Verify that the provider_id exists in the providers table before creating
+        const { data: provider, error: providerCheckError } = await supabase
+          .from('providers')
+          .select('id')
+          .eq('id', effectiveProviderId)
+          .maybeSingle()
+
+        if (providerCheckError && providerCheckError.code !== 'PGRST116') {
+          console.error('Error checking provider:', providerCheckError)
+          setLoading(false)
+          return
+        }
+
+        if (!provider) {
+          console.error(`Provider ID ${effectiveProviderId} does not exist in providers table`)
+          alert(`Error: The provider ID does not exist in the providers table. Please ensure the provider exists before creating a sheet.`)
+          setLoading(false)
+          return
+        }
+
         // For Super Admin, we need to get a clinic_id first
         let clinicId = userProfile?.clinic_ids[0]
         
@@ -95,6 +118,11 @@ export default function ProviderSheet() {
 
           if (createError) {
             console.error('Error creating sheet:', createError)
+            if (createError.code === '23503') {
+              alert(`Error: The provider ID does not exist in the providers table. Please ensure the provider exists before creating a sheet.`)
+            } else {
+              alert(`Error creating sheet: ${createError.message}`)
+            }
             setLoading(false)
             return
           }
@@ -102,6 +130,7 @@ export default function ProviderSheet() {
           setRows([])
         } else {
           console.error('No clinic ID available to create sheet')
+          alert('Error: No clinic ID available to create sheet. Please ensure you are assigned to a clinic.')
         }
       }
     } catch (error) {
@@ -147,7 +176,7 @@ export default function ProviderSheet() {
     }
   }
 
-  const saveSheet = useCallback(async () => {
+  const saveSheet = useCallback(async (dataToSave: SheetRow[]) => {
     if (!sheet) return
 
     try {
@@ -155,7 +184,7 @@ export default function ProviderSheet() {
       const { error } = await supabase
         .from('provider_sheets')
         .update({
-          row_data: rows,
+          row_data: dataToSave,
           updated_at: new Date().toISOString(),
         })
         .eq('id', sheet.id)
@@ -163,11 +192,14 @@ export default function ProviderSheet() {
       if (error) throw error
     } catch (error) {
       console.error('Error saving sheet:', error)
-      alert('Failed to save changes. Please try again.')
+      // Don't show alert for auto-save failures, just log
     } finally {
       setSaving(false)
     }
-  }, [sheet, rows])
+  }, [sheet])
+
+  // Use debounced auto-save hook - only save when not editing
+  const { saveImmediately } = useDebouncedSave<SheetRow[]>(saveSheet, rows, 1000, editingCell !== null)
 
   const handleUpdateRow = useCallback((rowId: string, field: string, value: any) => {
     setRows(prevRows => {
@@ -177,11 +209,10 @@ export default function ProviderSheet() {
         }
         return row
       })
-      // Auto-save after a short delay
-      setTimeout(() => saveSheet(), 1000)
+      // Auto-save is handled by useDebouncedSave hook
       return updated
     })
-  }, [saveSheet])
+  }, [])
 
   const handleAddRow = useCallback(() => {
     const newRow: SheetRow = {
@@ -214,15 +245,15 @@ export default function ProviderSheet() {
       updated_at: new Date().toISOString(),
     }
     setRows(prev => [...prev, newRow])
-    setTimeout(() => saveSheet(), 500)
-  }, [saveSheet])
+    // Auto-save is handled by useDebouncedSave hook
+  }, [])
 
   const handleDeleteRow = useCallback((rowId: string) => {
     if (confirm('Are you sure you want to delete this row?')) {
       setRows(prev => prev.filter(row => row.id !== rowId))
-      setTimeout(() => saveSheet(), 500)
+      // Auto-save is handled by useDebouncedSave hook
     }
-  }, [saveSheet])
+  }, [])
 
   const effectiveProviderId = providerId || userProfile?.id
   const isOwnSheet = userProfile?.id === effectiveProviderId
@@ -298,6 +329,8 @@ export default function ProviderSheet() {
           patients={patients}
           showColumnsJ_M={showColumnsJ_M}
           onToggleColumnsJ_M={() => setShowColumnsJ_M(!showColumnsJ_M)}
+          onBlur={saveImmediately}
+          onEditingChange={setEditingCell}
         />
       </div>
     </div>

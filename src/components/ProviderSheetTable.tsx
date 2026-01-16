@@ -17,6 +17,8 @@ interface ProviderSheetTableProps {
   patients: Patient[]
   showColumnsJ_M: boolean
   onToggleColumnsJ_M: () => void
+  onBlur?: () => void // Optional callback for immediate save on blur
+  onEditingChange?: (editing: { rowId: string; field: string } | null) => void // Callback to track editing state
 }
 
 const COLUMN_DEFINITIONS = {
@@ -94,30 +96,57 @@ export default function ProviderSheetTable({
   patients,
   showColumnsJ_M,
   onToggleColumnsJ_M,
+  onBlur,
+  onEditingChange,
 }: ProviderSheetTableProps) {
   const permissions = getColumnPermissions(role, isOwnSheet, lockedColumns)
   const visibleColumns = Object.keys(COLUMN_DEFINITIONS).filter(col => 
     permissions[col]?.visible !== false
   )
 
+  const handleFocus = (rowId: string, field: string) => {
+    if (onEditingChange) {
+      onEditingChange({ rowId, field })
+    }
+  }
+
+  const handleBlur = (rowId: string, field: string) => {
+    if (onEditingChange) {
+      onEditingChange(null)
+    }
+    if (onBlur) {
+      onBlur()
+    }
+  }
+
   const renderCell = (row: SheetRow, column: string) => {
     const perm = permissions[column]
     if (!perm?.visible) return null
 
     const isEditable = perm.editable
+    const isLocked = lockedColumns.includes(column)
 
     switch (column) {
       case 'A': // Patient ID
         return (
           <select
             value={row.patient_id || ''}
-            onChange={(e) => onUpdateRow(row.id, 'patient_id', e.target.value || null)}
+            onChange={(e) => {
+              onUpdateRow(row.id, 'patient_id', e.target.value || null)
+              // Lookup patient data and populate other fields
+              const patient = patients.find(p => p.patient_id === e.target.value)
+              if (patient) {
+                // Auto-populate patient data (if needed, can be handled in parent)
+              }
+            }}
+            onFocus={() => handleFocus(row.id, 'patient_id')}
+            onBlur={() => handleBlur(row.id, 'patient_id')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
           >
-            <option value="" className="bg-slate-900">Select...</option>
+            <option value="">Select...</option>
             {patients.map(p => (
-              <option key={p.id} value={p.patient_id} className="bg-slate-900">
+              <option key={p.id} value={p.patient_id}>
                 {p.patient_id} - {p.first_name} {p.last_name}
               </option>
             ))}
@@ -130,8 +159,10 @@ export default function ProviderSheetTable({
             type="date"
             value={row.appointment_date || ''}
             onChange={(e) => onUpdateRow(row.id, 'appointment_date', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'appointment_date')}
+            onBlur={() => handleBlur(row.id, 'appointment_date')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
           />
         )
 
@@ -141,8 +172,10 @@ export default function ProviderSheetTable({
             type="time"
             value={row.appointment_time || ''}
             onChange={(e) => onUpdateRow(row.id, 'appointment_time', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'appointment_time')}
+            onBlur={() => handleBlur(row.id, 'appointment_time')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
           />
         )
 
@@ -152,8 +185,10 @@ export default function ProviderSheetTable({
             type="text"
             value={row.visit_type || ''}
             onChange={(e) => onUpdateRow(row.id, 'visit_type', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'visit_type')}
+            onBlur={() => handleBlur(row.id, 'visit_type')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
             placeholder="Visit type"
           />
         )
@@ -164,8 +199,10 @@ export default function ProviderSheetTable({
             type="text"
             value={row.notes || ''}
             onChange={(e) => onUpdateRow(row.id, 'notes', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'notes')}
+            onBlur={() => handleBlur(row.id, 'notes')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
             placeholder="Notes"
           />
         )
@@ -179,13 +216,15 @@ export default function ProviderSheetTable({
               onUpdateRow(row.id, 'billing_code', e.target.value || null)
               onUpdateRow(row.id, 'billing_code_color', code?.color || null)
             }}
+            onFocus={() => handleFocus(row.id, 'billing_code')}
+            onBlur={() => handleBlur(row.id, 'billing_code')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
             style={{ backgroundColor: row.billing_code_color || undefined }}
           >
-            <option value="" className="bg-slate-900">Select...</option>
+            <option value="">Select...</option>
             {billingCodes.map(code => (
-              <option key={code.id} value={code.code} className="bg-slate-900">
+              <option key={code.id} value={code.code}>
                 {code.code} - {code.description}
               </option>
             ))}
@@ -197,12 +236,14 @@ export default function ProviderSheetTable({
           <select
             value={row.appointment_status || ''}
             onChange={(e) => onUpdateRow(row.id, 'appointment_status', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'appointment_status')}
+            onBlur={() => handleBlur(row.id, 'appointment_status')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
           >
-            <option value="" className="bg-slate-900">Select...</option>
+            <option value="">Select...</option>
             {APPOINTMENT_STATUSES.map(status => (
-              <option key={status} value={status} className="bg-slate-900">{status}</option>
+              <option key={status} value={status}>{status}</option>
             ))}
           </select>
         )
@@ -212,12 +253,14 @@ export default function ProviderSheetTable({
           <select
             value={row.claim_status || ''}
             onChange={(e) => onUpdateRow(row.id, 'claim_status', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'claim_status')}
+            onBlur={() => handleBlur(row.id, 'claim_status')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
           >
-            <option value="" className="bg-slate-900">Select...</option>
+            <option value="">Select...</option>
             {CLAIM_STATUSES.map(status => (
-              <option key={status} value={status} className="bg-slate-900">{status}</option>
+              <option key={status} value={status}>{status}</option>
             ))}
           </select>
         )
@@ -228,8 +271,10 @@ export default function ProviderSheetTable({
             type="date"
             value={row.submit_date || ''}
             onChange={(e) => onUpdateRow(row.id, 'submit_date', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'submit_date')}
+            onBlur={() => handleBlur(row.id, 'submit_date')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
           />
         )
 
@@ -240,8 +285,10 @@ export default function ProviderSheetTable({
             step="0.01"
             value={row.insurance_payment || ''}
             onChange={(e) => onUpdateRow(row.id, 'insurance_payment', e.target.value ? parseFloat(e.target.value) : null)}
+            onFocus={() => handleFocus(row.id, 'insurance_payment')}
+            onBlur={() => handleBlur(row.id, 'insurance_payment')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
+            className={`currency ${isLocked ? 'locked' : ''}`}
           />
         )
 
@@ -252,8 +299,10 @@ export default function ProviderSheetTable({
             step="0.01"
             value={row.insurance_adjustment || ''}
             onChange={(e) => onUpdateRow(row.id, 'insurance_adjustment', e.target.value ? parseFloat(e.target.value) : null)}
+            onFocus={() => handleFocus(row.id, 'insurance_adjustment')}
+            onBlur={() => handleBlur(row.id, 'insurance_adjustment')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
+            className={`currency ${isLocked ? 'locked' : ''}`}
           />
         )
 
@@ -264,8 +313,10 @@ export default function ProviderSheetTable({
             step="0.01"
             value={row.invoice_amount || ''}
             onChange={(e) => onUpdateRow(row.id, 'invoice_amount', e.target.value ? parseFloat(e.target.value) : null)}
+            onFocus={() => handleFocus(row.id, 'invoice_amount')}
+            onBlur={() => handleBlur(row.id, 'invoice_amount')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
+            className={`currency ${isLocked ? 'locked' : ''}`}
           />
         )
 
@@ -276,8 +327,10 @@ export default function ProviderSheetTable({
             step="0.01"
             value={row.collected_from_patient || ''}
             onChange={(e) => onUpdateRow(row.id, 'collected_from_patient', e.target.value ? parseFloat(e.target.value) : null)}
+            onFocus={() => handleFocus(row.id, 'collected_from_patient')}
+            onBlur={() => handleBlur(row.id, 'collected_from_patient')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
+            className={`currency ${isLocked ? 'locked' : ''}`}
           />
         )
 
@@ -286,12 +339,14 @@ export default function ProviderSheetTable({
           <select
             value={row.patient_pay_status || ''}
             onChange={(e) => onUpdateRow(row.id, 'patient_pay_status', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'patient_pay_status')}
+            onBlur={() => handleBlur(row.id, 'patient_pay_status')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
           >
-            <option value="" className="bg-slate-900">Select...</option>
+            <option value="">Select...</option>
             {PATIENT_PAY_STATUSES.map(status => (
-              <option key={status} value={status} className="bg-slate-900">{status}</option>
+              <option key={status} value={status}>{status}</option>
             ))}
           </select>
         )
@@ -302,8 +357,10 @@ export default function ProviderSheetTable({
             type="date"
             value={row.payment_date || ''}
             onChange={(e) => onUpdateRow(row.id, 'payment_date', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'payment_date')}
+            onBlur={() => handleBlur(row.id, 'payment_date')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
           />
         )
 
@@ -312,12 +369,14 @@ export default function ProviderSheetTable({
           <select
             value={row.ar_type || ''}
             onChange={(e) => onUpdateRow(row.id, 'ar_type', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'ar_type')}
+            onBlur={() => handleBlur(row.id, 'ar_type')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
           >
-            <option value="" className="bg-slate-900">Select...</option>
+            <option value="">Select...</option>
             {AR_TYPES.map(type => (
-              <option key={type} value={type} className="bg-slate-900">{type}</option>
+              <option key={type} value={type}>{type}</option>
             ))}
           </select>
         )
@@ -329,8 +388,10 @@ export default function ProviderSheetTable({
             step="0.01"
             value={row.ar_amount || ''}
             onChange={(e) => onUpdateRow(row.id, 'ar_amount', e.target.value ? parseFloat(e.target.value) : null)}
+            onFocus={() => handleFocus(row.id, 'ar_amount')}
+            onBlur={() => handleBlur(row.id, 'ar_amount')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
+            className={`currency ${isLocked ? 'locked' : ''}`}
           />
         )
 
@@ -340,8 +401,10 @@ export default function ProviderSheetTable({
             type="text"
             value={row.ar_notes || ''}
             onChange={(e) => onUpdateRow(row.id, 'ar_notes', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'ar_notes')}
+            onBlur={() => handleBlur(row.id, 'ar_notes')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
             placeholder="AR notes"
           />
         )
@@ -353,8 +416,10 @@ export default function ProviderSheetTable({
             step="0.01"
             value={row.provider_payment_amount || ''}
             onChange={(e) => onUpdateRow(row.id, 'provider_payment_amount', e.target.value ? parseFloat(e.target.value) : null)}
+            onFocus={() => handleFocus(row.id, 'provider_payment_amount')}
+            onBlur={() => handleBlur(row.id, 'provider_payment_amount')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50 text-right"
+            className={`currency ${isLocked ? 'locked' : ''}`}
           />
         )
 
@@ -364,8 +429,10 @@ export default function ProviderSheetTable({
             type="date"
             value={row.provider_payment_date || ''}
             onChange={(e) => onUpdateRow(row.id, 'provider_payment_date', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'provider_payment_date')}
+            onBlur={() => handleBlur(row.id, 'provider_payment_date')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
           />
         )
 
@@ -375,8 +442,10 @@ export default function ProviderSheetTable({
             type="text"
             value={row.provider_payment_notes || ''}
             onChange={(e) => onUpdateRow(row.id, 'provider_payment_notes', e.target.value || null)}
+            onFocus={() => handleFocus(row.id, 'provider_payment_notes')}
+            onBlur={() => handleBlur(row.id, 'provider_payment_notes')}
             disabled={!isEditable}
-            className="w-full px-2 py-1 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded text-sm disabled:bg-white/5 disabled:opacity-50"
+            className={isLocked ? 'locked' : ''}
             placeholder="Payment notes"
           />
         )
@@ -387,7 +456,7 @@ export default function ProviderSheetTable({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="table-container dark-theme">
       <div className="mb-4 flex items-center justify-between">
         <button
           onClick={onToggleColumnsJ_M}
@@ -405,62 +474,63 @@ export default function ProviderSheetTable({
         </button>
       </div>
 
-      <table className="min-w-full border-collapse border border-white/20">
+      <table className="table-spreadsheet dark-theme">
         <thead>
-          <tr className="bg-white/10 backdrop-blur-sm">
-            <th className="border border-white/20 px-2 py-2 text-left text-xs font-semibold text-white w-12">
-              #
-            </th>
+          <tr>
+            <th style={{ width: '48px' }}>#</th>
             {visibleColumns.map(col => {
               if (!showColumnsJ_M && ['J', 'K', 'L', 'M'].includes(col)) return null
               const def = COLUMN_DEFINITIONS[col as keyof typeof COLUMN_DEFINITIONS]
               if (!def) return null
               return (
-                <th
-                  key={col}
-                  className={`border border-white/20 px-2 py-2 text-left text-xs font-semibold text-white ${def.width}`}
-                >
+                <th key={col} style={{ minWidth: def.width.replace('w-', '').replace('px', '') + 'px' }}>
                   {def.label || col}
                 </th>
               )
             })}
-            <th className="border border-white/20 px-2 py-2 text-left text-xs font-semibold text-white w-12">
-              Actions
-            </th>
+            <th style={{ width: '48px' }}>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => (
-            <tr
-              key={row.id}
-              className="hover:bg-white/5"
-              style={{ backgroundColor: row.highlight_color ? `${row.highlight_color}40` : undefined }}
-            >
-              <td className="border border-white/20 px-2 py-1 text-sm text-center text-white/70">
-                {index + 1}
-              </td>
-              {visibleColumns.map(col => {
-                if (!showColumnsJ_M && ['J', 'K', 'L', 'M'].includes(col)) return null
-                return (
-                  <td key={col} className="border border-white/20 px-1 py-1">
-                    {renderCell(row, col)}
-                  </td>
-                )
-              })}
-              <td className="border border-white/20 px-2 py-1">
-                <button
-                  onClick={() => onDeleteRow(row.id)}
-                  className="text-red-400 hover:text-red-300"
-                  disabled={!permissions['A']?.editable}
-                >
-                  <Trash2 size={16} />
-                </button>
-              </td>
-            </tr>
-          ))}
+          {rows.map((row, index) => {
+            const isLockedRow = lockedColumns.length > 0
+            return (
+              <tr
+                key={row.id}
+                style={{ backgroundColor: row.highlight_color ? `${row.highlight_color}40` : undefined }}
+              >
+                <td style={{ textAlign: 'center', fontWeight: 500 }}>
+                  {index + 1}
+                </td>
+                {visibleColumns.map(col => {
+                  if (!showColumnsJ_M && ['J', 'K', 'L', 'M'].includes(col)) return null
+                  const isLocked = lockedColumns.includes(col)
+                  return (
+                    <td 
+                      key={col} 
+                      className={isLocked ? 'locked' : ''}
+                      style={{ backgroundColor: row.highlight_color && !isLocked ? `${row.highlight_color}20` : undefined }}
+                    >
+                      {renderCell(row, col)}
+                    </td>
+                  )
+                })}
+                <td>
+                  <button
+                    onClick={() => onDeleteRow(row.id)}
+                    className="text-red-400 hover:text-red-300"
+                    disabled={!permissions['A']?.editable}
+                    style={{ padding: '4px' }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
           {rows.length === 0 && (
-            <tr>
-              <td colSpan={visibleColumns.length + 2} className="text-center py-8 text-white/50">
+            <tr className="empty-row">
+              <td colSpan={visibleColumns.length + 2}>
                 No rows yet. Click "Add Row" to get started.
               </td>
             </tr>

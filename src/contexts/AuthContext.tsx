@@ -56,10 +56,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .from('users')
         .select('*')
         .eq('id', userId)
-        .single()
+        .maybeSingle()
 
-      if (error) throw error
-      setUserProfile(data)
+      if (error && error.code !== 'PGRST116') {
+        throw error
+      }
+      setUserProfile(data || null)
     } catch (error) {
       console.error('Error fetching user profile:', error)
     } finally {

@@ -41,11 +41,14 @@ CREATE TABLE IF NOT EXISTS patients (
   patient_id TEXT NOT NULL,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
+  subscriber_id TEXT,
+  insurance TEXT,
+  copay NUMERIC(10, 2),
+  coinsurance NUMERIC(5, 2),
   date_of_birth DATE,
   phone TEXT,
   email TEXT,
   address TEXT,
-  insurance TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(clinic_id, patient_id)
@@ -61,11 +64,26 @@ CREATE TABLE IF NOT EXISTS billing_codes (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Providers table
+CREATE TABLE IF NOT EXISTS providers (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  clinic_id UUID NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  specialty TEXT,
+  npi TEXT,
+  email TEXT,
+  phone TEXT,
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Provider sheets table
 CREATE TABLE IF NOT EXISTS provider_sheets (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   clinic_id UUID NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
-  provider_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
   month INTEGER NOT NULL CHECK (month >= 1 AND month <= 12),
   year INTEGER NOT NULL,
   row_data JSONB DEFAULT '[]'::jsonb,
@@ -130,6 +148,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_users_clinic_ids ON users USING GIN(clinic_ids);
 CREATE INDEX IF NOT EXISTS idx_patients_clinic_id ON patients(clinic_id);
 CREATE INDEX IF NOT EXISTS idx_patients_patient_id ON patients(clinic_id, patient_id);
+CREATE INDEX IF NOT EXISTS idx_providers_clinic_id ON providers(clinic_id);
+CREATE INDEX IF NOT EXISTS idx_providers_active ON providers(clinic_id, active);
 CREATE INDEX IF NOT EXISTS idx_provider_sheets_clinic_provider ON provider_sheets(clinic_id, provider_id);
 CREATE INDEX IF NOT EXISTS idx_provider_sheets_month_year ON provider_sheets(year, month);
 CREATE INDEX IF NOT EXISTS idx_todo_items_clinic ON todo_items(clinic_id);
@@ -162,6 +182,26 @@ $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 -- Grant execute permission to authenticated users
 GRANT EXECUTE ON FUNCTION is_super_admin() TO authenticated;
 
+-- Function to check if a user exists in the users table (bypasses RLS)
+-- This function uses SECURITY DEFINER to bypass RLS when checking the users table
+CREATE OR REPLACE FUNCTION user_exists(user_id UUID)
+RETURNS BOOLEAN AS $$
+DECLARE
+  user_count INTEGER;
+BEGIN
+  -- SECURITY DEFINER allows this function to bypass RLS
+  -- We query the users table directly without RLS restrictions
+  SELECT COUNT(*) INTO user_count
+  FROM users
+  WHERE id = user_id;
+  
+  RETURN user_count > 0;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Grant execute permission to authenticated users
+GRANT EXECUTE ON FUNCTION user_exists(UUID) TO authenticated;
+
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -176,6 +216,7 @@ DROP TRIGGER IF EXISTS update_clinics_updated_at ON clinics;
 DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 DROP TRIGGER IF EXISTS update_patients_updated_at ON patients;
 DROP TRIGGER IF EXISTS update_billing_codes_updated_at ON billing_codes;
+DROP TRIGGER IF EXISTS update_providers_updated_at ON providers;
 DROP TRIGGER IF EXISTS update_provider_sheets_updated_at ON provider_sheets;
 DROP TRIGGER IF EXISTS update_todo_items_updated_at ON todo_items;
 DROP TRIGGER IF EXISTS update_timecards_updated_at ON timecards;
@@ -191,6 +232,9 @@ CREATE TRIGGER update_patients_updated_at BEFORE UPDATE ON patients
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_billing_codes_updated_at BEFORE UPDATE ON billing_codes
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_providers_updated_at BEFORE UPDATE ON providers
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_provider_sheets_updated_at BEFORE UPDATE ON provider_sheets
@@ -249,6 +293,7 @@ ALTER TABLE clinics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE patients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE billing_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE provider_sheets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE todo_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE todo_notes ENABLE ROW LEVEL SECURITY;
@@ -262,10 +307,26 @@ DROP POLICY IF EXISTS "Users can view their own profile" ON users;
 DROP POLICY IF EXISTS "Super admins can view all users" ON users;
 DROP POLICY IF EXISTS "Users can view patients in their clinics" ON patients;
 DROP POLICY IF EXISTS "Office staff and billing staff can insert patients" ON patients;
+DROP POLICY IF EXISTS "Office staff and billing staff can update patients" ON patients;
+DROP POLICY IF EXISTS "Office staff and billing staff can delete patients" ON patients;
 DROP POLICY IF EXISTS "Everyone can view billing codes" ON billing_codes;
 DROP POLICY IF EXISTS "Super admins can manage billing codes" ON billing_codes;
+DROP POLICY IF EXISTS "Users can view providers in their clinics" ON providers;
+DROP POLICY IF EXISTS "Super admins can manage providers" ON providers;
+DROP POLICY IF EXISTS "Admins can manage providers in their clinics" ON providers;
 DROP POLICY IF EXISTS "Users can view sheets for their clinics" ON provider_sheets;
+DROP POLICY IF EXISTS "Users can insert sheets for their clinics" ON provider_sheets;
+DROP POLICY IF EXISTS "Users can update sheets for their clinics" ON provider_sheets;
+DROP POLICY IF EXISTS "Users can delete sheets for their clinics" ON provider_sheets;
 DROP POLICY IF EXISTS "Billing staff can view todos for their clinics" ON todo_items;
+DROP POLICY IF EXISTS "Super admins can view all todos" ON todo_items;
+DROP POLICY IF EXISTS "Billing staff can insert todos for their clinics" ON todo_items;
+DROP POLICY IF EXISTS "Billing staff can update todos for their clinics" ON todo_items;
+DROP POLICY IF EXISTS "Billing staff can delete todos for their clinics" ON todo_items;
+DROP POLICY IF EXISTS "Users can view notes for todos in their clinics" ON todo_notes;
+DROP POLICY IF EXISTS "Users can insert notes for todos in their clinics" ON todo_notes;
+DROP POLICY IF EXISTS "Users can update notes for todos in their clinics" ON todo_notes;
+DROP POLICY IF EXISTS "Users can delete notes for todos in their clinics" ON todo_notes;
 DROP POLICY IF EXISTS "Users can view their own timecards" ON timecards;
 DROP POLICY IF EXISTS "Users can insert their own timecards" ON timecards;
 DROP POLICY IF EXISTS "Users can update their own timecards" ON timecards;
@@ -299,11 +360,43 @@ CREATE POLICY "Users can view patients in their clinics" ON patients
 
 CREATE POLICY "Office staff and billing staff can insert patients" ON patients
   FOR INSERT WITH CHECK (
-    clinic_id = ANY(
-      SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
-    ) AND EXISTS (
-      SELECT 1 FROM users
-      WHERE users.id = auth.uid() AND users.role IN ('office_staff', 'billing_staff', 'admin', 'super_admin')
+    (
+      is_super_admin()
+    ) OR (
+      clinic_id = ANY(
+        SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+      ) AND EXISTS (
+        SELECT 1 FROM users
+        WHERE users.id = auth.uid() AND users.role IN ('office_staff', 'billing_staff', 'admin', 'super_admin')
+      )
+    )
+  );
+
+CREATE POLICY "Office staff and billing staff can update patients" ON patients
+  FOR UPDATE USING (
+    (
+      is_super_admin()
+    ) OR (
+      clinic_id = ANY(
+        SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+      ) AND EXISTS (
+        SELECT 1 FROM users
+        WHERE users.id = auth.uid() AND users.role IN ('office_staff', 'billing_staff', 'admin', 'super_admin')
+      )
+    )
+  );
+
+CREATE POLICY "Office staff and billing staff can delete patients" ON patients
+  FOR DELETE USING (
+    (
+      is_super_admin()
+    ) OR (
+      clinic_id = ANY(
+        SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+      ) AND EXISTS (
+        SELECT 1 FROM users
+        WHERE users.id = auth.uid() AND users.role IN ('office_staff', 'billing_staff', 'admin', 'super_admin')
+      )
     )
   );
 
@@ -314,15 +407,81 @@ CREATE POLICY "Everyone can view billing codes" ON billing_codes
 CREATE POLICY "Super admins can manage billing codes" ON billing_codes
   FOR ALL USING (is_super_admin());
 
+-- RLS Policies for providers
+CREATE POLICY "Users can view providers in their clinics" ON providers
+  FOR SELECT USING (
+    clinic_id = ANY(
+      SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+    ) OR is_super_admin()
+  );
+
+CREATE POLICY "Super admins can manage providers" ON providers
+  FOR ALL USING (is_super_admin());
+
+CREATE POLICY "Admins can manage providers in their clinics" ON providers
+  FOR ALL USING (
+    clinic_id = ANY(
+      SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+    ) AND EXISTS (
+      SELECT 1 FROM users
+      WHERE users.id = auth.uid() AND users.role IN ('admin', 'super_admin')
+    )
+  );
+
 -- RLS Policies for provider sheets
 CREATE POLICY "Users can view sheets for their clinics" ON provider_sheets
   FOR SELECT USING (
     clinic_id = ANY(
       SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
-    ) OR provider_id = auth.uid() OR is_super_admin()
+    ) OR is_super_admin()
+  );
+
+CREATE POLICY "Users can insert sheets for their clinics" ON provider_sheets
+  FOR INSERT WITH CHECK (
+    (
+      is_super_admin()
+    ) OR (
+      clinic_id = ANY(
+        SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+      ) AND EXISTS (
+        SELECT 1 FROM users
+        WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin', 'provider', 'office_staff')
+      )
+    )
+  );
+
+CREATE POLICY "Users can update sheets for their clinics" ON provider_sheets
+  FOR UPDATE USING (
+    (
+      is_super_admin()
+    ) OR (
+      clinic_id = ANY(
+        SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+      ) AND EXISTS (
+        SELECT 1 FROM users
+        WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin', 'provider', 'office_staff')
+      )
+    )
+  );
+
+CREATE POLICY "Users can delete sheets for their clinics" ON provider_sheets
+  FOR DELETE USING (
+    (
+      is_super_admin()
+    ) OR (
+      clinic_id = ANY(
+        SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+      ) AND EXISTS (
+        SELECT 1 FROM users
+        WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin')
+      )
+    )
   );
 
 -- RLS Policies for todo items
+CREATE POLICY "Super admins can view all todos" ON todo_items
+  FOR SELECT USING (is_super_admin());
+
 CREATE POLICY "Billing staff can view todos for their clinics" ON todo_items
   FOR SELECT USING (
     clinic_id = ANY(
@@ -330,6 +489,136 @@ CREATE POLICY "Billing staff can view todos for their clinics" ON todo_items
     ) AND EXISTS (
       SELECT 1 FROM users
       WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin')
+    )
+  );
+
+CREATE POLICY "Billing staff can insert todos for their clinics" ON todo_items
+  FOR INSERT WITH CHECK (
+    (
+      is_super_admin()
+    ) OR (
+      clinic_id = ANY(
+        SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+      ) AND EXISTS (
+        SELECT 1 FROM users
+        WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin')
+      ) AND created_by = auth.uid()
+    )
+  );
+
+CREATE POLICY "Billing staff can update todos for their clinics" ON todo_items
+  FOR UPDATE USING (
+    (
+      is_super_admin()
+    ) OR (
+      clinic_id = ANY(
+        SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+      ) AND EXISTS (
+        SELECT 1 FROM users
+        WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin')
+      )
+    )
+  );
+
+CREATE POLICY "Billing staff can delete todos for their clinics" ON todo_items
+  FOR DELETE USING (
+    (
+      is_super_admin()
+    ) OR (
+      clinic_id = ANY(
+        SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+      ) AND EXISTS (
+        SELECT 1 FROM users
+        WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin')
+      )
+    )
+  );
+
+-- RLS Policies for todo notes
+CREATE POLICY "Users can view notes for todos in their clinics" ON todo_notes
+  FOR SELECT USING (
+    (
+      is_super_admin()
+    ) OR (
+      EXISTS (
+        SELECT 1 FROM todo_items
+        WHERE todo_items.id = todo_notes.todo_id
+        AND (
+          todo_items.clinic_id = ANY(
+            SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+          )
+        )
+        AND EXISTS (
+          SELECT 1 FROM users
+          WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin', 'view_only_billing', 'view_only_admin')
+        )
+      )
+    )
+  );
+
+CREATE POLICY "Users can insert notes for todos in their clinics" ON todo_notes
+  FOR INSERT WITH CHECK (
+    (
+      is_super_admin()
+    ) OR (
+      todo_notes.created_by = auth.uid()
+      AND EXISTS (
+        SELECT 1 FROM todo_items
+        WHERE todo_items.id = todo_notes.todo_id
+        AND (
+          todo_items.clinic_id = ANY(
+            SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+          )
+        )
+        AND EXISTS (
+          SELECT 1 FROM users
+          WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin')
+        )
+      )
+    )
+  );
+
+CREATE POLICY "Users can update notes for todos in their clinics" ON todo_notes
+  FOR UPDATE USING (
+    (
+      is_super_admin()
+    ) OR (
+      created_by = auth.uid()
+      AND EXISTS (
+        SELECT 1 FROM todo_items
+        WHERE todo_items.id = todo_notes.todo_id
+        AND (
+          todo_items.clinic_id = ANY(
+            SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+          )
+        )
+        AND EXISTS (
+          SELECT 1 FROM users
+          WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin')
+        )
+      )
+    )
+  );
+
+CREATE POLICY "Users can delete notes for todos in their clinics" ON todo_notes
+  FOR DELETE USING (
+    (
+      is_super_admin()
+    ) OR (
+      created_by = auth.uid()
+      AND EXISTS (
+        SELECT 1 FROM todo_items
+        WHERE todo_items.id = todo_notes.todo_id
+        AND (
+          todo_items.clinic_id = ANY(
+            SELECT unnest(clinic_ids) FROM users WHERE id = auth.uid()
+          )
+        )
+        AND EXISTS (
+          SELECT 1 FROM users
+          WHERE users.id = auth.uid() AND users.role IN ('billing_staff', 'admin', 'super_admin')
+        )
+      )
     )
   );
 

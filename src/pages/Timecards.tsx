@@ -243,36 +243,38 @@ export default function Timecards() {
         <div className="p-4 border-b border-white/20">
           <h2 className="font-semibold text-white">Recent Timecards</h2>
         </div>
-        <table className="min-w-full divide-y divide-white/10">
-          <thead className="bg-white/10 backdrop-blur-sm">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase">Date</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase">Clock In</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase">Clock Out</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase">Hours</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-white uppercase">Notes</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/10">
-            {timecards.map((timecard) => (
-              <tr key={timecard.id} className="hover:bg-white/5">
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                  {new Date(timecard.clock_in).toLocaleDateString()}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-white/70">
-                  {new Date(timecard.clock_in).toLocaleTimeString()}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-white/70">
-                  {timecard.clock_out ? new Date(timecard.clock_out).toLocaleTimeString() : '-'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                  {timecard.hours ? timecard.hours.toFixed(2) : '-'}
-                </td>
-                <td className="px-6 py-4 text-sm text-white/70">{timecard.notes || '-'}</td>
+        <div className="table-container dark-theme">
+          <table className="table-spreadsheet dark-theme">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Clock In</th>
+                <th>Clock Out</th>
+                <th>Hours</th>
+                <th>Notes</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {timecards.map((timecard) => (
+                <tr key={timecard.id}>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {new Date(timecard.clock_in).toLocaleDateString()}
+                  </td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {new Date(timecard.clock_in).toLocaleTimeString()}
+                  </td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {timecard.clock_out ? new Date(timecard.clock_out).toLocaleTimeString() : '-'}
+                  </td>
+                  <td style={{ fontWeight: 500 }}>
+                    {timecard.hours ? timecard.hours.toFixed(2) : '-'}
+                  </td>
+                  <td>{timecard.notes || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {showModal && (

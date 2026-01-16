@@ -1,19 +1,89 @@
 import { useAuth } from '@/contexts/AuthContext'
-import { FileText, Users, CheckSquare, BarChart3, Clock } from 'lucide-react'
+import { FileText, Users, CheckSquare, BarChart3, Clock, Building2, DollarSign, AlertCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Clinic } from '@/types'
 
+interface DashboardStats {
+  totalClinics: number
+  totalPatients: number
+  totalUsers: number
+  totalTodos: number
+  totalProviderSheets: number
+  totalTodosOpen: number
+  totalTodosCompleted: number
+}
+
 export default function Dashboard() {
   const { userProfile } = useAuth()
   const [clinics, setClinics] = useState<Clinic[]>([])
+  const [stats, setStats] = useState<DashboardStats>({
+    totalClinics: 0,
+    totalPatients: 0,
+    totalUsers: 0,
+    totalTodos: 0,
+    totalProviderSheets: 0,
+    totalTodosOpen: 0,
+    totalTodosCompleted: 0,
+  })
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (userProfile) {
-      fetchClinics()
+      if (userProfile.role === 'super_admin') {
+        fetchSuperAdminDashboard()
+      } else {
+        fetchClinics()
+        setLoading(false)
+      }
     }
   }, [userProfile])
+
+  const fetchSuperAdminDashboard = async () => {
+    if (!userProfile) return
+
+    try {
+      setLoading(true)
+      
+      // Fetch all data in parallel
+      const [clinicsData, patientsData, usersData, todosData, sheetsData] = await Promise.all([
+        supabase.from('clinics').select('id', { count: 'exact', head: true }),
+        supabase.from('patients').select('id', { count: 'exact', head: true }),
+        supabase.from('users').select('id', { count: 'exact', head: true }),
+        supabase.from('todo_items').select('id, completed_at', { count: 'exact' }),
+        supabase.from('provider_sheets').select('id', { count: 'exact', head: true }),
+      ])
+
+      // Fetch clinics list
+      const { data: clinicsList, error: clinicsError } = await supabase
+        .from('clinics')
+        .select('*')
+        .order('name')
+
+      if (clinicsError) throw clinicsError
+      setClinics(clinicsList || [])
+
+      // Calculate stats
+      const todos = todosData.data || []
+      const openTodos = todos.filter(t => !t.completed_at)
+      const completedTodos = todos.filter(t => t.completed_at)
+
+      setStats({
+        totalClinics: clinicsData.count || 0,
+        totalPatients: patientsData.count || 0,
+        totalUsers: usersData.count || 0,
+        totalTodos: todos.length,
+        totalProviderSheets: sheetsData.count || 0,
+        totalTodosOpen: openTodos.length,
+        totalTodosCompleted: completedTodos.length,
+      })
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const fetchClinics = async () => {
     if (!userProfile) return
@@ -49,6 +119,112 @@ export default function Dashboard() {
     )
   }
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-400"></div>
+      </div>
+    )
+  }
+
+  // Super Admin Dashboard
+  if (userProfile?.role === 'super_admin') {
+    return (
+      <div>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-white">Super Admin Dashboard</h1>
+          <p className="text-white/70 mt-2">
+            Welcome back, {userProfile?.full_name || userProfile?.email}
+          </p>
+        </div>
+
+        {/* Summary Statistics */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <Building2 className="text-primary-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalClinics}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Total Clinics</h3>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <Users className="text-green-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalPatients}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Total Patients</h3>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <Users className="text-blue-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalUsers}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Total Users</h3>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <CheckSquare className="text-yellow-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalTodos}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Total To-Do Items</h3>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <FileText className="text-purple-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalProviderSheets}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Provider Sheets</h3>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <AlertCircle className="text-orange-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalTodosOpen}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Open To-Do Items</h3>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <CheckSquare className="text-green-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalTodosCompleted}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Completed To-Do Items</h3>
+          </div>
+        </div>
+
+        {/* Clinics List */}
+        {clinics.length > 0 && (
+          <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
+            <h2 className="text-xl font-semibold text-white mb-4">All Clinics</h2>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {clinics.map((clinic) => (
+                <Link
+                  key={clinic.id}
+                  to={`/clinic/${clinic.id}/patients`}
+                  className="border border-white/20 rounded-lg p-4 hover:border-primary-400/50 transition-colors bg-white/5 cursor-pointer"
+                >
+                  <h3 className="font-semibold text-white">{clinic.name}</h3>
+                  {clinic.address && (
+                    <p className="text-sm text-white/60 mt-1">{clinic.address}</p>
+                  )}
+                  {clinic.phone && (
+                    <p className="text-sm text-white/60 mt-1">{clinic.phone}</p>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Regular Dashboard for non-super-admin users
   return (
     <div>
       <div className="mb-8">

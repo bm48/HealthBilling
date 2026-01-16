@@ -1,14 +1,19 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
-import { User, BillingCode, Clinic, ProviderSheet, AuditLog } from '@/types'
-import { Users, Palette, Lock, FileText, Plus, Edit, Trash2, X, Mail, Unlock } from 'lucide-react'
+import { User, BillingCode, Clinic, ProviderSheet, AuditLog, Provider } from '@/types'
+import { Users, Palette, Lock, FileText, Plus, Edit, Trash2, X, Mail, Unlock, Building2, Download } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 
 export default function SuperAdminSettings() {
-  const [activeTab, setActiveTab] = useState<'users' | 'billing-codes' | 'audit-logs' | 'unlock'>('users')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab') || 'users'
+  const [activeTab, setActiveTab] = useState<'users' | 'billing-codes' | 'audit-logs' | 'unlock' | 'clinics' | 'export'>((tabParam as any) || 'users')
   const [users, setUsers] = useState<User[]>([])
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])
   const [clinics, setClinics] = useState<Clinic[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
+  const [providersByClinic, setProvidersByClinic] = useState<Record<string, Provider[]>>({})
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [lockedSheets, setLockedSheets] = useState<ProviderSheet[]>([])
   const [loading, setLoading] = useState(true)
@@ -16,6 +21,13 @@ export default function SuperAdminSettings() {
   const [showBillingCodeForm, setShowBillingCodeForm] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [editingBillingCode, setEditingBillingCode] = useState<BillingCode | null>(null)
+
+  useEffect(() => {
+    const tab = searchParams.get('tab') || 'users'
+    if (tab !== activeTab) {
+      setActiveTab(tab as any)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     fetchData()
@@ -34,6 +46,8 @@ export default function SuperAdminSettings() {
         await fetchAuditLogs()
       } else if (activeTab === 'unlock') {
         await fetchLockedSheets()
+      } else if (activeTab === 'clinics') {
+        await fetchClinics()
       }
     } finally {
       setLoading(false)
@@ -65,8 +79,40 @@ export default function SuperAdminSettings() {
       const { data, error } = await supabase.from('clinics').select('*').order('name')
       if (error) throw error
       setClinics(data || [])
+      
+      // Fetch providers for all clinics
+      if (data && data.length > 0) {
+        await fetchProvidersForClinics(data.map(c => c.id))
+      }
     } catch (error) {
       console.error('Error fetching clinics:', error)
+    }
+  }
+
+  const fetchProvidersForClinics = async (clinicIds: string[]) => {
+    try {
+      const { data, error } = await supabase
+        .from('providers')
+        .select('*')
+        .in('clinic_id', clinicIds)
+        .order('last_name')
+        .order('first_name')
+      
+      if (error) throw error
+      
+      // Group providers by clinic_id
+      const grouped: Record<string, Provider[]> = {}
+      data?.forEach(provider => {
+        if (!grouped[provider.clinic_id]) {
+          grouped[provider.clinic_id] = []
+        }
+        grouped[provider.clinic_id].push(provider)
+      })
+      
+      setProvidersByClinic(grouped)
+      setProviders(data || [])
+    } catch (error) {
+      console.error('Error fetching providers:', error)
     }
   }
 
@@ -185,9 +231,15 @@ export default function SuperAdminSettings() {
   const tabs = [
     { id: 'users', label: 'User Management', icon: Users },
     { id: 'billing-codes', label: 'Billing Codes', icon: Palette },
+    { id: 'clinics', label: 'Clinic Management', icon: Building2 },
+    { id: 'export', label: 'Export Data', icon: Download },
     { id: 'audit-logs', label: 'Audit Logs', icon: FileText },
-    { id: 'unlock', label: 'Unlock Sheets', icon: Unlock },
   ]
+
+  const handleTabChange = (tabId: string) => {
+    setActiveTab(tabId as any)
+    setSearchParams({ tab: tabId })
+  }
 
   return (
     <div>
@@ -201,7 +253,7 @@ export default function SuperAdminSettings() {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
+                  onClick={() => handleTabChange(tab.id)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                     activeTab === tab.id
                       ? 'bg-primary-100 text-primary-700 font-medium'
@@ -237,48 +289,54 @@ export default function SuperAdminSettings() {
                     </button>
                   </div>
 
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
+                  <div className="table-container dark-theme">
+                    <table className="table-spreadsheet dark-theme">
+                      <thead>
                         <tr>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Email</th>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Role</th>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Clinics</th>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Highlight Color</th>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Actions</th>
+                          <th>Email</th>
+                          <th>Name</th>
+                          <th>Role</th>
+                          <th>Clinics</th>
+                          <th>Highlight Color</th>
+                          <th style={{ width: '80px' }}>Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200">
+                      <tbody>
                         {users.map((user) => (
-                          <tr key={user.id} className="hover:bg-white/10">
-                            <td className="px-4 py-3 text-sm">{user.email}</td>
-                            <td className="px-4 py-3 text-sm">{user.full_name || '-'}</td>
-                            <td className="px-4 py-3 text-sm">
-                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                          <tr key={user.id}>
+                            <td>{user.email}</td>
+                            <td>{user.full_name || '-'}</td>
+                            <td>
+                              <span className="status-badge" style={{ backgroundColor: '#dbeafe', color: '#1e40af' }}>
                                 {user.role}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-sm">
+                            <td>
                               {user.clinic_ids.length > 0
                                 ? user.clinic_ids.length + ' clinic(s)'
                                 : 'None'}
                             </td>
-                            <td className="px-4 py-3 text-sm">
+                            <td>
                               {user.highlight_color && (
                                 <div
-                                  className="w-8 h-8 rounded border border-gray-300"
-                                  style={{ backgroundColor: user.highlight_color }}
+                                  style={{ 
+                                    width: '32px', 
+                                    height: '32px', 
+                                    borderRadius: '4px', 
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    backgroundColor: user.highlight_color 
+                                  }}
                                 />
                               )}
                             </td>
-                            <td className="px-4 py-3 text-sm">
+                            <td>
                               <button
                                 onClick={() => {
                                   setEditingUser(user)
                                   setShowUserForm(true)
                                 }}
-                                className="text-primary-600 hover:text-primary-700"
+                                className="text-primary-400 hover:text-primary-300"
+                                style={{ padding: '4px' }}
                               >
                                 <Edit size={16} />
                               </button>
@@ -352,35 +410,205 @@ export default function SuperAdminSettings() {
               {activeTab === 'audit-logs' && (
                 <div>
                   <h2 className="text-xl font-semibold text-white mb-4">Audit Logs</h2>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
+                  <div className="table-container dark-theme">
+                    <table className="table-spreadsheet dark-theme">
+                      <thead>
                         <tr>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Date</th>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">User</th>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Action</th>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Table</th>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Record ID</th>
+                          <th>Date</th>
+                          <th>User</th>
+                          <th>Action</th>
+                          <th>Table</th>
+                          <th>Record ID</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200">
+                      <tbody>
                         {auditLogs.map((log) => (
-                          <tr key={log.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 text-sm">{formatDateTime(log.created_at)}</td>
-                            <td className="px-4 py-3 text-sm">
+                          <tr key={log.id}>
+                            <td>{formatDateTime(log.created_at)}</td>
+                            <td>
                               {users.find(u => u.id === log.user_id)?.email || log.user_id}
                             </td>
-                            <td className="px-4 py-3 text-sm">
-                              <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
+                            <td>
+                              <span className="status-badge" style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: '#ffffff' }}>
                                 {log.action}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-sm">{log.table_name}</td>
-                            <td className="px-4 py-3 text-sm font-mono text-xs">{log.record_id.substring(0, 8)}...</td>
+                            <td>{log.table_name}</td>
+                            <td style={{ fontFamily: 'monospace', fontSize: '11px' }}>{log.record_id.substring(0, 8)}...</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'clinics' && (
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold text-white">Clinic Management</h2>
+                    <button
+                      onClick={() => {
+                        setEditingUser(null)
+                        setShowUserForm(false)
+                        // Handle clinic creation
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                    >
+                      <Plus size={18} />
+                      Add Clinic
+                    </button>
+                  </div>
+
+                  <div className="table-container dark-theme">
+                    <table className="table-spreadsheet dark-theme">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Address</th>
+                          <th>Phone</th>
+                          <th>Providers</th>
+                          <th>Created</th>
+                          <th style={{ width: '80px' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {clinics.map((clinic) => {
+                          const clinicProviders = providersByClinic[clinic.id] || []
+                          return (
+                            <tr key={clinic.id}>
+                              <td>{clinic.name}</td>
+                              <td>{clinic.address || '-'}</td>
+                              <td>{clinic.phone || '-'}</td>
+                              <td>
+                                {clinicProviders.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {clinicProviders.map((provider) => (
+                                      <div key={provider.id} className="text-sm">
+                                        {provider.first_name} {provider.last_name}
+                                        {provider.specialty && (
+                                          <span className="text-white/60 ml-2">({provider.specialty})</span>
+                                        )}
+                                        {!provider.active && (
+                                          <span className="text-red-400 ml-2 text-xs">(Inactive)</span>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-white/50">No providers</span>
+                                )}
+                              </td>
+                              <td>{formatDateTime(clinic.created_at)}</td>
+                              <td>
+                                <button
+                                  onClick={() => {
+                                    // Handle clinic edit
+                                  }}
+                                  className="text-primary-400 hover:text-primary-300"
+                                  style={{ padding: '4px' }}
+                                >
+                                  <Edit size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'export' && (
+                <div>
+                  <h2 className="text-xl font-semibold text-white mb-4">Export Data</h2>
+                  <div className="space-y-4">
+                    <div className="bg-white/5 rounded-lg p-6 border border-white/20">
+                      <h3 className="text-lg font-semibold text-white mb-4">Export Options</h3>
+                      <div className="space-y-3">
+                        <button
+                          onClick={async () => {
+                            try {
+                              const { data: users } = await supabase.from('users').select('*')
+                              const blob = new Blob([JSON.stringify(users, null, 2)], { type: 'application/json' })
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = `users-${new Date().toISOString().split('T')[0]}.json`
+                              a.click()
+                            } catch (error) {
+                              console.error('Error exporting users:', error)
+                              alert('Failed to export users')
+                            }
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                        >
+                          <Download size={18} />
+                          Export Users
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const { data: clinics } = await supabase.from('clinics').select('*')
+                              const blob = new Blob([JSON.stringify(clinics, null, 2)], { type: 'application/json' })
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = `clinics-${new Date().toISOString().split('T')[0]}.json`
+                              a.click()
+                            } catch (error) {
+                              console.error('Error exporting clinics:', error)
+                              alert('Failed to export clinics')
+                            }
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                        >
+                          <Download size={18} />
+                          Export Clinics
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const { data: patients } = await supabase.from('patients').select('*')
+                              const blob = new Blob([JSON.stringify(patients, null, 2)], { type: 'application/json' })
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = `patients-${new Date().toISOString().split('T')[0]}.json`
+                              a.click()
+                            } catch (error) {
+                              console.error('Error exporting patients:', error)
+                              alert('Failed to export patients')
+                            }
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                        >
+                          <Download size={18} />
+                          Export Patients
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const { data: auditLogs } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(1000)
+                              const blob = new Blob([JSON.stringify(auditLogs, null, 2)], { type: 'application/json' })
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.json`
+                              a.click()
+                            } catch (error) {
+                              console.error('Error exporting audit logs:', error)
+                              alert('Failed to export audit logs')
+                            }
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                        >
+                          <Download size={18} />
+                          Export Audit Logs
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
