@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Patient } from '@/types'
 import { X } from 'lucide-react'
 
@@ -9,7 +9,7 @@ interface PatientFormProps {
   onSave: (patient: Partial<Patient>) => Promise<void>
 }
 
-export default function PatientForm({ patient, clinicId, onClose, onSave }: PatientFormProps) {
+export default function PatientForm({ patient, onClose, onSave }: PatientFormProps) {
   const [formData, setFormData] = useState({
     patient_id: patient?.patient_id || '',
     first_name: patient?.first_name || '',

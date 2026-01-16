@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { ProviderSheet, SheetRow, Patient, Clinic, User } from '@/types'
+import { SheetRow, Clinic } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatCurrency, formatDate } from '@/lib/utils'
 

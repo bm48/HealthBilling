@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { TodoItem, TodoNote, User } from '@/types'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { CheckCircle, MessageSquare, Plus, X, Edit2, Trash2 } from 'lucide-react'
+import { CheckCircle, MessageSquare, Plus, X, Trash2 } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 
 interface TodoItemCardProps {

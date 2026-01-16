@@ -1,7 +1,5 @@
-import { useState } from 'react'
 import { SheetRow, AppointmentStatus, ClaimStatus, PatientPayStatus, ARType, BillingCode, Patient } from '@/types'
-import { formatCurrency, formatDate } from '@/lib/utils'
-import { getColumnPermissions, ColumnPermission } from '@/lib/permissions'
+import { getColumnPermissions } from '@/lib/permissions'
 import { UserRole } from '@/types'
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react'
 
@@ -110,7 +108,7 @@ export default function ProviderSheetTable({
     }
   }
 
-  const handleBlur = (rowId: string, field: string) => {
+  const handleBlur = (_rowId: string, _field: string) => {
     if (onEditingChange) {
       onEditingChange(null)
     }
@@ -493,7 +491,6 @@ export default function ProviderSheetTable({
         </thead>
         <tbody>
           {rows.map((row, index) => {
-            const isLockedRow = lockedColumns.length > 0
             return (
               <tr
                 key={row.id}

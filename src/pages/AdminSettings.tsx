@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { ProviderSheet, Clinic } from '@/types'
-import { Lock, Unlock, FileText, Calculator, Calendar } from 'lucide-react'
+import { Lock, Unlock, Calculator, Calendar } from 'lucide-react'
 import MonthCloseDialog from '@/components/MonthCloseDialog'
 
 export default function AdminSettings() {

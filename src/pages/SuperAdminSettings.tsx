@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { User, BillingCode, Clinic, ProviderSheet, AuditLog, Provider } from '@/types'
-import { Users, Palette, Lock, FileText, Plus, Edit, Trash2, X, Mail, Unlock, Building2, Download } from 'lucide-react'
+import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 
 export default function SuperAdminSettings() {
@@ -12,7 +12,7 @@ export default function SuperAdminSettings() {
   const [users, setUsers] = useState<User[]>([])
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])
   const [clinics, setClinics] = useState<Clinic[]>([])
-  const [providers, setProviders] = useState<Provider[]>([])
+  const [_providers, setProviders] = useState<Provider[]>([])
   const [providersByClinic, setProvidersByClinic] = useState<Record<string, Provider[]>>({})
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [lockedSheets, setLockedSheets] = useState<ProviderSheet[]>([])
@@ -656,7 +656,6 @@ export default function SuperAdminSettings() {
       {showUserForm && (
         <UserFormModal
           user={editingUser}
-          clinics={clinics}
           onClose={() => {
             setShowUserForm(false)
             setEditingUser(null)
@@ -681,12 +680,10 @@ export default function SuperAdminSettings() {
 
 function UserFormModal({
   user,
-  clinics,
   onClose,
   onSave,
 }: {
   user: User | null
-  clinics: Clinic[]
   onSave: (data: Partial<User>) => Promise<void>
   onClose: () => void
 }) {

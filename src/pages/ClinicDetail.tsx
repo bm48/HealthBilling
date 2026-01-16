@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useLocation, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
-import { Patient, TodoItem, TodoNote, ProviderSheet, SheetRow, User, Clinic, AppointmentStatus, Provider, BillingCode } from '@/types'
+import { Patient, TodoItem, TodoNote, ProviderSheet, SheetRow, Clinic, Provider, BillingCode } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { Users, CheckSquare, FileText, Trash2 } from 'lucide-react'
 import { useDebouncedSave } from '@/lib/useDebouncedSave'
@@ -10,7 +10,6 @@ type TabType = 'patients' | 'todo' | 'providers'
 
 export default function ClinicDetail() {
   const { clinicId, tab, providerId } = useParams<{ clinicId: string; tab?: string; providerId?: string }>()
-  const location = useLocation()
   const navigate = useNavigate()
   const { userProfile } = useAuth()
   const [activeTab, setActiveTab] = useState<TabType>(providerId ? 'providers' : ((tab as TabType) || 'patients'))
@@ -47,7 +46,6 @@ export default function ClinicDetail() {
     sheetId: string
     rowId: string
   }>>([])
-  const [editingProviderSheetCell, setEditingProviderSheetCell] = useState<{ rowId: string; field: string } | null>(null)
   const [currentProvider, setCurrentProvider] = useState<Provider | null>(null)
   const [currentSheet, setCurrentSheet] = useState<ProviderSheet | null>(null)
   const providerRowsRef = useRef<Array<{ id: string; cpt_code: string; appointment_status: string; sheetId: string; rowId: string }>>([])
@@ -157,9 +155,14 @@ export default function ClinicDetail() {
     patient_id: '',
     first_name: '',
     last_name: '',
+    subscriber_id: null,
     insurance: null,
     copay: null,
     coinsurance: null,
+    date_of_birth: null,
+    phone: null,
+    email: null,
+    address: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   })
@@ -1035,31 +1038,8 @@ export default function ClinicDetail() {
     }
   }, [currentSheet, fetchProviderSheetData])
 
-  const { saveImmediately: saveProviderRowsImmediately } = useDebouncedSave(saveProviderRows, providerRows, 1000)
+  const { saveImmediately: _saveProviderRowsImmediately } = useDebouncedSave(saveProviderRows, providerRows, 1000)
 
-  const handleUpdateProviderRow = useCallback((rowId: string, field: string, value: any) => {
-    setProviderRows(prevRows =>
-      prevRows.map(row => {
-        if (row.id === rowId) {
-          return { ...row, [field]: value }
-        }
-        return row
-      })
-    )
-  }, [])
-
-  const handleDeleteProviderRow = useCallback(async (rowId: string) => {
-    if (!confirm('Are you sure you want to delete this row?')) return
-
-    if (rowId.startsWith('new-')) {
-      setProviderRows(prev => prev.filter(r => r.id !== rowId))
-      return
-    }
-
-    // For existing rows, we need to remove them from the sheet
-    setProviderRows(prev => prev.filter(r => r.id !== rowId))
-    await saveProviderRowsImmediately()
-  }, [saveProviderRowsImmediately])
 
   const fetchProviders = async () => {
     try {
@@ -1196,165 +1176,7 @@ export default function ClinicDetail() {
     }
   }
 
-  const saveProviders = useCallback(async (providersToSave: Provider[]) => {
-    if (!clinicId || !userProfile) return
 
-    try {
-      const newProvidersToCreate: Provider[] = []
-      const providersToUpdate: Provider[] = []
-
-      for (const provider of providersToSave) {
-        if (provider.id.startsWith('new-')) {
-          if (provider.first_name && provider.last_name) {
-            newProvidersToCreate.push(provider)
-          }
-        } else {
-          const originalProvider = providersRef.current.find(p => p.id === provider.id)
-          if (originalProvider) {
-            const hasChanged =
-              originalProvider.first_name !== provider.first_name ||
-              originalProvider.last_name !== provider.last_name ||
-              originalProvider.specialty !== provider.specialty ||
-              originalProvider.npi !== provider.npi ||
-              originalProvider.email !== provider.email ||
-              originalProvider.phone !== provider.phone ||
-              originalProvider.active !== provider.active
-
-            if (hasChanged) {
-              providersToUpdate.push(provider)
-            }
-          }
-        }
-      }
-
-      // Create new providers
-      for (const provider of newProvidersToCreate) {
-        const { data: newProvider, error } = await supabase.from('providers').insert({
-          clinic_id: clinicId,
-          first_name: provider.first_name,
-          last_name: provider.last_name,
-          specialty: provider.specialty || null,
-          npi: provider.npi || null,
-          email: provider.email || null,
-          phone: provider.phone || null,
-          active: provider.active !== undefined ? provider.active : true,
-        }).select().maybeSingle()
-        
-        if (error) throw error
-        if (!newProvider) {
-          console.error('Failed to create provider - no data returned')
-          continue
-        }
-        
-        // Create a provider sheet for the new provider
-        if (newProvider) {
-          const now = new Date()
-          const month = now.getMonth() + 1
-          const year = now.getFullYear()
-          
-          const { data: newSheet, error: sheetError } = await supabase
-            .from('provider_sheets')
-            .insert({
-              clinic_id: clinicId,
-              provider_id: newProvider.id,
-              month,
-              year,
-              row_data: [],
-              locked: false,
-              locked_columns: [],
-            })
-            .select()
-            .maybeSingle()
-          
-          if (sheetError) {
-            console.error('Error creating provider sheet:', sheetError)
-          } else if (newSheet) {
-            setProviderSheets(prev => ({ ...prev, [newProvider.id]: newSheet }))
-            setProviderSheetRows(prev => ({ ...prev, [newProvider.id]: [] }))
-          }
-        }
-      }
-
-      // Update existing providers
-      for (const provider of providersToUpdate) {
-        const { error } = await supabase
-          .from('providers')
-          .update({
-            first_name: provider.first_name,
-            last_name: provider.last_name,
-            specialty: provider.specialty || null,
-            npi: provider.npi || null,
-            email: provider.email || null,
-            phone: provider.phone || null,
-            active: provider.active !== undefined ? provider.active : true,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', provider.id)
-
-        if (error) throw error
-      }
-
-      if (newProvidersToCreate.length > 0 || providersToUpdate.length > 0) {
-        await fetchProviders()
-      }
-    } catch (error) {
-      console.error('Error saving providers:', error)
-    }
-  }, [clinicId, userProfile, fetchProviders])
-
-  const { saveImmediately: saveProvidersImmediately } = useDebouncedSave<Provider[]>(saveProviders, providers, 1000)
-
-  const handleUpdateProvider = useCallback((providerId: string, field: string, value: any) => {
-    setProviders(prevProviders =>
-      prevProviders.map(provider => {
-        if (provider.id === providerId) {
-          const updated = { ...provider, [field]: value, updated_at: new Date().toISOString() }
-          if (field === 'active') {
-            return { ...updated, active: value === true || value === 'true' }
-          }
-          return updated
-        }
-        return provider
-      })
-    )
-  }, [])
-
-  const handleAddProviderRow = useCallback(() => {
-    const newProvider: Provider = {
-      id: `new-${Date.now()}`,
-      clinic_id: clinicId!,
-      first_name: '',
-      last_name: '',
-      specialty: null,
-      npi: null,
-      email: null,
-      phone: null,
-      active: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }
-    setProviders(prev => [newProvider, ...prev])
-    // Note: This function is not currently used, but kept for potential future use
-    // setEditingProviderCell({ providerId: newProvider.id, field: 'first_name' })
-  }, [clinicId])
-
-  const handleDeleteProvider = useCallback(async (providerId: string) => {
-    if (!confirm('Are you sure you want to delete this provider?')) return
-
-    if (providerId.startsWith('new-')) {
-      setProviders(prev => prev.filter(p => p.id !== providerId))
-      return
-    }
-
-    try {
-      const { error } = await supabase.from('providers').delete().eq('id', providerId)
-      if (error) throw error
-      await fetchProviders()
-    } catch (error) {
-      console.error('Error deleting provider:', error)
-      alert('Failed to delete provider')
-    }
-  }, [fetchProviders])
 
   const saveProviderSheetRows = useCallback(async (providerId: string, rowsToSave: SheetRow[]) => {
     if (!clinicId || !userProfile) return

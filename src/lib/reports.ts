@@ -118,7 +118,7 @@ export async function generateClinicReport(
     yPos += 10
 
     const tableData: any[] = []
-    data.providers.forEach((totals, providerName) => {
+    data.providers.forEach((totals: { insurance: number; patient: number; ar: number }, providerName: string) => {
       tableData.push([
         providerName,
         formatCurrency(totals.insurance),

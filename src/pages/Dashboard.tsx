@@ -1,5 +1,5 @@
 import { useAuth } from '@/contexts/AuthContext'
-import { FileText, Users, CheckSquare, BarChart3, Clock, Building2, DollarSign, AlertCircle } from 'lucide-react'
+import { FileText, Users, CheckSquare, BarChart3, Clock, Building2, AlertCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
