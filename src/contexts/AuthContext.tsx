@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { User as SupabaseUser, Session } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase'
+import { supabase, ensureValidSession } from '@/lib/supabase'
 import { User } from '@/types'
 
 interface AuthContextType {
@@ -20,14 +20,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userProfile, setUserProfile] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const lastTokenRefreshRef = useRef<number>(0)
+  const tokenRefreshCountRef = useRef<number>(0)
+  const refreshInProgressRef = useRef<boolean>(false)
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        fetchUserProfile(session.user.id)
+    // Get initial session and check if refresh is needed
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        // Check if token is expired or about to expire (< 5 minutes left)
+        const expiresAt = session.expires_at || 0
+        const now = Math.floor(Date.now() / 1000)
+        const timeUntilExpiry = expiresAt - now
+        
+        if (timeUntilExpiry < 300) {
+          // Refresh the session immediately
+          await ensureValidSession()
+          // Get the refreshed session
+          const { data: { session: refreshedSession } } = await supabase.auth.getSession()
+          setSession(refreshedSession)
+          setUser(refreshedSession?.user ?? null)
+          if (refreshedSession?.user) {
+            fetchUserProfile(refreshedSession.user.id)
+          }
+        } else {
+          setSession(session)
+          setUser(session?.user ?? null)
+          if (session?.user) {
+            fetchUserProfile(session.user.id)
+          }
+        }
       } else {
         setLoading(false)
       }
@@ -36,12 +58,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // Track token refresh frequency
+      if (event === 'TOKEN_REFRESHED') {
+        const now = Date.now()
+        const timeSinceLastRefresh = now - lastTokenRefreshRef.current
+        tokenRefreshCountRef.current += 1
+        
+        // AGGRESSIVE THROTTLE: Only allow ONE refresh per 30 seconds minimum
+        // This prevents the rapid-fire refresh loop
+        if (lastTokenRefreshRef.current > 0 && timeSinceLastRefresh < 30000) {
+          // SILENTLY IGNORE rapid refreshes
+          return
+        }
+        
+        lastTokenRefreshRef.current = now
+        refreshInProgressRef.current = false
+        
+        // Token refreshed - no state updates needed
+        // The token is automatically updated in Supabase client
+        return
+      }
+      
       setSession(session)
       setUser(session?.user ?? null)
-      if (session?.user) {
+      
+      // Only fetch user profile for meaningful auth events
+      if (session?.user && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED')) {
         fetchUserProfile(session.user.id)
-      } else {
+      } else if (!session) {
         setUserProfile(null)
         setLoading(false)
       }
@@ -50,7 +95,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Manual token refresh every 45 minutes (instead of relying on autoRefreshToken)
+  useEffect(() => {
+    if (!user) return
+    
+    // Refresh session every 45 minutes (well before 1-hour expiry)
+    const refreshInterval = setInterval(async () => {
+      await ensureValidSession()
+    }, 45 * 60 * 1000) // 45 minutes
+
+    return () => {
+      clearInterval(refreshInterval)
+    }
+  }, [user])
+
   const fetchUserProfile = async (userId: string) => {
+    // Skip if we already have the profile for this user
+    if (userProfile && userProfile.id === userId) {
+      setLoading(false)
+      return
+    }
+    
     try {
       const { data, error } = await supabase
         .from('users')

@@ -35,7 +35,7 @@ export default function BillingTodo() {
           if (error) throw error
           setClinics(data || [])
         } catch (error) {
-          console.error('Error fetching clinics:', error)
+          // Error fetching clinics
         }
       }
     }
@@ -64,7 +64,7 @@ export default function BillingTodo() {
       })
       setTodoNotes(prev => ({ ...prev, ...notesByTodo }))
     } catch (error) {
-      console.error('Error fetching notes:', error)
+      // Error fetching notes
     }
   }, [])
 
@@ -114,7 +114,7 @@ export default function BillingTodo() {
         await fetchNotesForTodos(todoIds)
       }
     } catch (error) {
-      console.error('Error fetching todos:', error)
+      // Error fetching todos
     } finally {
       setLoading(false)
       // Reset fetching flag after a short delay to allow state to update
@@ -210,7 +210,7 @@ export default function BillingTodo() {
           .eq('id', todo.id)
         
         if (error) {
-          console.error('Error updating todo:', error)
+          // Error updating todo
           throw error
         }
         
@@ -393,7 +393,7 @@ export default function BillingTodo() {
       if (error) throw error
       await fetchNotesForTodos([todoId])
     } catch (error) {
-      console.error('Error adding note:', error)
+      // Error adding note
       alert('Failed to add note. Please try again.')
     }
   }
@@ -462,7 +462,6 @@ export default function BillingTodo() {
                   <tr 
                     className="editing" 
                     onClick={(e) => {
-                      console.log('Add row clicked')
                       handleAddNewRow(e)
                     }} 
                     style={{ cursor: 'pointer', userSelect: 'none' }}

@@ -56,7 +56,6 @@ export default function MonthCloseDialog({ sheet, onClose, onLock }: MonthCloseD
       await onLock(selectedColumns)
       onClose()
     } catch (error) {
-      console.error('Error locking columns:', error)
       alert('Failed to lock columns. Please try again.')
     } finally {
       setLocking(false)

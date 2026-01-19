@@ -41,7 +41,7 @@ export default function Reports() {
         setSelectedClinic(data[0].id)
       }
     } catch (error) {
-      console.error('Error fetching clinics:', error)
+      // Error fetching clinics
     }
   }
 
@@ -138,7 +138,6 @@ export default function Reports() {
       const fileName = `${reportType}_report_${new Date().toISOString().split('T')[0]}.pdf`
       pdf.save(fileName)
     } catch (error) {
-      console.error('Error generating report:', error)
       alert('Failed to generate report. Please try again.')
     } finally {
       setGenerating(false)

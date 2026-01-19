@@ -79,7 +79,7 @@ export default function Dashboard() {
         totalTodosCompleted: completedTodos.length,
       })
     } catch (error) {
-      console.error('Error fetching dashboard data:', error)
+      // Error fetching dashboard data
     } finally {
       setLoading(false)
     }
@@ -100,7 +100,7 @@ export default function Dashboard() {
       if (error) throw error
       setClinics(data || [])
     } catch (error) {
-      console.error('Error fetching clinics:', error)
+      // Error fetching clinics
     }
   }
 

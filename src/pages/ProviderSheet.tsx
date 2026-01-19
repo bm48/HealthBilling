@@ -52,7 +52,6 @@ export default function ProviderSheet() {
         .maybeSingle()
 
       if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching sheet:', error)
         setLoading(false)
         return
       }
@@ -69,13 +68,11 @@ export default function ProviderSheet() {
           .maybeSingle()
 
         if (providerCheckError && providerCheckError.code !== 'PGRST116') {
-          console.error('Error checking provider:', providerCheckError)
           setLoading(false)
           return
         }
 
         if (!provider) {
-          console.error(`Provider ID ${effectiveProviderId} does not exist in providers table`)
           alert(`Error: The provider ID does not exist in the providers table. Please ensure the provider exists before creating a sheet.`)
           setLoading(false)
           return
@@ -93,7 +90,7 @@ export default function ProviderSheet() {
             .maybeSingle()
           
           if (clinicError && clinicError.code !== 'PGRST116') {
-            console.error('Error fetching clinic:', clinicError)
+            // Error fetching clinic
           } else if (clinics) {
             clinicId = clinics.id
           }

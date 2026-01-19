@@ -44,7 +44,7 @@ export default function Invoices() {
       if (error) throw error
       setClinics(data || [])
     } catch (error) {
-      console.error('Error fetching clinics:', error)
+      // Error fetching clinics
     }
   }
 
@@ -124,7 +124,7 @@ export default function Invoices() {
 
       setInvoices(invoiceRows)
     } catch (error) {
-      console.error('Error fetching invoices:', error)
+      // Error fetching invoices
     } finally {
       setLoading(false)
     }

@@ -39,7 +39,7 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
       if (error) throw error
       setNotes(data || [])
     } catch (error) {
-      console.error('Error fetching notes:', error)
+      // Error fetching notes
     }
   }
 
@@ -78,7 +78,6 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
       setEditingStatus(false)
       onUpdate()
     } catch (error) {
-      console.error('Error updating status:', error)
       alert('Failed to update status. Please try again.')
     }
   }

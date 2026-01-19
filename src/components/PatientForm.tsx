@@ -29,7 +29,6 @@ export default function PatientForm({ patient, onClose, onSave }: PatientFormPro
       await onSave(formData)
       onClose()
     } catch (error) {
-      console.error('Error saving patient:', error)
       alert('Failed to save patient. Please try again.')
     } finally {
       setSaving(false)

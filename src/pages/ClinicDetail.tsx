@@ -2112,51 +2112,7 @@ export default function ClinicDetail() {
                         return (
                         <tr key={`${provider.id}-${row.id}`} className={isEmpty ? 'empty-row' : ''}>
                           {/* Patient ID (Blue section) */}
-                          <td>
-                            {editingProviderCell?.providerId === provider.id && editingProviderCell?.rowId === row.id && editingProviderCell?.field === 'patient_id' ? (
-                              <select
-                                value={row.patient_id || ''}
-                                onChange={(e) => {
-                                  const selectedPatientId = e.target.value || null
-                                  handleUpdateProviderSheetRow(provider.id, row.id, 'patient_id', selectedPatientId)
-                                  
-                                  // Auto-populate patient fields when a patient is selected
-                                  if (selectedPatientId) {
-                                    const selectedPatient = patients.find(p => p.patient_id === selectedPatientId)
-                                    if (selectedPatient) {
-                                      handleUpdateProviderSheetRow(provider.id, row.id, 'patient_first_name', selectedPatient.first_name)
-                                      handleUpdateProviderSheetRow(provider.id, row.id, 'patient_last_name', selectedPatient.last_name)
-                                      handleUpdateProviderSheetRow(provider.id, row.id, 'patient_insurance', selectedPatient.insurance)
-                                      handleUpdateProviderSheetRow(provider.id, row.id, 'patient_copay', selectedPatient.copay)
-                                      handleUpdateProviderSheetRow(provider.id, row.id, 'patient_coinsurance', selectedPatient.coinsurance)
-                                    }
-                                  }
-                                }}
-                                onBlur={() => {
-                                  setEditingProviderCell(null)
-                                  saveProviderSheetRowsImmediately()
-                                }}
-                                autoFocus
-                                className="w-full patient-input-edit"
-                                style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
-                              >
-                                <option value="">Select Patient...</option>
-                                {patients.map(p => (
-                                  <option key={p.id} value={p.patient_id}>
-                                    {p.patient_id} - {p.first_name} {p.last_name}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <div
-                                onClick={() => canEdit && setEditingProviderCell({ providerId: provider.id, rowId: row.id, field: 'patient_id' })}
-                                className={canEdit ? 'cursor-pointer' : ''}
-                                style={{ minHeight: '24px' }}
-                              >
-                                {row.patient_id || (canEdit ? 'Click to add' : '-')}
-                              </div>
-                            )}
-                          </td>
+                          <td>{renderEditableCell('patient_id', 'text')}</td>
                           
                           {/* First Name (Blue section) */}
                           <td>{renderEditableCell('patient_first_name', 'text')}</td>

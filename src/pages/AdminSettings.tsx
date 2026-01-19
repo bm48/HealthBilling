@@ -44,7 +44,7 @@ export default function AdminSettings() {
         setSelectedClinic(data[0].id)
       }
     } catch (error) {
-      console.error('Error fetching clinics:', error)
+      // Error fetching clinics
     }
   }
 
@@ -62,7 +62,7 @@ export default function AdminSettings() {
       if (error) throw error
       setSheets(data || [])
     } catch (error) {
-      console.error('Error fetching sheets:', error)
+      // Error fetching sheets
     }
   }
 
@@ -82,7 +82,6 @@ export default function AdminSettings() {
       if (error) throw error
       await fetchSheets()
     } catch (error) {
-      console.error('Error locking columns:', error)
       throw error
     }
   }
@@ -155,7 +154,6 @@ export default function AdminSettings() {
       alert('Provider payments calculated successfully!')
       await fetchSheets()
     } catch (error) {
-      console.error('Error calculating provider payments:', error)
       alert('Failed to calculate provider payments. Please try again.')
     }
   }

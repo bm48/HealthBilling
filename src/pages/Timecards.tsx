@@ -96,7 +96,6 @@ export default function Timecards() {
       .maybeSingle()
 
     if (error) {
-      console.error('Error clocking in:', error)
       alert('Failed to clock in. Please try again.')
       return
     }
@@ -151,7 +150,6 @@ export default function Timecards() {
     })
 
     if (error) {
-      console.error('Error creating manual entry:', error)
       alert('Failed to create time entry. Please try again.')
       return
     }
