@@ -131,7 +131,12 @@ export default function Invoices() {
   }
 
   const totalInvoiceAmount = invoices.reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0)
-  const totalCollected = invoices.reduce((sum, inv) => sum + (inv.collected_from_patient || 0), 0)
+  const totalCollected = invoices.reduce((sum, inv) => {
+    const collected = typeof inv.collected_from_patient === 'string' 
+      ? parseFloat(inv.collected_from_patient) || 0 
+      : inv.collected_from_patient || 0
+    return sum + collected
+  }, 0)
   const totalOutstanding = totalInvoiceAmount - totalCollected
 
   return (
