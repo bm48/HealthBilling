@@ -33,8 +33,8 @@ export async function generateProviderReport(
     let totalAR = 0
 
     rows.forEach((row: SheetRow) => {
-      totalInsurance += row.insurance_payment || 0
-      totalPatient += row.collected_from_patient || 0
+      totalInsurance += parseFloat(row.insurance_payment as string) || 0
+      totalPatient += parseFloat(row.collected_from_patient as string) || 0
       totalAR += row.ar_amount || 0
     })
 
@@ -95,8 +95,8 @@ export async function generateClinicReport(
     let ar = 0
 
     rows.forEach((row: SheetRow) => {
-      insurance += row.insurance_payment || 0
-      patient += row.collected_from_patient || 0
+      insurance += parseFloat(row.insurance_payment as string) || 0
+      patient += parseFloat(row.collected_from_patient as string) || 0
       ar += row.ar_amount || 0
     })
 

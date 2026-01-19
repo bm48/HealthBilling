@@ -11,7 +11,7 @@ interface InvoiceRow {
   clinic_name: string
   provider_name: string
   invoice_amount: number
-  collected_from_patient: number
+  collected_from_patient: string | number
   patient_pay_status: string
   payment_date: string | null
   appointment_date: string | null

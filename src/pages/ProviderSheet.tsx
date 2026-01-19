@@ -218,6 +218,11 @@ export default function ProviderSheet() {
     const newRow: SheetRow = {
       id: `row-${Date.now()}`,
       patient_id: null,
+      patient_first_name: null,
+      patient_last_name: null,
+      patient_insurance: null,
+      patient_copay: null,
+      patient_coinsurance: null,
       appointment_date: null,
       appointment_time: null,
       visit_type: null,
