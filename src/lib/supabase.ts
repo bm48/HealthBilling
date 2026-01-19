@@ -7,9 +7,6 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase credentials not found. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file')
 }
 
-// Track last write to prevent rapid successive writes
-let lastSessionWrite = 0
-
 // Create a storage wrapper that fixes broken token expiry timestamps from Supabase
 const customStorage = {
   getItem: (key: string) => {
@@ -40,7 +37,6 @@ const customStorage = {
               value = JSON.stringify(session)
             }
           }
-          lastSessionWrite = Date.now()
         } catch (e) {
           // Not JSON or not a session, save as-is
         }
