@@ -89,6 +89,7 @@ export default function ClinicDetail() {
         fetchProviderSheetData()
         // Also ensure we have providers list for the tab
         if (activeTab === 'providers') {
+          fetchPatients() // Need patients for displaying patient info
           fetchBillingCodes()
           fetchProviders()
         }
@@ -124,6 +125,7 @@ export default function ClinicDetail() {
       } else if (activeTab === 'todo') {
         await fetchTodos()
       } else if (activeTab === 'providers') {
+        await fetchPatients() // Need patients for displaying patient info in provider sheets
         await fetchBillingCodes()
         await fetchProviders()
         await fetchProviderSheets()
@@ -904,6 +906,11 @@ export default function ClinicDetail() {
       const createEmptyProviderSheetRow = (index: number): SheetRow => ({
         id: `empty-${index}`,
         patient_id: null,
+        patient_first_name: null,
+        patient_last_name: null,
+        patient_insurance: null,
+        patient_copay: null,
+        patient_coinsurance: null,
         appointment_date: null,
         appointment_time: null,
         visit_type: null,
@@ -986,6 +993,11 @@ export default function ClinicDetail() {
           const newRow: SheetRow = {
             id: `row-${Date.now()}-${Math.random()}`,
             patient_id: null,
+            patient_first_name: null,
+            patient_last_name: null,
+            patient_insurance: null,
+            patient_copay: null,
+            patient_coinsurance: null,
             appointment_date: null,
             appointment_time: null,
             visit_type: null,
@@ -1052,7 +1064,6 @@ export default function ClinicDetail() {
 
       if (error) throw error
       const fetchedProviders = data || []
-      
       // Preserve any unsaved providers (with 'new-' prefix)
       setProviders(currentProviders => {
         const unsavedProviders = currentProviders.filter(p => p.id.startsWith('new-'))
@@ -1135,6 +1146,11 @@ export default function ClinicDetail() {
         const createEmptyProviderSheetRow = (index: number): SheetRow => ({
           id: `empty-${providerId}-${index}`,
           patient_id: null,
+          patient_first_name: null,
+          patient_last_name: null,
+          patient_insurance: null,
+          patient_copay: null,
+          patient_coinsurance: null,
           appointment_date: null,
           appointment_time: null,
           visit_type: null,
@@ -1206,6 +1222,11 @@ export default function ClinicDetail() {
         const createEmptyRow = (index: number): SheetRow => ({
           id: `empty-${providerId}-${index}`,
           patient_id: null,
+          patient_first_name: null,
+          patient_last_name: null,
+          patient_insurance: null,
+          patient_copay: null,
+          patient_coinsurance: null,
           appointment_date: null,
           appointment_time: null,
           visit_type: null,
@@ -1283,6 +1304,11 @@ export default function ClinicDetail() {
         const createEmptyRow = (index: number): SheetRow => ({
           id: `empty-${providerId}-${index}`,
           patient_id: null,
+          patient_first_name: null,
+          patient_last_name: null,
+          patient_insurance: null,
+          patient_copay: null,
+          patient_coinsurance: null,
           appointment_date: null,
           appointment_time: null,
           visit_type: null,
@@ -1359,6 +1385,11 @@ export default function ClinicDetail() {
     const newRow: SheetRow = {
       id: `row-${Date.now()}-${Math.random()}`,
       patient_id: null,
+      patient_first_name: null,
+      patient_last_name: null,
+      patient_insurance: null,
+      patient_copay: null,
+      patient_coinsurance: null,
       appointment_date: null,
       appointment_time: null,
       visit_type: null,
@@ -1408,6 +1439,7 @@ export default function ClinicDetail() {
   }, [saveProviderSheetRows])
 
   const saveAllProviderSheetRows = useCallback(async (rowsToSave: Record<string, SheetRow[]>) => {
+    console.log('Saving all provider sheet rows:', rowsToSave)
     for (const [providerId, rows] of Object.entries(rowsToSave)) {
       await saveProviderSheetRows(providerId, rows)
     }
@@ -1494,7 +1526,13 @@ export default function ClinicDetail() {
       <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20">
         {activeTab === 'patients' && (
           <div className="p-6">
-            <div className="table-container dark-theme">
+            <div className="table-container dark-theme" style={{ 
+              maxHeight: '600px', 
+              overflowX: 'scroll', 
+              overflowY: 'scroll',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '8px'
+            }}>
               <table className="table-spreadsheet dark-theme">
                 <thead>
                   <tr>
@@ -1702,7 +1740,13 @@ export default function ClinicDetail() {
 
         {activeTab === 'todo' && (
           <div className="p-6">
-            <div className="table-container dark-theme">
+            <div className="table-container dark-theme" style={{ 
+              maxHeight: '600px', 
+              overflowX: 'scroll', 
+              overflowY: 'scroll',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '8px'
+            }}>
               <table className="table-spreadsheet dark-theme">
                 <thead>
                   <tr>
@@ -1868,13 +1912,40 @@ export default function ClinicDetail() {
                 </h2>
               </div>
             )}
-            <div className="table-container dark-theme">
-              <table className="table-spreadsheet dark-theme">
+            <div className="table-container dark-theme" style={{ 
+              maxHeight: '600px', 
+              overflowX: 'scroll', 
+              overflowY: 'scroll',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '8px'
+            }}>
+              <table className="table-spreadsheet dark-theme w-full">
                 <thead>
-                  <tr>
-                    <th>CPT Code</th>
-                    <th>Appt/Note Status</th>
-                    {canEdit && <th style={{ width: '60px' }}>Actions</th>}
+                  <tr className='sticky top-0 text-white z-10'>
+                    <th className='bg-[#0030bf]' style={{ minWidth: '100px' }}>Patient ID</th>
+                    <th className='bg-[#0030bf]' style={{ minWidth: '120px' }}>First Name</th>
+                    <th className='bg-[#0030bf]' style={{ minWidth: '80px' }}>Last Initial</th>
+                    <th className='bg-[#0030bf]' style={{ minWidth: '120px' }}>Insurance</th>
+                    <th className='bg-[#0030bf]' style={{ minWidth: '80px' }}>Co-pay</th>
+                    <th className='bg-[#0030bf]' style={{ minWidth: '80px' }}>Co-Ins</th>
+                    <th className='bg-[#0030bf]' style={{ minWidth: '120px' }}>Date of Service</th>
+
+                    <th className='bg-[#eda600]' style={{ minWidth: '120px' }}>CPT Code</th>
+                    <th className='bg-[#eda600]' style={{ minWidth: '150px' }}>Appt/Note Status</th>
+
+                    <th className='bg-[#083f02]' style={{ minWidth: '120px' }}>Claim Status</th>
+                    <th className='bg-[#083f02]' style={{ minWidth: '120px' }}>Most Recent Submit Date</th>
+                    
+                    <th className='bg-[#5d9f5d]' style={{ minWidth: '100px' }}>Ins Pay</th>
+                    <th className='bg-[#5d9f5d]' style={{ minWidth: '100px' }}>Ins Pay Date</th>
+                    <th className='bg-[#5d9f5d]' style={{ minWidth: '100px' }}>PT RES</th>
+
+                    <th className='bg-[#b191cd]' style={{ minWidth: '120px' }}>Collected from PT</th>
+                    <th className='bg-[#b191cd]' style={{ minWidth: '120px' }}>PT Pay Status</th>
+                    <th className='bg-[#b191cd]' style={{ minWidth: '120px' }}>PT Payment AR Ref Date</th>
+
+                    <th className='bg-[#5d9f5d]' style={{ minWidth: '150px' }}>Notes</th>
+                    {canEdit && <th className='bg-[#5d9f5d]' style={{ width: '60px' }}>Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -1886,7 +1957,7 @@ export default function ClinicDetail() {
                         handleAddProviderSheetRow(targetProviderId)
                       }
                     }} style={{ cursor: 'pointer' }}>
-                      <td colSpan={canEdit ? 3 : 2} style={{ textAlign: 'center', fontStyle: 'italic', color: 'rgba(255,255,255,0.5)' }}>
+                      <td colSpan={canEdit ? 20 : 19} style={{ textAlign: 'center', fontStyle: 'italic', color: 'rgba(255,255,255,0.5)' }}>
                         Click here to add a new row
                       </td>
                     </tr>
@@ -1901,7 +1972,7 @@ export default function ClinicDetail() {
                     if (providersToShow.length === 0) {
                       return (
                         <tr>
-                          <td colSpan={canEdit ? 3 : 2} className="text-center text-white/70 py-8">
+                          <td colSpan={canEdit ? 20 : 19} className="text-center text-white/70 py-8">
                             {providerId ? 'Provider not found' : 'No providers found for this clinic'}
                           </td>
                         </tr>
@@ -1910,7 +1981,7 @@ export default function ClinicDetail() {
                     
                     return providersToShow.flatMap((provider) => {
                       const rows = providerSheetRows[provider.id] || []
-                      
+                    
                       // Filter out empty rows for display logic, but still show them in the table
                       const nonEmptyRows = rows.filter(r => !r.id.startsWith('empty-'))
                       
@@ -1918,35 +1989,20 @@ export default function ClinicDetail() {
                         // Show empty row if no rows exist - clicking will add a row
                         return (
                           <tr key={provider.id}>
-                            <td>
+                            <td colSpan={canEdit ? 20 : 19}>
                               {canEdit ? (
                                 <div
                                   onClick={async () => {
                                     await handleAddProviderSheetRow(provider.id)
                                   }}
-                                  className="cursor-pointer text-white/50 italic hover:text-white"
+                                  className="cursor-pointer text-white/50 italic hover:text-white text-center py-4"
                                 >
-                                  Click to add CPT Code
+                                  Click to add a row
                                 </div>
                               ) : (
-                                <span className="text-white/50">-</span>
+                                <span className="text-white/50 text-center block py-4">No data</span>
                               )}
                             </td>
-                            <td>
-                              {canEdit ? (
-                                <div
-                                  onClick={async () => {
-                                    await handleAddProviderSheetRow(provider.id)
-                                  }}
-                                  className="cursor-pointer text-white/50 italic hover:text-white"
-                                >
-                                  Click to add Status
-                                </div>
-                              ) : (
-                                <span className="text-white/50">-</span>
-                              )}
-                            </td>
-                            {canEdit && <td></td>}
                           </tr>
                         )
                       }
@@ -1954,15 +2010,182 @@ export default function ClinicDetail() {
                       // Show all rows (including empty ones) for spreadsheet-like feel
                       return rows.map((row) => {
                         const isEmpty = row.id.startsWith('empty-')
+                        
+                        // Helper function to render editable cell
+                        const renderEditableCell = (field: keyof SheetRow, type: 'text' | 'date' | 'number' | 'select' | 'patient' | 'month', options?: string[]) => {
+                          const isEditing = editingProviderCell?.providerId === provider.id && 
+                                          editingProviderCell?.rowId === row.id && 
+                                          editingProviderCell?.field === field
+                          
+                          const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+                          
+                          if (isEditing) {
+                            if (type === 'select') {
+                              return (
+                                <select
+                                  value={row[field] as string || ''}
+                                  onChange={(e) => handleUpdateProviderSheetRow(provider.id, row.id, field, e.target.value || null)}
+                                  onBlur={() => {
+                                    setEditingProviderCell(null)
+                                    saveProviderSheetRowsImmediately()
+                                  }}
+                                  autoFocus
+                                  className="w-full patient-input-edit"
+                                  style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
+                                >
+                                  <option value="">Select...</option>
+                                  {options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                </select>
+                              )
+                            } else if (type === 'month') {
+                              return (
+                                <select
+                                  value={row[field] as string || ''}
+                                  onChange={(e) => handleUpdateProviderSheetRow(provider.id, row.id, field, e.target.value || null)}
+                                  onBlur={() => {
+                                    setEditingProviderCell(null)
+                                    saveProviderSheetRowsImmediately()
+                                  }}
+                                  autoFocus
+                                  className="w-full patient-input-edit"
+                                  style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
+                                >
+                                  <option value="">Select Month...</option>
+                                  {months.map(month => (
+                                    <option key={month} value={month}>{month}</option>
+                                  ))}
+                                </select>
+                              )
+                            } else if (type === 'patient') {
+                              return (
+                                <select
+                                  value={row.patient_id || ''}
+                                  onChange={(e) => handleUpdateProviderSheetRow(provider.id, row.id, 'patient_id', e.target.value || null)}
+                                  onBlur={() => {
+                                    setEditingProviderCell(null)
+                                    saveProviderSheetRowsImmediately()
+                                  }}
+                                  autoFocus
+                                  className="w-full patient-input-edit"
+                                  style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
+                                >
+                                  <option value="">Select Patient...</option>
+                                  {patients.map(p => (
+                                    <option key={p.id} value={p.patient_id}>
+                                      {p.patient_id} - {p.first_name} {p.last_name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )
+                            } else {
+                              return (
+                                <input
+                                  type={type}
+                                  value={row[field] as string || ''}
+                                  onChange={(e) => {
+                                    const value = type === 'number' ? (e.target.value ? parseFloat(e.target.value) : null) : e.target.value || null
+                                    handleUpdateProviderSheetRow(provider.id, row.id, field, value)
+                                  }}
+                                  onBlur={() => {
+                                    setEditingProviderCell(null)
+                                    saveProviderSheetRowsImmediately()
+                                  }}
+                                  autoFocus
+                                  className="w-full patient-input-edit"
+                                  style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
+                                />
+                              )
+                            }
+                          }
+                          
+                          return (
+                            <div
+                              onClick={() => canEdit && setEditingProviderCell({ providerId: provider.id, rowId: row.id, field })}
+                              className={canEdit ? 'cursor-pointer' : ''}
+                              style={{ minHeight: '24px' }}
+                            >
+                              {row[field] ? String(row[field]) : (canEdit ? 'Click to add' : '-')}
+                            </div>
+                          )
+                        }
+                        
                         return (
                         <tr key={`${provider.id}-${row.id}`} className={isEmpty ? 'empty-row' : ''}>
+                          {/* Patient ID (Blue section) */}
+                          <td>
+                            {editingProviderCell?.providerId === provider.id && editingProviderCell?.rowId === row.id && editingProviderCell?.field === 'patient_id' ? (
+                              <select
+                                value={row.patient_id || ''}
+                                onChange={(e) => {
+                                  const selectedPatientId = e.target.value || null
+                                  handleUpdateProviderSheetRow(provider.id, row.id, 'patient_id', selectedPatientId)
+                                  
+                                  // Auto-populate patient fields when a patient is selected
+                                  if (selectedPatientId) {
+                                    const selectedPatient = patients.find(p => p.patient_id === selectedPatientId)
+                                    if (selectedPatient) {
+                                      handleUpdateProviderSheetRow(provider.id, row.id, 'patient_first_name', selectedPatient.first_name)
+                                      handleUpdateProviderSheetRow(provider.id, row.id, 'patient_last_name', selectedPatient.last_name)
+                                      handleUpdateProviderSheetRow(provider.id, row.id, 'patient_insurance', selectedPatient.insurance)
+                                      handleUpdateProviderSheetRow(provider.id, row.id, 'patient_copay', selectedPatient.copay)
+                                      handleUpdateProviderSheetRow(provider.id, row.id, 'patient_coinsurance', selectedPatient.coinsurance)
+                                    }
+                                  }
+                                }}
+                                onBlur={() => {
+                                  setEditingProviderCell(null)
+                                  saveProviderSheetRowsImmediately()
+                                }}
+                                autoFocus
+                                className="w-full patient-input-edit"
+                                style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
+                              >
+                                <option value="">Select Patient...</option>
+                                {patients.map(p => (
+                                  <option key={p.id} value={p.patient_id}>
+                                    {p.patient_id} - {p.first_name} {p.last_name}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <div
+                                onClick={() => canEdit && setEditingProviderCell({ providerId: provider.id, rowId: row.id, field: 'patient_id' })}
+                                className={canEdit ? 'cursor-pointer' : ''}
+                                style={{ minHeight: '24px' }}
+                              >
+                                {row.patient_id || (canEdit ? 'Click to add' : '-')}
+                              </div>
+                            )}
+                          </td>
+                          
+                          {/* First Name (Blue section) */}
+                          <td>{renderEditableCell('patient_first_name', 'text')}</td>
+                          
+                          {/* Last Initial (Blue section) */}
+                          <td>
+                            <div style={{ minHeight: '24px' }}>
+                              {row.patient_last_name ? row.patient_last_name.charAt(0) : (canEdit ? '-' : '-')}
+                            </div>
+                          </td>
+                          
+                          {/* Insurance (Blue section) */}
+                          <td>{renderEditableCell('patient_insurance', 'text')}</td>
+                          
+                          {/* Co-pay (Blue section) */}
+                          <td>{renderEditableCell('patient_copay', 'number')}</td>
+                          
+                          {/* Co-Ins (Blue section) */}
+                          <td>{renderEditableCell('patient_coinsurance', 'number')}</td>
+                          
+                          {/* Date of Service (Blue section) */}
+                          <td>{renderEditableCell('appointment_date', 'date')}</td>
+                          
+                          {/* CPT Code (Orange section) */}
                           <td>
                             {editingProviderCell?.providerId === provider.id && editingProviderCell?.rowId === row.id && editingProviderCell?.field === 'billing_code' ? (
                               <select
                                 value={row.billing_code || ''}
-                                onChange={(e) => {
-                                  handleUpdateProviderSheetRow(provider.id, row.id, 'billing_code', e.target.value || null)
-                                }}
+                                onChange={(e) => handleUpdateProviderSheetRow(provider.id, row.id, 'billing_code', e.target.value || null)}
                                 onBlur={() => {
                                   setEditingProviderCell(null)
                                   saveProviderSheetRowsImmediately()
@@ -1997,39 +2220,68 @@ export default function ClinicDetail() {
                               </div>
                             )}
                           </td>
+                          
+                          {/* Appt/Note Status (Orange section) */}
                           <td>
-                            {editingProviderCell?.providerId === provider.id && editingProviderCell?.rowId === row.id && editingProviderCell?.field === 'appointment_status' ? (
-                              <select
-                                value={row.appointment_status || ''}
-                                onChange={(e) => {
-                                  handleUpdateProviderSheetRow(provider.id, row.id, 'appointment_status', e.target.value || null)
-                                }}
-                                onBlur={() => {
-                                  setEditingProviderCell(null)
-                                  saveProviderSheetRowsImmediately()
-                                }}
-                                autoFocus
-                                className="w-full patient-input-edit"
-                                style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
-                              >
-                                <option value="">Select Status...</option>
-                                <option value="Complete">Complete</option>
-                                <option value="PP Complete">PP Complete</option>
-                                <option value="NS/LC/RS-no charge">NS/LC/RS-no charge</option>
-                                <option value="NS/LC-Charge">NS/LC-Charge</option>
-                                <option value="NS/LC-No Charge">NS/LC-No Charge</option>
-                                <option value="Note Not Complete">Note Not Complete</option>
-                              </select>
-                            ) : (
-                              <div
-                                onClick={() => canEdit && setEditingProviderCell({ providerId: provider.id, rowId: row.id, field: 'appointment_status' })}
-                                className={canEdit ? 'cursor-pointer' : ''}
-                                style={{ minHeight: '24px' }}
-                              >
-                                {row.appointment_status || (canEdit ? 'Click to add' : '-')}
-                              </div>
-                            )}
+                            {renderEditableCell('appointment_status', 'select', [
+                              'Complete',
+                              'PP Complete',
+                              'Charge NS/LC',
+                              'RS No Charge',
+                              'NS No Charge',
+                              'Note not complete'
+                            ])}
                           </td>
+                          
+                          {/* Claim Status (Dark Green section) */}
+                          <td>
+                            {renderEditableCell('claim_status', 'select', [
+                              'Claim Sent',
+                              'RS',
+                              'IP',
+                              'Paid',
+                              'Deductible',
+                              'N/A',
+                              'PP',
+                              'Denial',
+                              'Rejection',
+                              'No Coverage'
+                            ])}
+                          </td>
+                          
+                          {/* Most Recent Submit Date (Dark Green section) */}
+                          <td>{renderEditableCell('submit_date', 'date')}</td>
+                          
+                          {/* Ins Pay (Light Green section) */}
+                          <td>{renderEditableCell('insurance_payment', 'text')}</td>
+                          
+                          {/* Ins Pay Date (Light Green section) */}
+                          <td>{renderEditableCell('payment_date', 'month')}</td>
+                          
+                          {/* PT RES (Light Green section) - Using insurance_adjustment */}
+                          <td>{renderEditableCell('insurance_adjustment', 'text')}</td>
+                          
+                          {/* Collected from PT (Purple section) */}
+                          <td>{renderEditableCell('collected_from_patient', 'text')}</td>
+                          
+                          {/* PT Pay Status (Purple section) */}
+                          <td>
+                            {renderEditableCell('patient_pay_status', 'select', [
+                              'Paid',
+                              'CC declined',
+                              'Secondary',
+                              'Refunded',
+                              'Payment Plan',
+                              'Waiting on Claims'
+                            ])}
+                          </td>
+                          
+                          {/* PT Payment AR Ref Date (Purple section) - Using ar_date */}
+                          <td>{renderEditableCell('ar_date', 'month')}</td>
+                          
+                          {/* Notes (Light Green section) */}
+                          <td>{renderEditableCell('notes', 'text')}</td>
+                          
                           {canEdit && (
                             <td>
                               <button

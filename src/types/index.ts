@@ -106,6 +106,11 @@ export interface SheetRow {
   id: string
   // Columns A-G: Scheduling
   patient_id: string | null
+  patient_first_name: string | null
+  patient_last_name: string | null
+  patient_insurance: string | null
+  patient_copay: number | null
+  patient_coinsurance: number | null
   appointment_date: string | null
   appointment_time: string | null
   visit_type: string | null
@@ -119,12 +124,12 @@ export interface SheetRow {
   // Columns J-M: Claim status
   claim_status: ClaimStatus | null
   submit_date: string | null
-  insurance_payment: number | null
-  insurance_adjustment: number | null
+  insurance_payment: string | null
+  insurance_adjustment: string | null
   
   // Columns N-Q: Patient invoice/payment
   invoice_amount: number | null
-  collected_from_patient: number | null
+  collected_from_patient: string | null
   patient_pay_status: PatientPayStatus | null
   payment_date: string | null
   
