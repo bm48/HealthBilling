@@ -15,9 +15,16 @@ interface DashboardStats {
   totalTodosCompleted: number
 }
 
+interface ClinicStats {
+  clinicId: string
+  patientCount: number
+  providerCount: number
+}
+
 export default function Dashboard() {
   const { userProfile } = useAuth()
   const [clinics, setClinics] = useState<Clinic[]>([])
+  const [clinicStats, setClinicStats] = useState<Record<string, ClinicStats>>({})
   const [stats, setStats] = useState<DashboardStats>({
     totalClinics: 0,
     totalPatients: 0,
@@ -63,6 +70,11 @@ export default function Dashboard() {
 
       if (clinicsError) throw clinicsError
       setClinics(clinicsList || [])
+      
+      // Fetch stats for each clinic
+      if (clinicsList && clinicsList.length > 0) {
+        await fetchClinicStats(clinicsList.map(c => c.id))
+      }
 
       // Calculate stats
       const todos = todosData.data || []
@@ -99,8 +111,45 @@ export default function Dashboard() {
       const { data, error } = await query
       if (error) throw error
       setClinics(data || [])
+      
+      // Fetch stats for each clinic
+      if (data && data.length > 0) {
+        await fetchClinicStats(data.map(c => c.id))
+      }
     } catch (error) {
       // Error fetching clinics
+    }
+  }
+
+  const fetchClinicStats = async (clinicIds: string[]) => {
+    try {
+      const statsMap: Record<string, ClinicStats> = {}
+
+      // Fetch patient and provider counts for each clinic in parallel
+      await Promise.all(
+        clinicIds.map(async (clinicId) => {
+          const [patientsResult, providersResult] = await Promise.all([
+            supabase
+              .from('patients')
+              .select('id', { count: 'exact', head: true })
+              .eq('clinic_id', clinicId),
+            supabase
+              .from('providers')
+              .select('id', { count: 'exact', head: true })
+              .eq('clinic_id', clinicId),
+          ])
+
+          statsMap[clinicId] = {
+            clinicId,
+            patientCount: patientsResult.count || 0,
+            providerCount: providersResult.count || 0,
+          }
+        })
+      )
+
+      setClinicStats(statsMap)
+    } catch (error) {
+      console.error('Error fetching clinic stats:', error)
     }
   }
 
@@ -202,21 +251,45 @@ export default function Dashboard() {
           <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
             <h2 className="text-xl font-semibold text-white mb-4">All Clinics</h2>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {clinics.map((clinic) => (
-                <Link
-                  key={clinic.id}
-                  to={`/clinic/${clinic.id}/patients`}
-                  className="border border-white/20 rounded-lg p-4 hover:border-primary-400/50 transition-colors bg-white/5 cursor-pointer"
-                >
-                  <h3 className="font-semibold text-white">{clinic.name}</h3>
-                  {clinic.address && (
-                    <p className="text-sm text-white/60 mt-1">{clinic.address}</p>
-                  )}
-                  {clinic.phone && (
-                    <p className="text-sm text-white/60 mt-1">{clinic.phone}</p>
-                  )}
-                </Link>
-              ))}
+              {clinics.map((clinic) => {
+                const stats = clinicStats[clinic.id]
+                return (
+                  <Link
+                    key={clinic.id}
+                    to={`/clinic/${clinic.id}/patients`}
+                    className="border border-white/20 rounded-lg p-4 hover:border-primary-400/50 transition-colors bg-white/5 cursor-pointer"
+                  >
+                    <h3 className="font-semibold text-white mb-3">{clinic.name}</h3>
+                    
+                    {/* Stats Section */}
+                    {stats && (
+                      <div className="flex gap-4 mb-3">
+                        <div className="flex items-center gap-2">
+                          <Users size={16} className="text-green-400" />
+                          <div>
+                            <p className="text-xs text-white/60">Patients</p>
+                            <p className="text-sm font-semibold text-white">{stats.patientCount}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <FileText size={16} className="text-blue-400" />
+                          <div>
+                            <p className="text-xs text-white/60">Providers</p>
+                            <p className="text-sm font-semibold text-white">{stats.providerCount}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {clinic.address && (
+                      <p className="text-sm text-white/60 mt-1">{clinic.address}</p>
+                    )}
+                    {clinic.phone && (
+                      <p className="text-sm text-white/60 mt-1">{clinic.phone}</p>
+                    )}
+                  </Link>
+                )
+              })}
             </div>
           </div>
         )}
@@ -254,17 +327,42 @@ export default function Dashboard() {
         <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
           <h2 className="text-xl font-semibold text-white mb-4">Your Clinics</h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {clinics.map((clinic) => (
-              <div
-                key={clinic.id}
-                className="border border-white/20 rounded-lg p-4 hover:border-primary-400/50 transition-colors bg-white/5"
-              >
-                <h3 className="font-semibold text-white">{clinic.name}</h3>
-                {clinic.address && (
-                  <p className="text-sm text-white/60 mt-1">{clinic.address}</p>
-                )}
-              </div>
-            ))}
+            {clinics.map((clinic) => {
+              const stats = clinicStats[clinic.id]
+              return (
+                <Link
+                  key={clinic.id}
+                  to={`/clinic/${clinic.id}/patients`}
+                  className="border border-white/20 rounded-lg p-4 hover:border-primary-400/50 transition-colors bg-white/5 cursor-pointer"
+                >
+                  <h3 className="font-semibold text-white mb-3">{clinic.name}</h3>
+                  
+                  {/* Stats Section */}
+                  {stats && (
+                    <div className="flex gap-4 mb-3">
+                      <div className="flex items-center gap-2">
+                        <Users size={16} className="text-green-400" />
+                        <div>
+                          <p className="text-xs text-white/60">Patients</p>
+                          <p className="text-sm font-semibold text-white">{stats.patientCount}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <FileText size={16} className="text-blue-400" />
+                        <div>
+                          <p className="text-xs text-white/60">Providers</p>
+                          <p className="text-sm font-semibold text-white">{stats.providerCount}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {clinic.address && (
+                    <p className="text-sm text-white/60 mt-1">{clinic.address}</p>
+                  )}
+                </Link>
+              )
+            })}
           </div>
         </div>
       )}

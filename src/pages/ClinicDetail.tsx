@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
-import { Patient, TodoItem, TodoNote, ProviderSheet, SheetRow, Clinic, Provider, BillingCode } from '@/types'
+import { Patient, TodoItem, TodoNote, ProviderSheet, SheetRow, Clinic, Provider, BillingCode, StatusColor, ColumnLock } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
-import { Users, CheckSquare, FileText, Trash2 } from 'lucide-react'
+import { Users, CheckSquare, FileText, Trash2, Lock, Unlock, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useDebouncedSave } from '@/lib/useDebouncedSave'
 
 type TabType = 'patients' | 'todo' | 'providers'
@@ -34,7 +34,15 @@ export default function ClinicDetail() {
   const [providerSheets, setProviderSheets] = useState<Record<string, ProviderSheet>>({})
   const [providerSheetRows, setProviderSheetRows] = useState<Record<string, SheetRow[]>>({})
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])
+  const [statusColors, setStatusColors] = useState<StatusColor[]>([])
+  const [columnLocks, setColumnLocks] = useState<ColumnLock[]>([])
+  const [showLockDialog, setShowLockDialog] = useState(false)
+  const [selectedLockColumn, setSelectedLockColumn] = useState<{ columnName: string; providerId: string | null } | null>(null)
+  const [lockComment, setLockComment] = useState('')
   const [editingProviderCell, setEditingProviderCell] = useState<{ providerId: string; rowId: string; field: string } | null>(null)
+  
+  // Month filter for provider tab
+  const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
   const providersRef = useRef<Provider[]>([])
   const providerSheetRowsRef = useRef<Record<string, SheetRow[]>>({})
 
@@ -91,6 +99,8 @@ export default function ClinicDetail() {
         if (activeTab === 'providers') {
           fetchPatients() // Need patients for displaying patient info
           fetchBillingCodes()
+          fetchStatusColors()
+          fetchColumnLocks()
           fetchProviders()
         }
       } else {
@@ -98,7 +108,15 @@ export default function ClinicDetail() {
         fetchData()
       }
     }
-  }, [clinicId, activeTab, providerId])
+  }, [clinicId, activeTab, providerId, selectedMonth])
+
+  // Refetch provider sheets when selectedMonth changes (for non-providerId view)
+  useEffect(() => {
+    if (clinicId && activeTab === 'providers' && !providerId) {
+      console.log('Selected month changed, refetching provider sheets:', selectedMonth)
+      fetchProviderSheets()
+    }
+  }, [selectedMonth])
 
   const fetchClinic = async () => {
     try {
@@ -127,6 +145,8 @@ export default function ClinicDetail() {
       } else if (activeTab === 'providers') {
         await fetchPatients() // Need patients for displaying patient info in provider sheets
         await fetchBillingCodes()
+        await fetchStatusColors()
+        await fetchColumnLocks()
         await fetchProviders()
         await fetchProviderSheets()
       }
@@ -149,6 +169,190 @@ export default function ClinicDetail() {
     } catch (error) {
       console.error('Error fetching billing codes:', error)
     }
+  }
+
+  const fetchStatusColors = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('status_colors')
+        .select('*')
+      console.log("data: ",data)
+      if (error) {
+        // If table doesn't exist yet, use default colors
+        console.log('Status colors table not found, using defaults')
+        setStatusColors(getDefaultStatusColors())
+        return
+      }
+      
+      if (data && data.length > 0) {
+        console.log('Loaded status colors from database:', data)
+        setStatusColors(data)
+      } else {
+        console.log('No status colors found in database, using defaults')
+        setStatusColors(getDefaultStatusColors())
+      }
+    } catch (error) {
+      console.error('Error fetching status colors:', error)
+      setStatusColors(getDefaultStatusColors())
+    }
+  }
+
+  const fetchColumnLocks = async () => {
+    if (!clinicId) return
+    
+    try {
+      const { data, error } = await supabase
+        .from('column_locks')
+        .select('*')
+        .eq('clinic_id', clinicId)
+      
+      if (error) {
+        console.log('Column locks table not found or error:', error)
+        setColumnLocks([])
+        return
+      }
+      setColumnLocks(data || [])
+    } catch (error) {
+      console.error('Error fetching column locks:', error)
+      setColumnLocks([])
+    }
+  }
+
+  const isColumnLocked = (columnName: string, providerId?: string | null): ColumnLock | null => {
+    return columnLocks.find(lock => 
+      lock.column_name === columnName && 
+      lock.is_locked &&
+      (lock.provider_id === (providerId || null))
+    ) || null
+  }
+
+  const handleToggleColumnLock = async (columnName: string, providerId: string | null, isLocked: boolean, comment?: string) => {
+    if (!clinicId || !userProfile?.id) return
+
+    try {
+      const existing = columnLocks.find(lock => 
+        lock.column_name === columnName && 
+        lock.provider_id === (providerId || null)
+      )
+
+      if (existing) {
+        // Update existing lock
+        const { error } = await supabase
+          .from('column_locks')
+          .update({
+            is_locked: isLocked,
+            comment: comment || existing.comment,
+            locked_by: userProfile?.id,
+            locked_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existing.id)
+
+        if (error) throw error
+      } else {
+        // Create new lock
+        const { error } = await supabase
+          .from('column_locks')
+          .insert({
+            clinic_id: clinicId,
+            provider_id: providerId,
+            column_name: columnName,
+            is_locked: isLocked,
+            comment: comment || null,
+            locked_by: userProfile?.id,
+            locked_at: new Date().toISOString()
+          })
+
+        if (error) throw error
+      }
+
+      // Refresh column locks
+      await fetchColumnLocks()
+      setShowLockDialog(false)
+      setSelectedLockColumn(null)
+      setLockComment('')
+    } catch (error) {
+      console.error('Error toggling column lock:', error)
+      alert('Failed to update column lock')
+    }
+  }
+
+  // Month navigation functions
+  const handlePreviousMonth = () => {
+    setSelectedMonth(prevDate => {
+      const newDate = new Date(prevDate)
+      newDate.setMonth(newDate.getMonth() - 1)
+      console.log('handlePreviousMonth: ', newDate)
+      return newDate
+    })
+  }
+
+  const handleNextMonth = () => {
+    setSelectedMonth(prevDate => {
+      const newDate = new Date(prevDate)
+      newDate.setMonth(newDate.getMonth() + 1)
+      console.log('handleNextMonth: ', newDate)
+      return newDate
+    })
+  }
+
+  const formatMonthYear = (date: Date) => {
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  }
+
+  const filterRowsByMonth = (rows: SheetRow[]) => {
+    // Since we're now fetching provider sheets by month/year from the database,
+    // all rows already belong to the selected month. No filtering needed.
+    // Just return all rows (including empty rows for data entry)
+    console.log('Provider sheet rows for selected month:', rows.length)
+    return rows
+  }
+
+  // Default color mappings
+  const getDefaultStatusColors = (): StatusColor[] => {
+    return [
+      // Appointment Status Colors
+      { id: '1', status: 'Complete', color: '#22c55e', text_color: '#ffffff', type: 'appointment', created_at: '', updated_at: '' },
+      { id: '2', status: 'PP Complete', color: '#3b82f6', text_color: '#ffffff', type: 'appointment', created_at: '', updated_at: '' },
+      { id: '3', status: 'Charge NS/LC', color: '#f59e0b', text_color: '#000000', type: 'appointment', created_at: '', updated_at: '' },
+      { id: '4', status: 'RS No Charge', color: '#ef4444', text_color: '#ffffff', type: 'appointment', created_at: '', updated_at: '' },
+      { id: '5', status: 'NS No Charge', color: '#6b7280', text_color: '#ffffff', type: 'appointment', created_at: '', updated_at: '' },
+      { id: '6', status: 'Note not complete', color: '#dc2626', text_color: '#ffffff', type: 'appointment', created_at: '', updated_at: '' },
+      
+      // Claim Status Colors
+      { id: '7', status: 'Claim Sent', color: '#3b82f6', text_color: '#ffffff', type: 'claim', created_at: '', updated_at: '' },
+      { id: '8', status: 'RS', color: '#f59e0b', text_color: '#000000', type: 'claim', created_at: '', updated_at: '' },
+      { id: '9', status: 'IP', color: '#eab308', text_color: '#000000', type: 'claim', created_at: '', updated_at: '' },
+      { id: '10', status: 'Paid', color: '#22c55e', text_color: '#ffffff', type: 'claim', created_at: '', updated_at: '' },
+      { id: '11', status: 'Deductible', color: '#a855f7', text_color: '#ffffff', type: 'claim', created_at: '', updated_at: '' },
+      { id: '12', status: 'N/A', color: '#6b7280', text_color: '#ffffff', type: 'claim', created_at: '', updated_at: '' },
+      { id: '13', status: 'PP', color: '#06b6d4', text_color: '#ffffff', type: 'claim', created_at: '', updated_at: '' },
+      { id: '14', status: 'Denial', color: '#ef4444', text_color: '#ffffff', type: 'claim', created_at: '', updated_at: '' },
+      { id: '15', status: 'Rejection', color: '#dc2626', text_color: '#ffffff', type: 'claim', created_at: '', updated_at: '' },
+      { id: '16', status: 'No Coverage', color: '#991b1b', text_color: '#ffffff', type: 'claim', created_at: '', updated_at: '' },
+      
+      // Patient Pay Status Colors
+      { id: '17', status: 'Paid', color: '#22c55e', text_color: '#ffffff', type: 'patient_pay', created_at: '', updated_at: '' },
+      { id: '18', status: 'CC declined', color: '#ef4444', text_color: '#ffffff', type: 'patient_pay', created_at: '', updated_at: '' },
+      { id: '19', status: 'Secondary', color: '#3b82f6', text_color: '#ffffff', type: 'patient_pay', created_at: '', updated_at: '' },
+      { id: '20', status: 'Refunded', color: '#f59e0b', text_color: '#000000', type: 'patient_pay', created_at: '', updated_at: '' },
+      { id: '21', status: 'Payment Plan', color: '#a855f7', text_color: '#ffffff', type: 'patient_pay', created_at: '', updated_at: '' },
+      { id: '22', status: 'Waiting on Claims', color: '#6b7280', text_color: '#ffffff', type: 'patient_pay', created_at: '', updated_at: '' },
+      
+      // Month Colors
+      { id: '23', status: 'January', color: '#dc2626', text_color: '#ffffff', type: 'month', created_at: '', updated_at: '' },
+      { id: '24', status: 'February', color: '#ec4899', text_color: '#ffffff', type: 'month', created_at: '', updated_at: '' },
+      { id: '25', status: 'March', color: '#f59e0b', text_color: '#000000', type: 'month', created_at: '', updated_at: '' },
+      { id: '26', status: 'April', color: '#fde047', text_color: '#000000', type: 'month', created_at: '', updated_at: '' },
+      { id: '27', status: 'May', color: '#84cc16', text_color: '#ffffff', type: 'month', created_at: '', updated_at: '' },
+      { id: '28', status: 'June', color: '#22c55e', text_color: '#ffffff', type: 'month', created_at: '', updated_at: '' },
+      { id: '29', status: 'July', color: '#06b6d4', text_color: '#ffffff', type: 'month', created_at: '', updated_at: '' },
+      { id: '30', status: 'August', color: '#0284c7', text_color: '#ffffff', type: 'month', created_at: '', updated_at: '' },
+      { id: '31', status: 'September', color: '#6366f1', text_color: '#ffffff', type: 'month', created_at: '', updated_at: '' },
+      { id: '32', status: 'October', color: '#f97316', text_color: '#ffffff', type: 'month', created_at: '', updated_at: '' },
+      { id: '33', status: 'November', color: '#a855f7', text_color: '#ffffff', type: 'month', created_at: '', updated_at: '' },
+      { id: '34', status: 'December', color: '#0ea5e9', text_color: '#ffffff', type: 'month', created_at: '', updated_at: '' },
+    ]
   }
 
   const createEmptyPatient = (index: number): Patient => ({
@@ -834,24 +1038,25 @@ export default function ClinicDetail() {
       
       setCurrentProvider(providerData)
 
-      // Get current month/year for default sheet
-      const now = new Date()
-      const month = now.getMonth() + 1
-      const year = now.getFullYear()
+      // Use selected month/year instead of current date
+      const month = selectedMonth.getMonth() + 1
+      const year = selectedMonth.getFullYear()
 
-      // Fetch all sheets for this provider in this clinic
-      const { data: sheetsData, error: sheetsError } = await supabase
+      console.log('Fetching provider sheet data for:', { providerId, month, year })
+
+      // Fetch sheet for the selected month/year
+      const { data: existingSheet, error: sheetsError } = await supabase
         .from('provider_sheets')
         .select('*')
         .eq('clinic_id', clinicId)
         .eq('provider_id', providerId)
-        .order('year', { ascending: false })
-        .order('month', { ascending: false })
+        .eq('month', month)
+        .eq('year', year)
+        .maybeSingle()
 
-      if (sheetsError) throw sheetsError
+      if (sheetsError && sheetsError.code !== 'PGRST116') throw sheetsError
 
-      // Use the most recent sheet, or create a new one if none exists
-      let sheet = sheetsData && sheetsData.length > 0 ? sheetsData[0] : null
+      let sheet = existingSheet
 
       if (!sheet) {
         // Create a new sheet
@@ -918,22 +1123,31 @@ export default function ClinicDetail() {
         billing_code: null,
         billing_code_color: null,
         appointment_status: null,
+        appointment_status_color: null,
         claim_status: null,
+        claim_status_color: null,
         submit_date: null,
         insurance_payment: null,
         insurance_adjustment: null,
         invoice_amount: null,
         collected_from_patient: null,
         patient_pay_status: null,
+        patient_pay_status_color: null,
         payment_date: null,
+        payment_date_color: null,
         ar_type: null,
         ar_amount: null,
         ar_date: null,
+        ar_date_color: null,
         ar_notes: null,
         provider_payment_amount: null,
         provider_payment_date: null,
         provider_payment_notes: null,
         highlight_color: null,
+        total: null,
+        last_initial: null,
+        cpt_code: null,
+        cpt_code_color: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -1005,22 +1219,31 @@ export default function ClinicDetail() {
             billing_code: row.cpt_code || null,
             billing_code_color: null,
             appointment_status: row.appointment_status as any || null,
+            appointment_status_color: null,
             claim_status: null,
+            claim_status_color: null,
             submit_date: null,
             insurance_payment: null,
             insurance_adjustment: null,
             invoice_amount: null,
             collected_from_patient: null,
             patient_pay_status: null,
+            patient_pay_status_color: null,
             payment_date: null,
+            payment_date_color: null,
             ar_type: null,
             ar_amount: null,
             ar_date: null,
+            ar_date_color: null,
             ar_notes: null,
             provider_payment_amount: null,
             provider_payment_date: null,
             provider_payment_notes: null,
             highlight_color: null,
+            total: null,
+            last_initial: null,
+            cpt_code: null,
+            cpt_code_color: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           }
@@ -1078,10 +1301,11 @@ export default function ClinicDetail() {
     if (!clinicId || !userProfile) return
 
     try {
-      // Get current month/year
-      const now = new Date()
-      const month = now.getMonth() + 1
-      const year = now.getFullYear()
+      // Use selected month/year instead of current date
+      const month = selectedMonth.getMonth() + 1
+      const year = selectedMonth.getFullYear()
+
+      console.log('Fetching provider sheets for:', { month, year })
 
       // Fetch all providers for this clinic
       const { data: providersData } = await supabase
@@ -1158,22 +1382,31 @@ export default function ClinicDetail() {
           billing_code: null,
           billing_code_color: null,
           appointment_status: null,
+          appointment_status_color: null,
           claim_status: null,
+          claim_status_color: null,
           submit_date: null,
           insurance_payment: null,
           insurance_adjustment: null,
           invoice_amount: null,
           collected_from_patient: null,
           patient_pay_status: null,
+          patient_pay_status_color: null,
           payment_date: null,
+          payment_date_color: null,
           ar_type: null,
           ar_amount: null,
           ar_date: null,
+          ar_date_color: null,
           ar_notes: null,
           provider_payment_amount: null,
           provider_payment_date: null,
           provider_payment_notes: null,
           highlight_color: null,
+          total: null,
+          last_initial: null,
+          cpt_code: null,
+          cpt_code_color: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -1234,22 +1467,31 @@ export default function ClinicDetail() {
           billing_code: null,
           billing_code_color: null,
           appointment_status: null,
+          appointment_status_color: null,
           claim_status: null,
+          claim_status_color: null,
           submit_date: null,
           insurance_payment: null,
           insurance_adjustment: null,
           invoice_amount: null,
           collected_from_patient: null,
           patient_pay_status: null,
+          patient_pay_status_color: null,
           payment_date: null,
+          payment_date_color: null,
           ar_type: null,
           ar_amount: null,
           ar_date: null,
+          ar_date_color: null,
           ar_notes: null,
           provider_payment_amount: null,
           provider_payment_date: null,
           provider_payment_notes: null,
           highlight_color: null,
+          total: null,
+          last_initial: null,
+          cpt_code: null,
+          cpt_code_color: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -1283,6 +1525,33 @@ export default function ClinicDetail() {
             if (field === 'billing_code') {
               const code = billingCodes.find(c => c.code === value)
               updated.billing_code_color = code?.color || null
+            } else if (field === 'cpt_code') {
+              // Handle multiple CPT codes (comma-separated)
+              if (value) {
+                const codes = value.split(',').map((c: string) => c.trim())
+                const colors = codes.map((c: string) => {
+                  const code = billingCodes.find(bc => bc.code === c)
+                  return code?.color || '#cccccc'
+                })
+                updated.cpt_code_color = colors.join(',')
+              } else {
+                updated.cpt_code_color = null
+              }
+            } else if (field === 'appointment_status') {
+              const status = statusColors.find(s => s.status === value && s.type === 'appointment')
+              updated.appointment_status_color = status?.color || null
+            } else if (field === 'claim_status') {
+              const status = statusColors.find(s => s.status === value && s.type === 'claim')
+              updated.claim_status_color = status?.color || null
+            } else if (field === 'patient_pay_status') {
+              const status = statusColors.find(s => s.status === value && s.type === 'patient_pay')
+              updated.patient_pay_status_color = status?.color || null
+            } else if (field === 'payment_date') {
+              const month = statusColors.find(s => s.status === value && s.type === 'month')
+              updated.payment_date_color = month?.color || null
+            } else if (field === 'ar_date') {
+              const month = statusColors.find(s => s.status === value && s.type === 'month')
+              updated.ar_date_color = month?.color || null
             }
             return updated
           }
@@ -1290,6 +1559,33 @@ export default function ClinicDetail() {
           if (field === 'billing_code') {
             const code = billingCodes.find(c => c.code === value)
             updated.billing_code_color = code?.color || null
+          } else if (field === 'cpt_code') {
+            // Handle multiple CPT codes (comma-separated)
+            if (value) {
+              const codes = value.split(',').map((c: string) => c.trim())
+              const colors = codes.map((c: string) => {
+                const code = billingCodes.find(bc => bc.code === c)
+                return code?.color || '#cccccc'
+              })
+              updated.cpt_code_color = colors.join(',')
+            } else {
+              updated.cpt_code_color = null
+            }
+          } else if (field === 'appointment_status') {
+            const status = statusColors.find(s => s.status === value && s.type === 'appointment')
+            updated.appointment_status_color = status?.color || null
+          } else if (field === 'claim_status') {
+            const status = statusColors.find(s => s.status === value && s.type === 'claim')
+            updated.claim_status_color = status?.color || null
+          } else if (field === 'patient_pay_status') {
+            const status = statusColors.find(s => s.status === value && s.type === 'patient_pay')
+            updated.patient_pay_status_color = status?.color || null
+          } else if (field === 'payment_date') {
+            const month = statusColors.find(s => s.status === value && s.type === 'month')
+            updated.payment_date_color = month?.color || null
+          } else if (field === 'ar_date') {
+            const month = statusColors.find(s => s.status === value && s.type === 'month')
+            updated.ar_date_color = month?.color || null
           }
           return updated
         }
@@ -1316,22 +1612,31 @@ export default function ClinicDetail() {
           billing_code: null,
           billing_code_color: null,
           appointment_status: null,
+          appointment_status_color: null,
           claim_status: null,
+          claim_status_color: null,
           submit_date: null,
           insurance_payment: null,
           insurance_adjustment: null,
           invoice_amount: null,
           collected_from_patient: null,
           patient_pay_status: null,
+          patient_pay_status_color: null,
           payment_date: null,
+          payment_date_color: null,
           ar_type: null,
           ar_amount: null,
           ar_date: null,
+          ar_date_color: null,
           ar_notes: null,
           provider_payment_amount: null,
           provider_payment_date: null,
           provider_payment_notes: null,
           highlight_color: null,
+          total: null,
+          last_initial: null,
+          cpt_code: null,
+          cpt_code_color: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -1342,7 +1647,7 @@ export default function ClinicDetail() {
       }
       return { ...prev, [providerId]: updatedRows }
     })
-  }, [billingCodes])
+  }, [billingCodes, statusColors])
 
   const handleAddProviderSheetRow = useCallback(async (providerId: string) => {
     // Ensure provider sheet exists
@@ -1397,22 +1702,31 @@ export default function ClinicDetail() {
       billing_code: null,
       billing_code_color: null,
       appointment_status: null,
+      appointment_status_color: null,
       claim_status: null,
+      claim_status_color: null,
       submit_date: null,
       insurance_payment: null,
       insurance_adjustment: null,
       invoice_amount: null,
       collected_from_patient: null,
       patient_pay_status: null,
+      patient_pay_status_color: null,
       payment_date: null,
+      payment_date_color: null,
       ar_type: null,
       ar_amount: null,
       ar_date: null,
+      ar_date_color: null,
       ar_notes: null,
       provider_payment_amount: null,
       provider_payment_date: null,
       provider_payment_notes: null,
       highlight_color: null,
+      total: null,
+      last_initial: null,
+      cpt_code: null,
+      cpt_code_color: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
@@ -1535,7 +1849,7 @@ export default function ClinicDetail() {
             }}>
               <table className="table-spreadsheet dark-theme">
                 <thead>
-                  <tr>
+                  <tr className='sticky top-0 z-10 bg-[#0a7b71]'>
                     <th>Patient ID</th>
                     <th>Patient First</th>
                     <th>Patient Last</th>
@@ -1575,7 +1889,6 @@ export default function ClinicDetail() {
                                   setEditingPatientCell(null)
                                   savePatientsImmediately()
                                 }}
-                                autoFocus
                                 className="w-full patient-input-edit"
                                 style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
                               />
@@ -1600,7 +1913,6 @@ export default function ClinicDetail() {
                                   setEditingPatientCell(null)
                                   savePatientsImmediately()
                                 }}
-                                autoFocus
                                 className="w-full patient-input-edit"
                                 style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
                               />
@@ -1624,7 +1936,6 @@ export default function ClinicDetail() {
                                   setEditingPatientCell(null)
                                   savePatientsImmediately()
                                 }}
-                                autoFocus
                                 className="w-full patient-input-edit"
                                 style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
                               />
@@ -1648,7 +1959,6 @@ export default function ClinicDetail() {
                                   setEditingPatientCell(null)
                                   savePatientsImmediately()
                                 }}
-                                autoFocus
                                 className="w-full patient-input-edit"
                                 style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
                               />
@@ -1673,7 +1983,6 @@ export default function ClinicDetail() {
                                   setEditingPatientCell(null)
                                   savePatientsImmediately()
                                 }}
-                                autoFocus
                                 className="w-full patient-input-edit"
                                 style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
                               />
@@ -1698,7 +2007,6 @@ export default function ClinicDetail() {
                                   setEditingPatientCell(null)
                                   savePatientsImmediately()
                                 }}
-                                autoFocus
                                 className="w-full patient-input-edit"
                                 style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
                               />
@@ -1749,7 +2057,7 @@ export default function ClinicDetail() {
             }}>
               <table className="table-spreadsheet dark-theme">
                 <thead>
-                  <tr>
+                  <tr className='sticky top-0 z-10 bg-[#0a7b71]'>
                     <th>ID</th>
                     <th>Status</th>
                     <th>Issue</th>
@@ -1790,20 +2098,39 @@ export default function ClinicDetail() {
                                   setEditingTodoCell(null)
                                   saveTodosImmediately()
                                 }}
-                                autoFocus
                                 className="w-full patient-input-edit"
-                                style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
+                                style={{ 
+                                  color: '#ffffff', 
+                                  backgroundColor: todo.status === 'Open' ? '#238eff' : 
+                                                   todo.status === 'In Progress' ? '#714ec5' : 
+                                                   todo.status === 'Completed' ? '#00bb5a' : 
+                                                   '#714ec5',
+                                  fontWeight: '500'
+                                }}
                               >
-                                <option value="Open" style={{ color: '#000000' }}>Open</option>
-                                <option value="In Progress" style={{ color: '#000000' }}>In Progress</option>
-                                <option value="Completed" style={{ color: '#000000' }}>Completed</option>
+                                <option value="Open" style={{backgroundColor: '#238eff', color: '#ffffff' }}>Open</option>
+                                <option value="In Progress" style={{ backgroundColor: '#714ec5', color: '#ffffff' }}>In Progress</option>
+                                <option value="Completed" style={{ backgroundColor: '#00bb5a', color: '#ffffff' }}>Completed</option>
                               </select>
                             ) : (
                               <div
                                 onClick={() => canEdit && setEditingTodoCell({ todoId: todo.id, field: 'status' })}
                                 className={canEdit ? 'cursor-pointer' : ''}
                               >
-                                <span className="status-badge" style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: '#ffffff' }}>
+                                <span 
+                                  className="status-badge" 
+                                  style={{ 
+                                    backgroundColor: todo.status === 'Open' ? '#238eff' : 
+                                                     todo.status === 'In Progress' ? '#714ec5' : 
+                                                     todo.status === 'Completed' ? '#00bb5a' : 
+                                                     'rgba(255,255,255,0.1)', 
+                                    color: '#ffffff',
+                                    padding: '4px 12px',
+                                    borderRadius: '4px',
+                                    display: 'inline-block',
+                                    fontWeight: '500'
+                                  }}
+                                >
                                   {todo.status}
                                 </span>
                               </div>
@@ -1820,7 +2147,6 @@ export default function ClinicDetail() {
                                   setEditingTodoCell(null)
                                   saveTodosImmediately()
                                 }}
-                                autoFocus
                                 className="w-full patient-input-edit"
                                 style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
                               />
@@ -1841,7 +2167,6 @@ export default function ClinicDetail() {
                                   handleSaveTodoNote(todo.id, e.target.value, 'regular')
                                   setEditingNoteCell(null)
                                 }}
-                                autoFocus
                                 className="w-full patient-input-edit"
                                 style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: '4px 8px', minHeight: '60px', resize: 'vertical', width: '100%' }}
                                 placeholder="Add notes..."
@@ -1864,7 +2189,6 @@ export default function ClinicDetail() {
                                   handleSaveTodoNote(todo.id, e.target.value, 'followup')
                                   setEditingNoteCell(null)
                                 }}
-                                autoFocus
                                 className="w-full patient-input-edit"
                                 style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: '4px 8px', minHeight: '60px', resize: 'vertical', width: '100%' }}
                                 placeholder="Add follow-up notes..."
@@ -1912,6 +2236,30 @@ export default function ClinicDetail() {
                 </h2>
               </div>
             )}
+            
+            {/* Month Selector */}
+            <div className="mb-4 flex items-center justify-center gap-4 bg-slate-800/50 rounded-lg p-3 border border-slate-700">
+              <button
+                onClick={handlePreviousMonth}
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-white"
+                title="Previous month"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              
+              <div className="text-lg font-semibold text-white min-w-[200px] text-center">
+                {formatMonthYear(selectedMonth)}
+              </div>
+              
+              <button
+                onClick={handleNextMonth}
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-white"
+                title="Next month"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+
             <div className="table-container dark-theme" style={{ 
               maxHeight: '600px', 
               overflowX: 'scroll', 
@@ -1921,31 +2269,73 @@ export default function ClinicDetail() {
             }}>
               <table className="table-spreadsheet dark-theme w-full">
                 <thead>
-                  <tr className='sticky top-0 text-white z-10'>
-                    <th className='bg-[#0030bf]' style={{ minWidth: '100px' }}>Patient ID</th>
-                    <th className='bg-[#0030bf]' style={{ minWidth: '120px' }}>First Name</th>
-                    <th className='bg-[#0030bf]' style={{ minWidth: '80px' }}>Last Initial</th>
-                    <th className='bg-[#0030bf]' style={{ minWidth: '120px' }}>Insurance</th>
-                    <th className='bg-[#0030bf]' style={{ minWidth: '80px' }}>Co-pay</th>
-                    <th className='bg-[#0030bf]' style={{ minWidth: '80px' }}>Co-Ins</th>
-                    <th className='bg-[#0030bf]' style={{ minWidth: '120px' }}>Date of Service</th>
+                  <tr className='sticky top-0 z-10'>
+                    {(() => {
+                      const renderHeaderWithLock = (columnName: string, displayName: string, bgColor: string, txtColor: string, width: string) => {
+                        const lockInfo = isColumnLocked(columnName, providerId)
+                        const isLocked = !!lockInfo
+                        
+                        return (
+                          <th 
+                            className="relative group" 
+                            style={{ 
+                              minWidth: width, 
+                              backgroundColor: bgColor,
+                              color: txtColor
+                            }}
+                            title={lockInfo?.comment || undefined}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span>{displayName}</span>
+                              {canEdit && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedLockColumn({ columnName, providerId: providerId || null })
+                                    setLockComment(lockInfo?.comment || '')
+                                    setShowLockDialog(true)
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded"
+                                  title={isLocked ? `Locked: ${lockInfo?.comment || 'No comment'}` : 'Click to lock column'}
+                                >
+                                  {isLocked ? <Lock size={14} /> : <Unlock size={14} />}
+                                </button>
+                              )}
+                            </div>
+                          </th>
+                        )
+                      }
 
-                    <th className='bg-[#eda600]' style={{ minWidth: '120px' }}>CPT Code</th>
-                    <th className='bg-[#eda600]' style={{ minWidth: '150px' }}>Appt/Note Status</th>
+                      return (
+                        <>
+                          {renderHeaderWithLock('patient_id', 'Patient ID', '#f5cbcc', '#000000', '100px')}
+                          {renderHeaderWithLock('patient_first_name', 'First Name', '#f5cbcc', '#000000', '120px')}
+                          {renderHeaderWithLock('patient_last_name', 'Last Initial', '#f5cbcc', '#000000', '80px')}
+                          {renderHeaderWithLock('patient_insurance', 'Insurance', '#f5cbcc', '#000000', '120px')}
+                          {renderHeaderWithLock('patient_copay', 'Co-pay', '#f5cbcc', '#000000', '80px')}
+                          {renderHeaderWithLock('patient_coinsurance', 'Co-Ins', '#f5cbcc', '#000000', '80px')}
+                          {renderHeaderWithLock('appointment_date', 'Date of Service', '#f5cbcc', '#000000', '120px')}
 
-                    <th className='bg-[#083f02]' style={{ minWidth: '120px' }}>Claim Status</th>
-                    <th className='bg-[#083f02]' style={{ minWidth: '120px' }}>Most Recent Submit Date</th>
-                    
-                    <th className='bg-[#5d9f5d]' style={{ minWidth: '100px' }}>Ins Pay</th>
-                    <th className='bg-[#5d9f5d]' style={{ minWidth: '100px' }}>Ins Pay Date</th>
-                    <th className='bg-[#5d9f5d]' style={{ minWidth: '100px' }}>PT RES</th>
+                          {renderHeaderWithLock('cpt_code', 'CPT Code', '#fce5cd', '#000000', '120px')}
+                          {renderHeaderWithLock('appointment_status', 'Appt/Note Status', '#fce5cd', '#000000', '150px')}
 
-                    <th className='bg-[#b191cd]' style={{ minWidth: '120px' }}>Collected from PT</th>
-                    <th className='bg-[#b191cd]' style={{ minWidth: '120px' }}>PT Pay Status</th>
-                    <th className='bg-[#b191cd]' style={{ minWidth: '120px' }}>PT Payment AR Ref Date</th>
+                          {renderHeaderWithLock('claim_status', 'Claim Status', '#ead1dd', '#000000', '120px')}
+                          {renderHeaderWithLock('submit_date', 'Most Recent Submit Date', '#ead1dd', '#000000', '120px')}
 
-                    <th className='bg-[#5d9f5d]' style={{ minWidth: '150px' }}>Notes</th>
-                    {canEdit && <th className='bg-[#5d9f5d]' style={{ width: '60px' }}>Actions</th>}
+                          {renderHeaderWithLock('insurance_payment', 'Ins Pay', '#d9d2e9', '#000000', '100px')}
+                          {renderHeaderWithLock('payment_date', 'Ins Pay Date', '#d9d2e9', '#000000', '100px')}
+                          {renderHeaderWithLock('insurance_adjustment', 'PT RES', '#d9d2e9', '#000000', '100px')}
+
+                          {renderHeaderWithLock('collected_from_patient', 'Collected from PT', '#b191cd', '#000000', '120px')}
+                          {renderHeaderWithLock('patient_pay_status', 'PT Pay Status', '#b191cd', '#000000', '120px')}
+                          {renderHeaderWithLock('ar_date', 'PT Payment AR Ref Date', '#b191cd', '#000000', '120px')}
+
+                          {renderHeaderWithLock('insurance_adjustment', 'Total', '#d9d2e9', '#000000', '100px')}
+
+                          {renderHeaderWithLock('notes', 'Notes', '#5d9f5d', '#000000', '150px')}
+                          {canEdit && <th style={{ width: '60px', backgroundColor: '#5d9f5d', color: '#000000' }}>Actions</th>}
+                        </>
+                      )
+                    })()}
                   </tr>
                 </thead>
                 <tbody>
@@ -1968,7 +2358,6 @@ export default function ClinicDetail() {
                     const providersToShow = providerId 
                       ? providers.filter(p => p.id === providerId)
                       : providers
-                    
                     if (providersToShow.length === 0) {
                       return (
                         <tr>
@@ -1980,7 +2369,10 @@ export default function ClinicDetail() {
                     }
                     
                     return providersToShow.flatMap((provider) => {
-                      const rows = providerSheetRows[provider.id] || []
+                      const allRows = providerSheetRows[provider.id] || []
+                      
+                      // Filter rows by selected month
+                      const rows = filterRowsByMonth(allRows)
                     
                       // Filter out empty rows for display logic, but still show them in the table
                       const nonEmptyRows = rows.filter(r => !r.id.startsWith('empty-'))
@@ -2013,47 +2405,170 @@ export default function ClinicDetail() {
                         
                         // Helper function to render editable cell
                         const renderEditableCell = (field: keyof SheetRow, type: 'text' | 'date' | 'number' | 'select' | 'patient' | 'month', options?: string[]) => {
+                          // Check if column is locked
+                          const lockInfo = isColumnLocked(field, provider.id)
+                          const isLocked = !!lockInfo
+                          
                           const isEditing = editingProviderCell?.providerId === provider.id && 
                                           editingProviderCell?.rowId === row.id && 
                                           editingProviderCell?.field === field
                           
                           const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
                           
+                          // Helper function to get status color type based on field
+                          const getStatusType = (): 'appointment' | 'claim' | 'patient_pay' | 'month' | 'cpt_code' | null => {
+                            if (field === 'appointment_status') return 'appointment'
+                            if (field === 'claim_status') return 'claim'
+                            if (field === 'patient_pay_status') return 'patient_pay'
+                            if (field === 'payment_date' || field === 'ar_date') return 'month'
+                            if (field === 'cpt_code') return 'cpt_code'
+                            return null
+                          }
+                          
                           if (isEditing) {
+                            // let step: string = type === 'number' ? '0.01' : undefined
                             if (type === 'select') {
+                              const statusType = getStatusType()
+                              const currentValue = row[field] as string
+                              
+                              // For multi-select CPT codes
+                              if (field === 'cpt_code') {
+                                const selectedCodes = currentValue ? currentValue.split(',').map(c => c.trim()) : []
+                                
+                                return (
+                                  <select
+                                    multiple
+                                    value={selectedCodes}
+                                    onChange={(e) => {
+                                      const selected = Array.from(e.target.selectedOptions).map(opt => opt.value)
+                                      handleUpdateProviderSheetRow(provider.id, row.id, field, selected.join(',') || null)
+                                    }}
+                                    onBlur={() => {
+                                      setEditingProviderCell(null)
+                                      saveProviderSheetRowsImmediately()
+                                    }}
+                                    className="w-full patient-input-edit"
+                                    style={{ 
+                                      backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                      color: '#000000',
+                                      minHeight: '100px'
+                                    }}
+                                  >
+                                    {options?.map(opt => {
+                                      const code = billingCodes.find(c => c.code === opt)
+                                      return (
+                                        <option 
+                                          key={opt} 
+                                          value={opt}
+                                          style={{ 
+                                            backgroundColor: code?.color || '#ffffff',
+                                            color: '#ffffff',
+                                            fontWeight: '500',
+                                            padding: '4px 8px'
+                                          }}
+                                        >
+                                          {opt}
+                                        </option>
+                                      )
+                                    })}
+                                  </select>
+                                )
+                              }
+                              
+                              // For single-select status fields
+                              let currentColorConfig: { color: string; text_color: string } | null = null
+                              if (statusType && currentValue) {
+                                const status = statusColors.find(s => s.status === currentValue && s.type === statusType)
+                                if (status) {
+                                  currentColorConfig = { color: status.color, text_color: status.text_color }
+                                }
+                              }
+                              
                               return (
                                 <select
-                                  value={row[field] as string || ''}
+                                  value={currentValue || ''}
                                   onChange={(e) => handleUpdateProviderSheetRow(provider.id, row.id, field, e.target.value || null)}
                                   onBlur={() => {
                                     setEditingProviderCell(null)
                                     saveProviderSheetRowsImmediately()
                                   }}
-                                  autoFocus
                                   className="w-full patient-input-edit"
-                                  style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
+                                  style={{ 
+                                    backgroundColor: currentColorConfig?.color || 'rgba(255, 255, 255, 0.9)',
+                                    color: currentColorConfig?.text_color || '#000000',
+                                    fontWeight: currentColorConfig ? '500' : 'normal'
+                                  }}
                                 >
-                                  <option value="">Select...</option>
-                                  {options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                  <option value="" style={{ backgroundColor: '#ffffff', color: '#000000' }}>Select...</option>
+                                  {options?.map(opt => {
+                                    let optionColorConfig: { color: string; text_color: string } | null = null
+                                    if (statusType) {
+                                      const status = statusColors.find(s => s.status === opt && s.type === statusType)
+                                      if (status) {
+                                        optionColorConfig = { color: status.color, text_color: status.text_color }
+                                      }
+                                    }
+                                    
+                                    return (
+                                      <option 
+                                        key={opt} 
+                                        value={opt}
+                                        style={{ 
+                                          backgroundColor: optionColorConfig?.color || '#ffffff',
+                                          color: optionColorConfig?.text_color || '#000000',
+                                          fontWeight: '500'
+                                        }}
+                                      >
+                                        {opt}
+                                      </option>
+                                    )
+                                  })}
                                 </select>
                               )
                             } else if (type === 'month') {
+                              const currentValue = row[field] as string
+                              const currentColorConfig = currentValue 
+                                ? statusColors.find(s => s.status === currentValue && s.type === 'month')
+                                : null
+                              
                               return (
                                 <select
-                                  value={row[field] as string || ''}
+                                  value={currentValue || ''}
                                   onChange={(e) => handleUpdateProviderSheetRow(provider.id, row.id, field, e.target.value || null)}
                                   onBlur={() => {
                                     setEditingProviderCell(null)
                                     saveProviderSheetRowsImmediately()
                                   }}
-                                  autoFocus
                                   className="w-full patient-input-edit"
-                                  style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
+                                  style={{ 
+                                    backgroundColor: currentColorConfig?.color || 'rgba(255, 255, 255, 0.9)',
+                                    color: currentColorConfig?.text_color || '#000000',
+                                    fontWeight: currentColorConfig ? '500' : 'normal'
+                                  }}
                                 >
-                                  <option value="">Select Month...</option>
-                                  {months.map(month => (
-                                    <option key={month} value={month}>{month}</option>
-                                  ))}
+                                  <option value="" style={{ backgroundColor: '#ffffff', color: '#000000' }}>Select Month...</option>
+                                  {months.map(month => {
+                                    const colorConfig = statusColors.find(s => s.status === month && s.type === 'month')
+                                    
+                                    // Debug: log color config for January
+                                    if (month === 'January') {
+                                      console.log(`Color config for ${month}:`, colorConfig)
+                                    }
+                                    
+                                    return (
+                                      <option 
+                                        key={month} 
+                                        value={month}
+                                        style={{ 
+                                          backgroundColor: colorConfig?.color || '#ffffff',
+                                          color: colorConfig?.text_color || '#000000',
+                                          fontWeight: '500'
+                                        }}
+                                      >
+                                        {month}
+                                      </option>
+                                    )
+                                  })}
                                 </select>
                               )
                             } else if (type === 'patient') {
@@ -2065,7 +2580,6 @@ export default function ClinicDetail() {
                                     setEditingProviderCell(null)
                                     saveProviderSheetRowsImmediately()
                                   }}
-                                  autoFocus
                                   className="w-full patient-input-edit"
                                   style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
                                 >
@@ -2082,6 +2596,7 @@ export default function ClinicDetail() {
                                 <input
                                   type={type}
                                   value={row[field] as string || ''}
+                                  step={type === 'number' ? '0.01' : undefined}
                                   onChange={(e) => {
                                     const value = type === 'number' ? (e.target.value ? parseFloat(e.target.value) : null) : e.target.value || null
                                     handleUpdateProviderSheetRow(provider.id, row.id, field, value)
@@ -2090,7 +2605,6 @@ export default function ClinicDetail() {
                                     setEditingProviderCell(null)
                                     saveProviderSheetRowsImmediately()
                                   }}
-                                  autoFocus
                                   className="w-full patient-input-edit"
                                   style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
                                 />
@@ -2098,13 +2612,87 @@ export default function ClinicDetail() {
                             }
                           }
                           
+                          // Special handling for multi-select CPT codes
+                          if (field === 'cpt_code' && row[field]) {
+                            const codes = String(row[field]).split(',').map(c => c.trim()).filter(c => c)
+                            const colors = row.cpt_code_color ? String(row.cpt_code_color).split(',').map(c => c.trim()) : []
+                            
+                            return (
+                              <div
+                                onClick={() => !isLocked && canEdit && setEditingProviderCell({ providerId: provider.id, rowId: row.id, field })}
+                                className={!isLocked && canEdit ? 'cursor-pointer' : isLocked ? 'cursor-not-allowed' : ''}
+                                style={{ 
+                                  minHeight: '24px',
+                                  padding: '4px',
+                                  opacity: isLocked ? 0.8 : 1
+                                }}
+                                title={isLocked ? `🔒 Locked: ${lockInfo?.comment || 'No comment'}` : undefined}
+                              >
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {isLocked && <Lock size={12} className="flex-shrink-0" />}
+                                  {codes.map((code, idx) => {
+                                    // Use stored color or fallback to looking up from billingCodes
+                                    const storedColor = colors[idx]
+                                    const billingCode = billingCodes.find(c => c.code === code)
+                                    const bgColor = storedColor || billingCode?.color || '#cccccc'
+                                    
+                                    return (
+                                      <span 
+                                        key={idx}
+                                        style={{
+                                          backgroundColor: bgColor,
+                                          color: '#ffffff',
+                                          padding: '2px 6px',
+                                          borderRadius: '4px',
+                                          fontSize: '12px',
+                                          fontWeight: '500',
+                                          border: isLocked ? '2px solid rgba(0, 0, 0, 0.3)' : undefined
+                                        }}
+                                      >
+                                        {code}
+                                      </span>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )
+                          }
+                          
+                          // Get color for single-value fields
+                          let bgColor = undefined
+                          if (field === 'appointment_status' && row.appointment_status_color) {
+                            bgColor = row.appointment_status_color
+                          } else if (field === 'claim_status' && row.claim_status_color) {
+                            bgColor = row.claim_status_color
+                          } else if (field === 'patient_pay_status' && row.patient_pay_status_color) {
+                            bgColor = row.patient_pay_status_color
+                          } else if (field === 'payment_date' && row.payment_date_color) {
+                            bgColor = row.payment_date_color
+                          } else if (field === 'ar_date' && row.ar_date_color) {
+                            bgColor = row.ar_date_color
+                          } else if (field === 'billing_code' && row.billing_code_color) {
+                            bgColor = row.billing_code_color
+                          }
+                          
                           return (
                             <div
-                              onClick={() => canEdit && setEditingProviderCell({ providerId: provider.id, rowId: row.id, field })}
-                              className={canEdit ? 'cursor-pointer' : ''}
-                              style={{ minHeight: '24px' }}
+                              onClick={() => !isLocked && canEdit && setEditingProviderCell({ providerId: provider.id, rowId: row.id, field })}
+                              className={!isLocked && canEdit ? 'cursor-pointer' : isLocked ? 'cursor-not-allowed' : ''}
+                              style={{ 
+                                minHeight: '24px',
+                                backgroundColor: bgColor || (isLocked ? 'rgba(200, 200, 200, 0.2)' : undefined),
+                                padding: bgColor || isLocked ? '4px 8px' : undefined,
+                                borderRadius: bgColor || isLocked ? '4px' : undefined,
+                                color: bgColor ? '#000000' : undefined,
+                                opacity: isLocked && !bgColor ? 0.6 : 1,
+                                border: isLocked && bgColor ? '2px solid rgba(0, 0, 0, 0.3)' : undefined
+                              }}
+                              title={isLocked ? `🔒 Locked: ${lockInfo?.comment || 'No comment'}` : undefined}
                             >
-                              {row[field] ? String(row[field]) : (canEdit ? 'Click to add' : '-')}
+                              <div className="flex items-center gap-1">
+                                {isLocked && <Lock size={12} className="flex-shrink-0" />}
+                                <span>{row[field] ? String(row[field]) : (canEdit && !isLocked ? 'Click to add' : '-')}</span>
+                              </div>
                             </div>
                           )
                         }
@@ -2119,9 +2707,7 @@ export default function ClinicDetail() {
                           
                           {/* Last Initial (Blue section) */}
                           <td>
-                            <div style={{ minHeight: '24px' }}>
-                              {row.patient_last_name ? row.patient_last_name.charAt(0) : (canEdit ? '-' : '-')}
-                            </div>
+                            {renderEditableCell('last_initial', 'text')}
                           </td>
                           
                           {/* Insurance (Blue section) */}
@@ -2137,55 +2723,17 @@ export default function ClinicDetail() {
                           <td>{renderEditableCell('appointment_date', 'date')}</td>
                           
                           {/* CPT Code (Orange section) */}
-                          <td>
-                            {editingProviderCell?.providerId === provider.id && editingProviderCell?.rowId === row.id && editingProviderCell?.field === 'billing_code' ? (
-                              <select
-                                value={row.billing_code || ''}
-                                onChange={(e) => handleUpdateProviderSheetRow(provider.id, row.id, 'billing_code', e.target.value || null)}
-                                onBlur={() => {
-                                  setEditingProviderCell(null)
-                                  saveProviderSheetRowsImmediately()
-                                }}
-                                autoFocus
-                                className="w-full patient-input-edit"
-                                style={{ 
-                                  color: '#000000', 
-                                  backgroundColor: row.billing_code_color || 'rgba(255, 255, 255, 0.9)',
-                                  borderColor: row.billing_code_color || undefined
-                                }}
-                              >
-                                <option value="">Select CPT Code...</option>
-                                {billingCodes.map(code => (
-                                  <option key={code.id} value={code.code} style={{ backgroundColor: code.color }}>
-                                    {code.code} - {code.description}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <div
-                                onClick={() => canEdit && setEditingProviderCell({ providerId: provider.id, rowId: row.id, field: 'billing_code' })}
-                                className={canEdit ? 'cursor-pointer' : ''}
-                                style={{ 
-                                  backgroundColor: row.billing_code_color || undefined,
-                                  padding: row.billing_code_color ? '4px 8px' : undefined,
-                                  borderRadius: row.billing_code_color ? '4px' : undefined,
-                                  minHeight: '24px'
-                                }}
-                              >
-                                {row.billing_code || (canEdit ? 'Click to add' : '-')}
-                              </div>
-                            )}
-                          </td>
+                          <td>{renderEditableCell('cpt_code', 'select', billingCodes.map(c => c.code))}</td>
                           
                           {/* Appt/Note Status (Orange section) */}
                           <td>
                             {renderEditableCell('appointment_status', 'select', [
                               'Complete',
                               'PP Complete',
-                              'Charge NS/LC',
-                              'RS No Charge',
-                              'NS No Charge',
-                              'Note not complete'
+                              'NS/LC - Charge',
+                              'NS/LC/RS - No Charge',
+                              'NS/LC - No Charge',
+                              'Note Not Complete'
                             ])}
                           </td>
                           
@@ -2195,18 +2743,19 @@ export default function ClinicDetail() {
                               'Claim Sent',
                               'RS',
                               'IP',
+                              'Pending Pay',
                               'Paid',
                               'Deductible',
                               'N/A',
                               'PP',
                               'Denial',
-                              'Rejection',
+                              'Rejected',
                               'No Coverage'
                             ])}
                           </td>
                           
                           {/* Most Recent Submit Date (Dark Green section) */}
-                          <td>{renderEditableCell('submit_date', 'date')}</td>
+                          <td>{renderEditableCell('submit_date', 'text')}</td>
                           
                           {/* Ins Pay (Light Green section) */}
                           <td>{renderEditableCell('insurance_payment', 'text')}</td>
@@ -2228,12 +2777,17 @@ export default function ClinicDetail() {
                               'Secondary',
                               'Refunded',
                               'Payment Plan',
-                              'Waiting on Claims'
+                              'Waiting on Claim',
+                              'Collections'
                             ])}
                           </td>
                           
                           {/* PT Payment AR Ref Date (Purple section) - Using ar_date */}
                           <td>{renderEditableCell('ar_date', 'month')}</td>
+
+                          {/* Total (Light Green section) - Using insurance_adjustment */}
+                          <td>{renderEditableCell('total', 'text')}</td>
+
                           
                           {/* Notes (Light Green section) */}
                           <td>{renderEditableCell('notes', 'text')}</td>
@@ -2260,6 +2814,72 @@ export default function ClinicDetail() {
           </div>
         )}
       </div>
+
+      {/* Column Lock Dialog */}
+      {showLockDialog && selectedLockColumn && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4 border border-slate-700">
+            <h3 className="text-xl font-semibold text-white mb-4">
+              {isColumnLocked(selectedLockColumn.columnName, selectedLockColumn.providerId) ? 'Unlock' : 'Lock'} Column
+            </h3>
+            
+            <div className="mb-4">
+              <p className="text-slate-300 mb-2">
+                Column: <span className="font-semibold text-white">{selectedLockColumn.columnName}</span>
+              </p>
+              {selectedLockColumn.providerId && (
+                <p className="text-slate-300 text-sm">
+                  Provider-specific lock
+                </p>
+              )}
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-slate-300 mb-2">
+                Comment (optional):
+              </label>
+              <textarea
+                value={lockComment}
+                onChange={(e) => setLockComment(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-900 text-white border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows={3}
+                placeholder="Why is this column locked?"
+              />
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowLockDialog(false)
+                  setSelectedLockColumn(null)
+                  setLockComment('')
+                }}
+                className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors"
+              >
+                Cancel
+              </button>
+              
+              {isColumnLocked(selectedLockColumn.columnName, selectedLockColumn.providerId) && (
+                <button
+                  onClick={() => handleToggleColumnLock(selectedLockColumn.columnName, selectedLockColumn.providerId, false)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors flex items-center gap-2"
+                >
+                  <Unlock size={16} />
+                  Unlock
+                </button>
+              )}
+              
+              <button
+                onClick={() => handleToggleColumnLock(selectedLockColumn.columnName, selectedLockColumn.providerId, true, lockComment)}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors flex items-center gap-2"
+              >
+                <Lock size={16} />
+                Lock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

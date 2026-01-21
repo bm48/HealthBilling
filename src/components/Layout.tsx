@@ -17,7 +17,7 @@ import {
   Database,
   Palette,
   Menu,
-  X
+  ArrowLeft
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -222,7 +222,7 @@ export default function Layout({ children }: LayoutProps) {
   return (
     <div className="min-h-screen">
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 bg-slate-900/90 backdrop-blur-md shadow-2xl border-r border-white/10 transition-all duration-300 ${
+      <div className={`bg-[#155fff] fixed inset-y-0 left-0 bg-slate-900/90 backdrop-blur-md shadow-2xl border-r border-white/10 transition-all duration-300 ${
         sidebarCollapsed ? 'w-20' : 'w-80'
       }`}>
         <div className="flex flex-col h-full">
@@ -234,7 +234,7 @@ export default function Layout({ children }: LayoutProps) {
               className="text-white/70 hover:text-white hover:bg-white/10 p-2 rounded-lg transition-colors"
               title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              {sidebarCollapsed ? <Menu size={20} /> : <X size={20} />}
+              {sidebarCollapsed ? <Menu size={20} /> : <ArrowLeft size={20} />}
             </button>
           </div>
 
@@ -566,7 +566,7 @@ export default function Layout({ children }: LayoutProps) {
       </div>
 
       {/* Main Content */}
-      <div className={`transition-all duration-300 ${sidebarCollapsed ? 'pl-20' : 'pl-80'}`}>
+      <div className={`bg-[#155fff] transition-all duration-300 ${sidebarCollapsed ? 'pl-20' : 'pl-80'}`}>
         <main className="p-8 text-white">
           {children}
         </main>

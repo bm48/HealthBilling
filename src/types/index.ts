@@ -120,9 +120,11 @@ export interface SheetRow {
   billing_code: string | null
   billing_code_color: string | null
   appointment_status: AppointmentStatus | null
+  appointment_status_color: string | null
   
   // Columns J-M: Claim status
   claim_status: ClaimStatus | null
+  claim_status_color: string | null
   submit_date: string | null
   insurance_payment: string | null
   insurance_adjustment: string | null
@@ -131,12 +133,15 @@ export interface SheetRow {
   invoice_amount: number | null
   collected_from_patient: string | null
   patient_pay_status: PatientPayStatus | null
+  patient_pay_status_color: string | null
   payment_date: string | null
+  payment_date_color: string | null
   
   // Columns U-AA: Accounts Receivable
   ar_type: ARType | null
   ar_amount: number | null
   ar_date: string | null
+  ar_date_color: string | null
   ar_notes: string | null
   
   // Columns AC-AE: Provider Payment
@@ -147,6 +152,12 @@ export interface SheetRow {
   highlight_color: string | null
   created_at: string
   updated_at: string
+
+  // additional column
+  total: string | null
+  last_initial: string | null
+  cpt_code: string | null
+  cpt_code_color: string | null
 }
 
 export interface BillingCode {
@@ -154,6 +165,29 @@ export interface BillingCode {
   code: string
   description: string | null
   color: string
+  created_at: string
+  updated_at: string
+}
+
+export interface StatusColor {
+  id: string
+  status: string
+  color: string
+  text_color: string
+  type: 'appointment' | 'claim' | 'patient_pay' | 'month'
+  created_at: string
+  updated_at: string
+}
+
+export interface ColumnLock {
+  id: string
+  clinic_id: string
+  provider_id: string | null
+  column_name: string
+  is_locked: boolean
+  comment: string | null
+  locked_by: string | null
+  locked_at: string
   created_at: string
   updated_at: string
 }
