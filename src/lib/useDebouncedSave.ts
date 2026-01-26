@@ -92,8 +92,9 @@ export function useDebouncedSave<T>(
 
     // Force save on blur - always attempt save regardless of lastSavedRef
     // This ensures user changes are saved when they blur
+    console.log("data: ",data)
     const dataString = JSON.stringify(data)
-    
+    console.log("dataString: ",dataString)
     try {
       setIsSaving(true)
       console.log('saveImmediately: Calling saveFn', { dataString: dataString.substring(0, 100) })

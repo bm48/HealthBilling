@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { TodoItem, TodoNote } from '@/types'
+import { TodoItem } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { Trash2 } from 'lucide-react'
 import { useDebouncedSave } from '@/lib/useDebouncedSave'
@@ -9,13 +9,15 @@ export default function BillingTodo() {
   const { userProfile } = useAuth()
   const [todos, setTodos] = useState<TodoItem[]>([])
   const todosRef = useRef<TodoItem[]>([])
-  const [todoNotes, setTodoNotes] = useState<Record<string, TodoNote[]>>({})
+  const [todoNotes, setTodoNotes] = useState<Record<string, Array<{ id: string; note: string; created_at: string }>>>({})
   const [loading, setLoading] = useState(true)
   const [editingCell, setEditingCell] = useState<{ todoId: string; field: string } | null>(null)
   const [clinics, setClinics] = useState<Array<{ id: string; name: string }>>([])
   const fetchingRef = useRef(false)
   const editingSelectRef = useRef<{ todoId: string; field: string } | null>(null)
   const resetLastSavedRef = useRef<(() => void) | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; todoId: string } | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -55,7 +57,7 @@ export default function BillingTodo() {
       if (error) throw error
       
       // Group notes by todo_id
-      const notesByTodo: Record<string, TodoNote[]> = {}
+      const notesByTodo: Record<string, Array<{ id: string; note: string; created_at: string }>> = {}
       data?.forEach(note => {
         if (!notesByTodo[note.todo_id]) {
           notesByTodo[note.todo_id] = []
@@ -151,8 +153,8 @@ export default function BillingTodo() {
       // Separate new and existing todos
       for (const todo of todosToSave) {
         if (todo.id.startsWith('new-')) {
-          // Only create if it has a title
-          if (todo.title && todo.title.trim()) {
+          // Only create if it has an issue
+          if (todo.issue && todo.issue.trim()) {
             newTodosToCreate.push(todo)
           }
         } else {
@@ -160,9 +162,8 @@ export default function BillingTodo() {
           const lastSavedTodo = lastSavedTodos.find(t => t.id === todo.id)
           if (lastSavedTodo) {
             const hasChanged = 
-              lastSavedTodo.title !== todo.title ||
-              lastSavedTodo.status !== todo.status ||
-              lastSavedTodo.claim_reference !== todo.claim_reference
+              lastSavedTodo.issue !== todo.issue ||
+              lastSavedTodo.status !== todo.status
             
             if (hasChanged) {
               todosToUpdate.push(todo)
@@ -182,12 +183,13 @@ export default function BillingTodo() {
       // Create new todos
       for (const todo of newTodosToCreate) {
         const { error } = await supabase
-          .from('todo_items')
+          .from('todo_list')
           .insert({
             clinic_id: todo.clinic_id,
-            title: todo.title,
+            issue: todo.issue,
             status: todo.status,
-            claim_reference: todo.claim_reference || null,
+            notes: todo.notes,
+            followup_notes: todo.followup_notes,
             created_by: userProfile.id,
           })
         
@@ -200,11 +202,12 @@ export default function BillingTodo() {
       // Update existing todos that have changed
       for (const todo of todosToUpdate) {
         const { error } = await supabase
-          .from('todo_items')
+          .from('todo_list')
           .update({
-            title: todo.title,
+            issue: todo.issue,
             status: todo.status,
-            claim_reference: todo.claim_reference,
+            notes: todo.notes,
+            followup_notes: todo.followup_notes,
             updated_at: new Date().toISOString(),
           })
           .eq('id', todo.id)
@@ -279,9 +282,8 @@ export default function BillingTodo() {
       const saved = currentSaved.find(s => s.id === todo.id)
       if (!saved) return true // New todo
       return (
-        saved.title !== todo.title ||
-        saved.status !== todo.status ||
-        saved.claim_reference !== todo.claim_reference
+        saved.issue !== todo.issue ||
+        saved.status !== todo.status
       )
     })
     
@@ -356,9 +358,10 @@ export default function BillingTodo() {
     const newTodo: TodoItem = {
       id: tempId,
       clinic_id: clinicId,
-      title: '',
+      issue: null,
       status: 'Open',
-      claim_reference: null,
+      notes: null,
+      followup_notes: null,
       created_by: userProfile.id,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -425,14 +428,37 @@ export default function BillingTodo() {
     return '#3b82f6' // blue
   }
 
-  const getIssueColor = (issue: string) => {
-    if (issue === 'Needs Reprocessing') return '#f97316' // orange
-    if (issue === 'Repeat F/U') return '#3b82f6' // blue
-    if (issue === 'New F/U') return '#10b981' // green
-    return '#6b7280' // gray
-  }
 
   const canEdit = ['billing_staff', 'admin', 'super_admin'].includes(userProfile?.role || '')
+
+  // Handle context menu
+  const handleContextMenu = (e: React.MouseEvent, todoId: string) => {
+    if (!canEdit) return
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, todoId })
+  }
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu(null)
+      }
+    }
+
+    if (contextMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [contextMenu])
+
+  // Handle delete from context menu
+  const handleContextMenuDelete = (todoId: string) => {
+    handleDelete(todoId)
+    setContextMenu(null)
+  }
 
   return (
     <div>
@@ -448,12 +474,12 @@ export default function BillingTodo() {
             <table className="table-spreadsheet dark-theme">
               <thead>
                 <tr>
-                  <th style={{ width: '80px' }}>ID</th>
-                  <th>Title</th>
-                  <th style={{ width: '150px' }}>Status</th>
-                  <th style={{ width: '180px' }}>Issues</th>
-                  <th>Notes</th>
-                  <th>F/u Notes</th>
+                  <th style={{ width: 'auto', minWidth: '60px' }}>ID</th>
+                  <th style={{ width: 'auto', minWidth: '120px' }}>Title</th>
+                  <th style={{ width: 'auto', minWidth: '100px' }}>Status</th>
+                  <th style={{ width: 'auto', minWidth: '120px' }}>Issues</th>
+                  <th style={{ width: 'auto', minWidth: '150px' }}>Notes</th>
+                  <th style={{ width: 'auto', minWidth: '150px' }}>F/u Notes</th>
                   {canEdit && <th style={{ width: '80px' }}>Actions</th>}
                 </tr>
               </thead>
@@ -493,206 +519,164 @@ export default function BillingTodo() {
                   const isNew = todo.id.startsWith('new-')
 
                   return (
-                    <tr key={todo.id} className={isNew ? 'editing' : ''}>
+                    <tr 
+                      key={todo.id} 
+                      className={isNew ? 'editing' : ''}
+                      onContextMenu={(e) => canEdit && !isNew && handleContextMenu(e, todo.id)}
+                    >
                       <td style={{ fontFamily: 'monospace', fontSize: '12px' }}>
                         {isNew ? 'New' : todo.id.substring(0, 8)}
                       </td>
                       <td>
-                        {editingCell?.todoId === todo.id && editingCell?.field === 'title' ? (
-                          <input
-                            type="text"
-                            value={todo.title}
-                            onChange={(e) => handleUpdateTodo(todo.id, 'title', e.target.value)}
-                            onBlur={() => {
-                              setEditingCell(null)
-                              saveImmediately()
-                            }}
-                            autoFocus
-                            className="w-full"
-                            placeholder="Enter title..."
-                            style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ todoId: todo.id, field: 'title' })}
-                            className={canEdit ? 'cursor-pointer' : ''}
-                            style={{ fontWeight: todo.title ? 500 : 'normal' }}
-                          >
-                            {todo.title || (canEdit ? 'Click to add title' : '-')}
-                          </div>
-                        )}
+                        <input
+                          type="text"
+                          value={todo.issue || ''}
+                          onChange={(e) => handleUpdateTodo(todo.id, 'issue', e.target.value || null)}
+                          onBlur={() => saveImmediately()}
+                          disabled={!canEdit}
+                          className="w-full"
+                          placeholder={canEdit ? 'Enter title...' : '-'}
+                          style={{ 
+                            color: '#000000', 
+                            backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                            fontWeight: todo.issue ? 500 : 'normal',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        />
                       </td>
                       <td>
-                        {editingCell?.todoId === todo.id && editingCell?.field === 'status' ? (
-                          <select
-                            value={todo.status}
-                            onChange={(e) => {
-                              handleUpdateTodo(todo.id, 'status', e.target.value)
-                            }}
-                            onFocus={() => {
-                              editingSelectRef.current = { todoId: todo.id, field: 'status' }
-                            }}
-                            onBlur={async (e) => {
-                              editingSelectRef.current = null
-                              setEditingCell(null)
-                              // Get the saved value from ref to compare
-                              const savedTodo = todosRef.current.find(t => t.id === todo.id)
-                              const newValue = e.target.value
-                              // Only save if the value actually changed from what's saved
-                              if (savedTodo && newValue !== savedTodo.status) {
-                                // Update the ref immediately before saving to prevent debounced save
-                                todosRef.current = todosRef.current.map(t => 
-                                  t.id === todo.id ? { ...t, status: newValue } : t
-                                )
-                                await saveImmediately()
-                              }
-                            }}
-                            autoFocus
-                            className="w-full"
-                            style={{ backgroundColor: getStatusColor(todo.status), color: '#ffffff' }}
-                          >
-                            {getStatusOptions().map(opt => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ todoId: todo.id, field: 'status' })}
-                            className="status-badge cursor-pointer"
-                            style={{
-                              backgroundColor: getStatusColor(todo.status),
-                              color: '#ffffff',
-                            }}
-                          >
-                            {todo.status}
-                          </div>
-                        )}
+                        <select
+                          value={todo.status}
+                          onChange={(e) => {
+                            handleUpdateTodo(todo.id, 'status', e.target.value)
+                          }}
+                          onFocus={() => {
+                            editingSelectRef.current = { todoId: todo.id, field: 'status' }
+                          }}
+                          onBlur={async (e) => {
+                            editingSelectRef.current = null
+                            const savedTodo = todosRef.current.find(t => t.id === todo.id)
+                            const newValue = e.target.value
+                            if (savedTodo && newValue !== savedTodo.status) {
+                              todosRef.current = todosRef.current.map(t => 
+                                t.id === todo.id ? { ...t, status: newValue } : t
+                              )
+                              await saveImmediately()
+                            }
+                          }}
+                          disabled={!canEdit}
+                          className="w-full"
+                          style={{ 
+                            backgroundColor: getStatusColor(todo.status), 
+                            color: '#ffffff',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        >
+                          {getStatusOptions().map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
                       </td>
                       <td>
-                        {editingCell?.todoId === todo.id && editingCell?.field === 'claim_reference' ? (
-                          <select
-                            value={todo.claim_reference || ''}
-                            onChange={(e) => {
-                              handleUpdateTodo(todo.id, 'claim_reference', e.target.value || null)
-                            }}
-                            onFocus={() => {
-                              editingSelectRef.current = { todoId: todo.id, field: 'claim_reference' }
-                            }}
-                            onBlur={async (e) => {
-                              editingSelectRef.current = null
-                              setEditingCell(null)
-                              // Get the saved value from ref to compare
-                              const savedTodo = todosRef.current.find(t => t.id === todo.id)
-                              const newValue = e.target.value || null
-                              // Only save if the value actually changed from what's saved
-                              if (savedTodo && newValue !== savedTodo.claim_reference) {
-                                // Update the ref immediately before saving to prevent debounced save
-                                todosRef.current = todosRef.current.map(t => 
-                                  t.id === todo.id ? { ...t, claim_reference: newValue } : t
-                                )
-                                await saveImmediately()
-                              }
-                            }}
-                            autoFocus
-                            className="w-full"
-                            style={{ 
-                              backgroundColor: todo.claim_reference ? getIssueColor(todo.claim_reference) : 'rgba(255, 255, 255, 0.9)',
-                              color: '#000000'
-                            }}
-                          >
-                            <option value="">Select...</option>
-                            {getIssueOptions().map(opt => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ todoId: todo.id, field: 'claim_reference' })}
-                            className="status-badge cursor-pointer"
-                            style={{
-                              backgroundColor: todo.claim_reference ? getIssueColor(todo.claim_reference) : 'rgba(255,255,255,0.1)',
-                              color: '#ffffff',
-                            }}
-                          >
-                            {todo.claim_reference || 'Click to add'}
-                          </div>
-                        )}
+                        <select
+                          value={todo.notes || ''}
+                          onChange={(e) => {
+                            handleUpdateTodo(todo.id, 'notes', e.target.value || null)
+                          }}
+                          onFocus={() => {
+                            editingSelectRef.current = { todoId: todo.id, field: 'notes' }
+                          }}
+                          onBlur={async (e) => {
+                            editingSelectRef.current = null
+                            const savedTodo = todosRef.current.find(t => t.id === todo.id)
+                            const newValue = e.target.value || null
+                            if (savedTodo && newValue !== savedTodo.notes) {
+                              todosRef.current = todosRef.current.map(t => 
+                                t.id === todo.id ? { ...t, notes: newValue } : t
+                              )
+                              await saveImmediately()
+                            }
+                          }}
+                          disabled={!canEdit}
+                          className="w-full"
+                          style={{ 
+                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                            color: '#000000',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        >
+                          <option value="">Select...</option>
+                          {getIssueOptions().map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
                       </td>
                       <td>
-                        {editingCell?.todoId === todo.id && editingCell?.field === 'notes' ? (
-                          <textarea
-                            defaultValue={latestNote?.note || ''}
-                            onBlur={async (e) => {
-                              const newValue = e.target.value.trim()
-                              if (newValue && newValue !== latestNote?.note) {
-                                await handleAddNote(todo.id, newValue, false)
-                              }
-                              setEditingCell(null)
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Escape') {
-                                setEditingCell(null)
-                              } else if (e.key === 'Enter' && e.ctrlKey) {
-                                e.currentTarget.blur()
-                              }
-                            }}
-                            autoFocus
-                            className="w-full"
-                            rows={2}
-                            placeholder="Add note..."
-                            style={{ minHeight: '48px', color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ todoId: todo.id, field: 'notes' })}
-                            className="cursor-pointer min-h-[32px] py-1"
-                            title={latestNote ? `Last note: ${latestNote.note}` : 'Click to add note'}
-                          >
-                            {latestNote ? (
-                              <div style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>{latestNote.note}</div>
-                            ) : (
-                              <span style={{ color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>Click to add</span>
-                            )}
-                          </div>
-                        )}
+                        <textarea
+                          value={latestNote?.note || ''}
+                          onChange={() => {
+                            // Handle onChange for controlled component
+                          }}
+                          onBlur={async (e) => {
+                            const newValue = e.target.value.trim()
+                            if (newValue && newValue !== latestNote?.note) {
+                              await handleAddNote(todo.id, newValue, false)
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              e.currentTarget.blur()
+                            } else if (e.key === 'Enter' && e.ctrlKey) {
+                              e.currentTarget.blur()
+                            }
+                          }}
+                          disabled={!canEdit}
+                          className="w-full"
+                          rows={2}
+                          placeholder={canEdit ? 'Add note...' : '-'}
+                          style={{ 
+                            minHeight: '48px', 
+                            color: '#000000', 
+                            backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        />
                       </td>
                       <td>
-                        {editingCell?.todoId === todo.id && editingCell?.field === 'followup' ? (
-                          <textarea
-                            defaultValue={latestFollowUp?.note || ''}
-                            onBlur={async (e) => {
-                              const newValue = e.target.value.trim()
-                              if (newValue && newValue !== latestFollowUp?.note) {
-                                await handleAddNote(todo.id, newValue, true)
-                              }
-                              setEditingCell(null)
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Escape') {
-                                setEditingCell(null)
-                              } else if (e.key === 'Enter' && e.ctrlKey) {
-                                e.currentTarget.blur()
-                              }
-                            }}
-                            autoFocus
-                            className="w-full"
-                            rows={2}
-                            placeholder="Add follow-up note..."
-                            style={{ minHeight: '48px', color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ todoId: todo.id, field: 'followup' })}
-                            className="cursor-pointer min-h-[32px] py-1"
-                            title={latestFollowUp ? `Last F/U: ${latestFollowUp.note}` : 'Click to add F/U note'}
-                          >
-                            {latestFollowUp ? (
-                              <div style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>{latestFollowUp.note}</div>
-                            ) : (
-                              <span style={{ color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>Click to add</span>
-                            )}
-                          </div>
-                        )}
+                        <textarea
+                          value={latestFollowUp?.note || ''}
+                          onChange={() => {
+                            // Handle onChange for controlled component
+                          }}
+                          onBlur={async (e) => {
+                            const newValue = e.target.value.trim()
+                            if (newValue && newValue !== latestFollowUp?.note) {
+                              await handleAddNote(todo.id, newValue, true)
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              e.currentTarget.blur()
+                            } else if (e.key === 'Enter' && e.ctrlKey) {
+                              e.currentTarget.blur()
+                            }
+                          }}
+                          disabled={!canEdit}
+                          className="w-full"
+                          rows={2}
+                          placeholder={canEdit ? 'Add follow-up note...' : '-'}
+                          style={{ 
+                            minHeight: '48px', 
+                            color: '#000000', 
+                            backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        />
                       </td>
                       {canEdit && (
                         <td>
@@ -721,6 +705,25 @@ export default function BillingTodo() {
         )}
       </div>
 
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[150px]"
+          style={{
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`,
+          }}
+        >
+          <button
+            onClick={() => handleContextMenuDelete(contextMenu.todoId)}
+            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
+          >
+            <Trash2 size={16} />
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   )
 }

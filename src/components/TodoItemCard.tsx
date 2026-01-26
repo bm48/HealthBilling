@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { TodoItem, TodoNote, User } from '@/types'
+import { TodoItem, User } from '@/types'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { CheckCircle, MessageSquare, Plus, X, Trash2 } from 'lucide-react'
@@ -15,7 +15,7 @@ interface TodoItemCardProps {
 
 export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDelete }: TodoItemCardProps) {
   const { userProfile } = useAuth()
-  const [notes, setNotes] = useState<TodoNote[]>([])
+  const [notes, setNotes] = useState<Array<{ id: string; note: string; created_at: string; created_by: string }>>([])
   const [showNotes, setShowNotes] = useState(false)
   const [newNote, setNewNote] = useState('')
   const [addingNote, setAddingNote] = useState(false)
@@ -94,7 +94,7 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
-            <h3 className="font-semibold text-white">{todo.title}</h3>
+            <h3 className="font-semibold text-white">{todo.issue || 'No issue'}</h3>
             {editingStatus ? (
               <div className="flex items-center gap-2">
                 <input
@@ -137,11 +137,6 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
             )}
           </div>
 
-          {todo.claim_reference && (
-            <p className="text-sm text-primary-400 mb-2">
-              Claim Reference: {todo.claim_reference}
-            </p>
-          )}
 
           <div className="flex items-center gap-4 text-xs text-white/50">
             <span>Created: {formatDateTime(todo.created_at)}</span>

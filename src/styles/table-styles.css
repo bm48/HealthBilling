@@ -15,7 +15,7 @@
 }
 
 .table-spreadsheet thead th {
-  padding: 8px 12px;
+  padding: 6px 8px;
   text-align: left;
   font-weight: 600;
   font-size: 12px;
@@ -24,6 +24,7 @@
   position: sticky;
   top: 0;
   z-index: 10;
+  width: auto;
 }
 
 /* Table Body Styles */
@@ -46,10 +47,17 @@
 
 /* Table Cell Styles */
 .table-spreadsheet td {
-  padding: 6px 12px;
+  padding: 4px 6px;
   border: 1px solid #dee2e6;
   vertical-align: middle;
-  min-height: 32px;
+  min-height: 28px;
+  width: auto;
+  white-space: nowrap;
+}
+
+/* Allow textareas to wrap */
+.table-spreadsheet td:has(textarea) {
+  white-space: normal;
 }
 
 .table-spreadsheet td:focus-within {
@@ -60,16 +68,31 @@
 
 /* Input Styles within Table Cells */
 .table-spreadsheet input,
-.table-spreadsheet select,
-.table-spreadsheet textarea {
+.table-spreadsheet select {
   width: 100%;
+  min-width: 60px;
   border: none;
   background: transparent;
-  padding: 4px 6px;
+  padding: 2px 4px;
   font-size: 13px;
   font-family: inherit;
   color: #212529;
   outline: none;
+  box-sizing: border-box;
+}
+
+.table-spreadsheet textarea {
+  width: 100%;
+  min-width: 120px;
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #212529;
+  outline: none;
+  box-sizing: border-box;
+  resize: both;
 }
 
 .table-spreadsheet input:focus,
@@ -88,14 +111,29 @@
   cursor: pointer;
 }
 
+/* Hide placeholder for empty date inputs */
+.table-spreadsheet input[type="date"].date-empty::-webkit-datetime-edit,
+.table-spreadsheet input[type="date"].date-empty::-webkit-inner-spin-button,
+.table-spreadsheet input[type="date"].date-empty::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  color: transparent;
+}
+
+.table-spreadsheet input[type="date"].date-empty:focus::-webkit-datetime-edit,
+.table-spreadsheet input[type="date"].date-empty:focus::-webkit-calendar-picker-indicator {
+  opacity: 1;
+  color: #000000;
+}
+
 /* Select Dropdown Styles */
 .table-spreadsheet select {
   cursor: pointer;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23333' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 6px center;
-  padding-right: 24px;
+  background-position: right 4px center;
+  padding-right: 20px;
+  min-width: fit-content;
 }
 
 .table-spreadsheet select:disabled {
@@ -191,44 +229,369 @@
 }
 
 .dark-theme .table-spreadsheet input,
-.dark-theme .table-spreadsheet select,
 .dark-theme .table-spreadsheet textarea {
-  color: #ffffff !important;
+  color: #ffffff ;
   background-color: rgba(255, 255, 255, 0.15) !important;
   border: 1px solid rgba(255, 255, 255, 0.2) !important;
   border-radius: 4px;
 }
 
+/* Select elements - allow inline styles for dynamic colors */
+.dark-theme .table-spreadsheet select {
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
 /* Patient Database specific override - black text on white background */
 .dark-theme .table-spreadsheet input.patient-input-edit,
-.dark-theme .table-spreadsheet textarea.patient-input-edit,
-.dark-theme .table-spreadsheet select.patient-input-edit {
+.dark-theme .table-spreadsheet textarea.patient-input-edit {
   color: #000000 !important;
   background-color: rgba(255, 255, 255, 0.9) !important;
   border: 1px solid rgba(0, 0, 0, 0.2) !important;
 }
 
+/* Select elements - allow inline styles to override for dynamic colors */
+.dark-theme .table-spreadsheet select.patient-input-edit {
+  /* Don't use !important to allow inline style colors to work */
+  color: #000000;
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
 .dark-theme .table-spreadsheet select.patient-input-edit option {
-  color: #000000 !important;
-  background-color: #ffffff !important;
+  color: #000000;
+  background-color: #ffffff;
 }
 
 .dark-theme .table-spreadsheet input::placeholder,
 .dark-theme .table-spreadsheet textarea::placeholder {
-  color: rgba(255, 255, 255, 0.5) !important;
+  color: rgba(255, 255, 255, 0.5) ;
 }
 
 .dark-theme .table-spreadsheet input:focus,
-.dark-theme .table-spreadsheet select:focus,
 .dark-theme .table-spreadsheet textarea:focus {
   background-color: rgba(255, 255, 255, 0.2) !important;
   border-color: rgba(59, 130, 246, 0.5) !important;
   outline: none;
 }
 
+/* Don't override select focus styles - let inline styles handle colors */
+.dark-theme .table-spreadsheet select:focus {
+  outline: none;
+}
+
 .dark-theme .table-spreadsheet input[type="date"],
 .dark-theme .table-spreadsheet input[type="time"] {
+  color: #000000 !important;
+}
+
+/* Handsontable Custom Styling */
+.handsontable-custom {
+  background-color: #d2dbe5;
+}
+
+.handsontable-custom .ht_clone_top,
+.handsontable-custom .ht_clone_left {
+  background-color: #1e3a8a;
+}
+
+.handsontable-custom .ht_clone_top th {
+  background-color: #1e3a8a !important;
   color: #ffffff !important;
+  font-weight: 600 !important;
+  padding: 6px 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Colored headers support - can be overridden per column */
+.handsontable-custom table.htCore thead th {
+  background-color: #1e3a8a !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  padding: 6px 8px !important;
+}
+
+/* Support for custom header colors via data attributes or classes */
+.handsontable-custom table.htCore thead th[data-header-color] {
+  background-color: var(--header-bg-color, #1e3a8a) !important;
+  color: var(--header-text-color, #ffffff) !important;
+}
+
+/* Providers tab - custom header colors per column group */
+.providers-handsontable table.htCore thead th:nth-child(1),
+.providers-handsontable table.htCore thead th:nth-child(2),
+.providers-handsontable table.htCore thead th:nth-child(3),
+.providers-handsontable table.htCore thead th:nth-child(4),
+.providers-handsontable table.htCore thead th:nth-child(5),
+.providers-handsontable table.htCore thead th:nth-child(6),
+.providers-handsontable table.htCore thead th:nth-child(7) {
+  background-color: #f5cbcc !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable table.htCore thead th:nth-child(8),
+.providers-handsontable table.htCore thead th:nth-child(9) {
+  background-color: #fce5cd !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable table.htCore thead th:nth-child(10),
+.providers-handsontable table.htCore thead th:nth-child(11) {
+  background-color: #ead1dd !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable table.htCore thead th:nth-child(12),
+.providers-handsontable table.htCore thead th:nth-child(13),
+.providers-handsontable table.htCore thead th:nth-child(14),
+.providers-handsontable table.htCore thead th:nth-child(18) {
+  background-color: #d9d2e9 !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable table.htCore thead th:nth-child(15),
+.providers-handsontable table.htCore thead th:nth-child(16),
+.providers-handsontable table.htCore thead th:nth-child(17) {
+  background-color: #b191cd !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable table.htCore thead th:nth-child(19) {
+  background-color: #5d9f5d !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable .ht_clone_top th:nth-child(1),
+.providers-handsontable .ht_clone_top th:nth-child(2),
+.providers-handsontable .ht_clone_top th:nth-child(3),
+.providers-handsontable .ht_clone_top th:nth-child(4),
+.providers-handsontable .ht_clone_top th:nth-child(5),
+.providers-handsontable .ht_clone_top th:nth-child(6),
+.providers-handsontable .ht_clone_top th:nth-child(7) {
+  background-color: #f5cbcc !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable .ht_clone_top th:nth-child(8),
+.providers-handsontable .ht_clone_top th:nth-child(9) {
+  background-color: #fce5cd !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable .ht_clone_top th:nth-child(10),
+.providers-handsontable .ht_clone_top th:nth-child(11) {
+  background-color: #ead1dd !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable .ht_clone_top th:nth-child(12),
+.providers-handsontable .ht_clone_top th:nth-child(13),
+.providers-handsontable .ht_clone_top th:nth-child(14),
+.providers-handsontable .ht_clone_top th:nth-child(18) {
+  background-color: #d9d2e9 !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable .ht_clone_top th:nth-child(15),
+.providers-handsontable .ht_clone_top th:nth-child(16),
+.providers-handsontable .ht_clone_top th:nth-child(17) {
+  background-color: #b191cd !important;
+  color: #000000 !important;
+}
+
+.providers-handsontable .ht_clone_top th:nth-child(19) {
+  background-color: #5d9f5d !important;
+  color: #000000 !important;
+}
+
+.handsontable-custom .ht_clone_left th {
+  background-color: #1e3a8a;
+  color: #ffffff;
+  font-weight: 600;
+  padding: 0px !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  height: auto !important;
+  line-height: normal !important;
+  vertical-align: middle !important;
+}
+
+.handsontable-custom .ht_master .wtHolder {
+  background-color: #d2dbe5;
+  overflow: auto !important;
+  /* Ensure scroll container doesn't cut off content */
+  box-sizing: border-box !important;
+}
+
+.handsontable-custom .ht_master .wtHider {
+  padding-top: 0px !important;
+  padding-bottom: 8px !important;
+  /* Ensure content starts at the top */
+  margin-top: 0 !important;
+}
+
+/* .handsontable-custom .ht_clone_left .wtHolder {
+  overflow: auto !important;
+  box-sizing: border-box !important;
+} */
+
+.handsontable-custom .ht_clone_left .wtHider {
+  padding-top: 1.15rem !important;
+  /* padding-bottom: 8px !important; */
+  margin-top: 0 !important;
+}
+
+
+/* Fix first row being cut off - ensure proper spacing */
+.handsontable-custom .ht_master .wtHider table.htCore {
+  margin-top: 0 !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+/* Ensure the first row is fully visible - add minimal top padding to first row */
+.handsontable-custom .ht_master .wtHider table.htCore tbody tr:first-child td {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  border-top: 1px solid #dee2e6 !important;
+  /* Ensure first row cells are fully visible */
+  position: relative;
+  z-index: 0;
+}
+
+/* Make sure the header doesn't overlap the scrollable content */
+.handsontable-custom .ht_clone_top {
+  position: relative;
+  z-index: 10;
+}
+
+.handsontable-custom .ht_master {
+  position: relative;
+  z-index: 1;
+}
+
+/* Ensure scroll container shows content from the very top */
+.handsontable-custom .ht_master .wtHolder::before {
+  content: '';
+  display: none;
+}
+
+/* Add borders to all Handsontable cells */
+.handsontable-custom table.htCore td,
+.handsontable-custom table.htCore th {
+  border: 1px solid #dee2e6 !important;
+}
+
+.handsontable-custom .ht_clone_top table.htCore th,
+.handsontable-custom .ht_clone_left table.htCore th {
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.handsontable-custom td {
+  background-color: rgba(255, 255, 255, 0.9);
+  color: #000000;
+  padding: 0px;
+  border: 1px solid #dee2e6 !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  line-height: 24px !important;
+  vertical-align: middle !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* Ensure row headers match data cell heights */
+.handsontable-custom .ht_clone_left table.htCore tbody tr th,
+.handsontable-custom .ht_clone_left table.htCore thead tr th {
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  padding: 0px !important;
+  line-height: 24px !important;
+}
+
+/* Match row heights between row headers and data cells */
+.handsontable-custom table.htCore tbody tr {
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+}
+
+/* Add spacing between header and first row to prevent overlap */
+.handsontable-custom table.htCore {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+.handsontable-custom table.htCore thead {
+  position: relative;
+  z-index: 1;
+}
+
+.handsontable-custom table.htCore tbody {
+  position: relative;
+  z-index: 0;
+}
+
+/* Add padding to first row cells to create space from header */
+.handsontable-custom table.htCore tbody tr:first-child td {
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+  height: 24px !important;
+}
+
+.handsontable-custom .ht_clone_left table.htCore tbody tr:first-child th {
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+  height: 24px !important;
+}
+
+/* Ensure header row has proper bottom border/spacing */
+.handsontable-custom table.htCore thead tr th {
+  border-bottom: 2px solid rgba(255, 255, 255, 0.3) !important;
+}
+
+.handsontable-custom .ht_clone_top table.htCore thead tr th {
+  border-bottom: 2px solid rgba(255, 255, 255, 0.3) !important;
+}
+
+.handsontable-custom table.htCore tbody tr td,
+.handsontable-custom table.htCore tbody tr th {
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+}
+
+/* Ensure row header cells in tbody match data cell height exactly */
+.handsontable-custom .ht_clone_left table.htCore tbody tr th {
+  padding: 0px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  max-height: 24px !important;
+  vertical-align: middle !important;
+  text-align: center !important;
+}
+
+/* Make sure all cells in a row have the same height */
+.handsontable-custom table.htCore tbody tr td,
+.handsontable-custom .ht_clone_left table.htCore tbody tr th {
+  box-sizing: border-box !important;
+}
+
+.handsontable-custom .currentRow,
+.handsontable-custom .currentCol {
+  background-color: rgba(59, 130, 246, 0.1) !important;
+}
+
+.handsontable-custom .area {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+}
+
+.handsontable-custom .fill {
+  background-color: rgba(59, 130, 246, 0.3) !important;
 }
 
 .dark-theme .table-spreadsheet input[type="date"]::-webkit-calendar-picker-indicator,

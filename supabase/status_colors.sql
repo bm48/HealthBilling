@@ -78,3 +78,22 @@ CREATE POLICY "Super admins can modify status colors" ON status_colors
       AND users.role = 'super_admin'
     )
   );
+
+
+  -- Add AR type colors to status_colors table
+  -- First, alter the check constraint to allow 'ar_type'
+ALTER TABLE status_colors 
+DROP CONSTRAINT IF EXISTS status_colors_type_check;
+
+ALTER TABLE status_colors 
+ADD CONSTRAINT status_colors_type_check 
+CHECK (type IN ('appointment', 'claim', 'patient_pay', 'month', 'ar_type'));
+
+-- Add AR type colors to status_colors table
+INSERT INTO status_colors (status, color, text_color, type)
+VALUES 
+  ('Patient', '#e3f2fd', '#000000', 'ar_type'),
+  ('Insurance', '#fff9c4', '#000000', 'ar_type'),
+  ('Collections', '#ffccbc', '#000000', 'ar_type'),
+  ('MindRx Group', '#e1bee7', '#000000', 'ar_type')
+ON CONFLICT (status, type) DO NOTHING;

@@ -56,6 +56,18 @@ const customStorage = {
   },
 }
 
+// Filter out GoTrueClient session logs from console
+const originalConsoleLog = console.log
+console.log = (...args: any[]) => {
+  // Check all arguments for the GoTrueClient session log pattern
+  const message = args.map(arg => String(arg)).join(' ')
+  // Filter out GoTrueClient session storage logs
+  if (message.includes('GoTrueClient') && (message.includes('#getSession() session from storage') || message.includes('session from storage'))) {
+    return // Don't log this message
+  }
+  originalConsoleLog.apply(console, args)
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     // DISABLE auto-refresh completely to stop the rapid-fire loop
@@ -65,7 +77,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: true,
     storageKey: 'health-billing-auth',
     storage: customStorage,
-    debug: import.meta.env.DEV,
+    debug: false, // Disable debug logging to prevent GoTrueClient session logs
   },
   global: {
     headers: {

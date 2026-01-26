@@ -35,7 +35,7 @@ export type PatientPayStatus =
   | 'Payment Plan'
   | 'Waiting on Claims'
 
-export type ARType = 'Insurance' | 'Patient' | 'Clinic'
+export type ARType = 'Insurance' | 'Patient' | 'Clinic' | 'Collections' | 'MindRx Group' | null
 
 export interface User {
   id: string
@@ -174,7 +174,21 @@ export interface StatusColor {
   status: string
   color: string
   text_color: string
-  type: 'appointment' | 'claim' | 'patient_pay' | 'month'
+  type: 'appointment' | 'claim' | 'patient_pay' | 'month' | 'ar_type'
+  created_at: string
+  updated_at: string
+}
+
+export interface AccountsReceivable {
+  id: string
+  clinic_id: string
+  ar_id: string
+  name: string | null
+  date_of_service: string | null
+  amount: number | null
+  date_recorded: string | null
+  type: ARType | null
+  notes: string | null
   created_at: string
   updated_at: string
 }
@@ -192,25 +206,119 @@ export interface ColumnLock {
   updated_at: string
 }
 
+export interface IsLockBillingTodo {
+  id: string
+  clinic_id: string
+  id_column: boolean
+  status: boolean
+  issue: boolean
+  notes: boolean
+  followup_notes: boolean
+  id_column_comment: string | null
+  status_comment: string | null
+  issue_comment: string | null
+  notes_comment: string | null
+  followup_notes_comment: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface IsLockAccountsReceivable {
+  id: string
+  clinic_id: string
+  ar_id: boolean
+  name: boolean
+  date_of_service: boolean
+  amount: boolean
+  date_recorded: boolean
+  type: boolean
+  notes: boolean
+  ar_id_comment: string | null
+  name_comment: string | null
+  date_of_service_comment: string | null
+  amount_comment: string | null
+  date_recorded_comment: string | null
+  type_comment: string | null
+  notes_comment: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface IsLockProviders {
+  id: string
+  clinic_id: string
+  patient_id: boolean
+  first_name: boolean
+  last_initial: boolean
+  insurance: boolean
+  copay: boolean
+  coinsurance: boolean
+  date_of_service: boolean
+  cpt_code: boolean
+  appointment_note_status: boolean
+  claim_status: boolean
+  most_recent_submit_date: boolean
+  ins_pay: boolean
+  ins_pay_date: boolean
+  pt_res: boolean
+  collected_from_pt: boolean
+  pt_pay_status: boolean
+  pt_payment_ar_ref_date: boolean
+  total: boolean
+  notes: boolean
+  patient_id_comment: string | null
+  first_name_comment: string | null
+  last_initial_comment: string | null
+  insurance_comment: string | null
+  copay_comment: string | null
+  coinsurance_comment: string | null
+  date_of_service_comment: string | null
+  cpt_code_comment: string | null
+  appointment_note_status_comment: string | null
+  claim_status_comment: string | null
+  most_recent_submit_date_comment: string | null
+  ins_pay_comment: string | null
+  ins_pay_date_comment: string | null
+  pt_res_comment: string | null
+  collected_from_pt_comment: string | null
+  pt_pay_status_comment: string | null
+  pt_payment_ar_ref_date_comment: string | null
+  total_comment: string | null
+  notes_comment: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface IsLockPatients {
+  id: string
+  clinic_id: string
+  patient_id: boolean
+  first_name: boolean
+  last_name: boolean
+  insurance: boolean
+  copay: boolean
+  coinsurance: boolean
+  patient_id_comment: string | null
+  first_name_comment: string | null
+  last_name_comment: string | null
+  insurance_comment: string | null
+  copay_comment: string | null
+  coinsurance_comment: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface TodoItem {
   id: string
   clinic_id: string
-  title: string
+  issue: string | null
   status: string
-  claim_reference: string | null
+  notes: string | null
+  followup_notes: string | null
   created_by: string
   created_at: string
   updated_at: string
   completed_at: string | null
-}
-
-export interface TodoNote {
-  id: string
-  todo_id: string
-  note: string
-  created_by: string
-  created_at: string
-  note_type?: string // 'regular' | 'follow_up'
 }
 
 export interface Timecard {

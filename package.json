@@ -10,19 +10,22 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0",
-    "@supabase/supabase-js": "^2.38.4",
-    "date-fns": "^2.30.0",
-    "react-hook-form": "^7.48.2",
-    "zod": "^3.22.4",
+    "@handsontable/react": "^16.2.0",
     "@hookform/resolvers": "^3.3.2",
+    "@supabase/supabase-js": "^2.38.4",
+    "clsx": "^2.0.0",
+    "date-fns": "^2.30.0",
+    "handsontable": "^16.2.0",
+    "hyperformula": "^3.1.1",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
     "lucide-react": "^0.294.0",
-    "clsx": "^2.0.0",
-    "tailwind-merge": "^2.1.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hook-form": "^7.48.2",
+    "react-router-dom": "^6.20.0",
+    "tailwind-merge": "^2.1.0",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

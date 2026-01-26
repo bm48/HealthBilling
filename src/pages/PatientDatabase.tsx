@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Patient } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
@@ -11,6 +11,8 @@ export default function PatientDatabase() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [editingCell, setEditingCell] = useState<{ patientId: string | 'new'; field: string } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; patientId: string } | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
 
   const fetchPatients = useCallback(async () => {
     if (!userProfile) {
@@ -321,6 +323,38 @@ export default function PatientDatabase() {
 
   const canEdit = ['office_staff', 'billing_staff', 'admin', 'super_admin'].includes(userProfile?.role || '')
 
+  // Handle context menu
+  const handleContextMenu = (e: React.MouseEvent, patientId: string) => {
+    if (!canEdit) return
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, patientId })
+  }
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu(null)
+      }
+    }
+
+    if (contextMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [contextMenu])
+
+  // Handle delete from context menu
+  const handleContextMenuDelete = (patientId: string) => {
+    const patient = patients.find(p => p.id === patientId)
+    if (patient) {
+      handleDelete(patient)
+    }
+    setContextMenu(null)
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -356,7 +390,7 @@ export default function PatientDatabase() {
                   <th>Copay</th>
                   <th>Coinsurance</th>
                   {canEdit && (
-                    <th style={{ width: '100px' }}>Actions</th>
+                    <th style={{ width: 'auto', minWidth: '60px' }}>Actions</th>
                   )}
                 </tr>
               </thead>
@@ -371,180 +405,136 @@ export default function PatientDatabase() {
                 {filteredPatients.map((patient) => {
                   const isNew = patient.id.startsWith('new-')
                   return (
-                    <tr key={patient.id} className={isNew ? 'editing' : ''}>
+                    <tr 
+                      key={patient.id} 
+                      className={isNew ? 'editing' : ''}
+                      onContextMenu={(e) => canEdit && !isNew && handleContextMenu(e, patient.id)}
+                    >
                       <td>
-                        {editingCell?.patientId === patient.id && editingCell?.field === 'patient_id' ? (
-                          <input
-                            type="text"
-                            value={patient.patient_id}
-                            onChange={(e) => handleUpdatePatient(patient.id, 'patient_id', e.target.value)}
-                            onBlur={() => {
-                              setEditingCell(null)
-                              saveImmediately()
-                            }}
-                            autoFocus
-                            className="w-full patient-input-edit"
-                            placeholder="ID"
-                            style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ patientId: patient.id, field: 'patient_id' })}
-                            className={canEdit ? 'cursor-pointer' : ''}
-                            style={{ fontFamily: 'monospace', fontSize: '12px' }}
-                          >
-                            {patient.patient_id || (canEdit ? 'Click to add' : '-')}
-                          </div>
-                        )}
+                        <input
+                          type="text"
+                          value={patient.patient_id || ''}
+                          onChange={(e) => handleUpdatePatient(patient.id, 'patient_id', e.target.value)}
+                          onBlur={() => saveImmediately()}
+                          disabled={!canEdit}
+                          className="w-full patient-input-edit"
+                          placeholder={canEdit ? 'ID' : '-'}
+                          style={{ 
+                            color: '#000000', 
+                            backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                            fontFamily: 'monospace', 
+                            fontSize: '12px',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        />
                       </td>
                       <td>
-                        {editingCell?.patientId === patient.id && editingCell?.field === 'first_name' ? (
-                          <input
-                            type="text"
-                            value={patient.first_name}
-                            onChange={(e) => handleUpdatePatient(patient.id, 'first_name', e.target.value)}
-                            onBlur={() => {
-                              setEditingCell(null)
-                              saveImmediately()
-                            }}
-                            autoFocus
-                            className="w-full patient-input-edit"
-                            placeholder="First Name"
-                            style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ patientId: patient.id, field: 'first_name' })}
-                            className={canEdit ? 'cursor-pointer' : ''}
-                          >
-                            {patient.first_name || (canEdit ? 'Click to add' : '-')}
-                          </div>
-                        )}
+                        <input
+                          type="text"
+                          value={patient.first_name || ''}
+                          onChange={(e) => handleUpdatePatient(patient.id, 'first_name', e.target.value)}
+                          onBlur={() => saveImmediately()}
+                          disabled={!canEdit}
+                          className="w-full patient-input-edit"
+                          placeholder={canEdit ? 'First Name' : '-'}
+                          style={{ 
+                            color: '#000000', 
+                            backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        />
                       </td>
                       <td>
-                        {editingCell?.patientId === patient.id && editingCell?.field === 'last_name' ? (
-                          <input
-                            type="text"
-                            value={patient.last_name}
-                            onChange={(e) => handleUpdatePatient(patient.id, 'last_name', e.target.value)}
-                            onBlur={() => {
-                              setEditingCell(null)
-                              saveImmediately()
-                            }}
-                            autoFocus
-                            className="w-full patient-input-edit"
-                            placeholder="Last Name"
-                            style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ patientId: patient.id, field: 'last_name' })}
-                            className={canEdit ? 'cursor-pointer' : ''}
-                            style={{ fontWeight: 500 }}
-                          >
-                            {patient.last_name || (canEdit ? 'Click to add' : '-')}
-                          </div>
-                        )}
+                        <input
+                          type="text"
+                          value={patient.last_name || ''}
+                          onChange={(e) => handleUpdatePatient(patient.id, 'last_name', e.target.value)}
+                          onBlur={() => saveImmediately()}
+                          disabled={!canEdit}
+                          className="w-full patient-input-edit"
+                          placeholder={canEdit ? 'Last Name' : '-'}
+                          style={{ 
+                            color: '#000000', 
+                            backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                            fontWeight: 500,
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        />
                       </td>
                       <td>
-                        {editingCell?.patientId === patient.id && editingCell?.field === 'subscriber_id' ? (
-                          <input
-                            type="text"
-                            value={patient.subscriber_id || ''}
-                            onChange={(e) => handleUpdatePatient(patient.id, 'subscriber_id', e.target.value || null)}
-                            onBlur={() => {
-                              setEditingCell(null)
-                              saveImmediately()
-                            }}
-                            autoFocus
-                            className="w-full patient-input-edit"
-                            placeholder="Subscriber ID"
-                            style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ patientId: patient.id, field: 'subscriber_id' })}
-                            className={canEdit ? 'cursor-pointer' : ''}
-                          >
-                            {patient.subscriber_id || (canEdit ? 'Click to add' : '-')}
-                          </div>
-                        )}
+                        <input
+                          type="text"
+                          value={patient.subscriber_id || ''}
+                          onChange={(e) => handleUpdatePatient(patient.id, 'subscriber_id', e.target.value || null)}
+                          onBlur={() => saveImmediately()}
+                          disabled={!canEdit}
+                          className="w-full patient-input-edit"
+                          placeholder={canEdit ? 'Subscriber ID' : '-'}
+                          style={{ 
+                            color: '#000000', 
+                            backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        />
                       </td>
                       <td>
-                        {editingCell?.patientId === patient.id && editingCell?.field === 'insurance' ? (
-                          <input
-                            type="text"
-                            value={patient.insurance || ''}
-                            onChange={(e) => handleUpdatePatient(patient.id, 'insurance', e.target.value || null)}
-                            onBlur={() => {
-                              setEditingCell(null)
-                              saveImmediately()
-                            }}
-                            autoFocus
-                            className="w-full patient-input-edit"
-                            placeholder="Insurance"
-                            style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)' }}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ patientId: patient.id, field: 'insurance' })}
-                            className={canEdit ? 'cursor-pointer' : ''}
-                          >
-                            {patient.insurance || (canEdit ? 'Click to add' : '-')}
-                          </div>
-                        )}
+                        <input
+                          type="text"
+                          value={patient.insurance || ''}
+                          onChange={(e) => handleUpdatePatient(patient.id, 'insurance', e.target.value || null)}
+                          onBlur={() => saveImmediately()}
+                          disabled={!canEdit}
+                          className="w-full patient-input-edit"
+                          placeholder={canEdit ? 'Insurance' : '-'}
+                          style={{ 
+                            color: '#000000', 
+                            backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        />
                       </td>
                       <td>
-                        {editingCell?.patientId === patient.id && editingCell?.field === 'copay' ? (
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={patient.copay || ''}
-                            onChange={(e) => handleUpdatePatient(patient.id, 'copay', e.target.value ? parseFloat(e.target.value) : null)}
-                            onBlur={() => {
-                              setEditingCell(null)
-                              saveImmediately()
-                            }}
-                            autoFocus
-                            className="w-full currency patient-input-edit"
-                            placeholder="0.00"
-                            style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)', textAlign: 'right' }}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ patientId: patient.id, field: 'copay' })}
-                            className={canEdit ? 'cursor-pointer' : ''}
-                            style={{ textAlign: 'right' }}
-                          >
-                            {patient.copay !== null && patient.copay !== undefined ? `$${patient.copay.toFixed(2)}` : (canEdit ? 'Click to add' : '-')}
-                          </div>
-                        )}
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={patient.copay || ''}
+                          onChange={(e) => handleUpdatePatient(patient.id, 'copay', e.target.value ? parseFloat(e.target.value) : null)}
+                          onBlur={() => saveImmediately()}
+                          disabled={!canEdit}
+                          className="w-full currency patient-input-edit"
+                          placeholder={canEdit ? '0.00' : '-'}
+                          style={{ 
+                            color: '#000000', 
+                            backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                            textAlign: 'right',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        />
                       </td>
                       <td>
-                        {editingCell?.patientId === patient.id && editingCell?.field === 'coinsurance' ? (
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={patient.coinsurance || ''}
-                            onChange={(e) => handleUpdatePatient(patient.id, 'coinsurance', e.target.value ? parseFloat(e.target.value) : null)}
-                            onBlur={() => {
-                              setEditingCell(null)
-                              saveImmediately()
-                            }}
-                            autoFocus
-                            className="w-full currency patient-input-edit"
-                            placeholder="0.00"
-                            style={{ color: '#000000', backgroundColor: 'rgba(255, 255, 255, 0.9)', textAlign: 'right' }}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => canEdit && setEditingCell({ patientId: patient.id, field: 'coinsurance' })}
-                            className={canEdit ? 'cursor-pointer' : ''}
-                            style={{ textAlign: 'right' }}
-                          >
-                            {patient.coinsurance !== null && patient.coinsurance !== undefined ? `${patient.coinsurance.toFixed(2)}%` : (canEdit ? 'Click to add' : '-')}
-                          </div>
-                        )}
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={patient.coinsurance || ''}
+                          onChange={(e) => handleUpdatePatient(patient.id, 'coinsurance', e.target.value ? parseFloat(e.target.value) : null)}
+                          onBlur={() => saveImmediately()}
+                          disabled={!canEdit}
+                          className="w-full currency patient-input-edit"
+                          placeholder={canEdit ? '0.00' : '-'}
+                          style={{ 
+                            color: '#000000', 
+                            backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                            textAlign: 'right',
+                            border: 'none',
+                            outline: 'none'
+                          }}
+                        />
                       </td>
                       {canEdit && (
                         <td>
@@ -574,6 +564,25 @@ export default function PatientDatabase() {
         )}
       </div>
 
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[150px]"
+          style={{
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`,
+          }}
+        >
+          <button
+            onClick={() => handleContextMenuDelete(contextMenu.patientId)}
+            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
+          >
+            <Trash2 size={16} />
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   )
 }

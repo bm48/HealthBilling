@@ -1,7 +1,7 @@
 import { useParams } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { SheetRow, ProviderSheet as ProviderSheetType, BillingCode, Patient } from '@/types'
+import { SheetRow, ProviderSheet as ProviderSheetType, BillingCode, Patient, StatusColor } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import ProviderSheetTable from '@/components/ProviderSheetTable'
 import { Calendar, Lock } from 'lucide-react'
@@ -14,6 +14,7 @@ export default function ProviderSheet() {
   const [rows, setRows] = useState<SheetRow[]>([])
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])
   const [patients, setPatients] = useState<Patient[]>([])
+  const [statusColors, setStatusColors] = useState<StatusColor[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showColumnsJ_M, setShowColumnsJ_M] = useState(true)
@@ -27,6 +28,7 @@ export default function ProviderSheet() {
       fetchSheet()
       fetchBillingCodes()
       fetchPatients()
+      fetchStatusColors()
     } else if (!loading) {
       setLoading(false)
     }
@@ -170,6 +172,20 @@ export default function ProviderSheet() {
       setPatients(data || [])
     } catch (error) {
       console.error('Error fetching patients:', error)
+    }
+  }
+
+  const fetchStatusColors = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('status_colors')
+        .select('*')
+      
+      if (error) throw error
+      setStatusColors(data || [])
+    } catch (error) {
+      console.error('Error fetching status colors:', error)
+      setStatusColors([])
     }
   }
 
@@ -342,6 +358,7 @@ export default function ProviderSheet() {
           onToggleColumnsJ_M={() => setShowColumnsJ_M(!showColumnsJ_M)}
           onBlur={saveImmediately}
           onEditingChange={setEditingCell}
+          statusColors={statusColors}
         />
       </div>
     </div>

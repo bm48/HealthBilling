@@ -1,4 +1,5 @@
-import { SheetRow, AppointmentStatus, ClaimStatus, PatientPayStatus, ARType, BillingCode, Patient } from '@/types'
+import { useState, useEffect, useRef } from 'react'
+import { SheetRow, AppointmentStatus, ClaimStatus, PatientPayStatus, ARType, BillingCode, Patient, StatusColor } from '@/types'
 import { getColumnPermissions } from '@/lib/permissions'
 import { UserRole } from '@/types'
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react'
@@ -17,6 +18,7 @@ interface ProviderSheetTableProps {
   onToggleColumnsJ_M: () => void
   onBlur?: () => void // Optional callback for immediate save on blur
   onEditingChange?: (editing: { rowId: string; field: string } | null) => void // Callback to track editing state
+  statusColors?: StatusColor[] // Optional status colors from status_colors table
 }
 
 const COLUMN_DEFINITIONS = {
@@ -80,7 +82,7 @@ const PATIENT_PAY_STATUSES: PatientPayStatus[] = [
   'Waiting on Claims',
 ]
 
-const AR_TYPES: ARType[] = ['Insurance', 'Patient', 'Clinic']
+const AR_TYPES: (ARType | null)[] = ['Insurance', 'Patient', 'Clinic', null]
 
 export default function ProviderSheetTable({
   rows,
@@ -96,11 +98,14 @@ export default function ProviderSheetTable({
   onToggleColumnsJ_M,
   onBlur,
   onEditingChange,
+  statusColors = [],
 }: ProviderSheetTableProps) {
   const permissions = getColumnPermissions(role, isOwnSheet, lockedColumns)
   const visibleColumns = Object.keys(COLUMN_DEFINITIONS).filter(col => 
     permissions[col]?.visible !== false
   )
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; rowId: string } | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
 
   const handleFocus = (rowId: string, field: string) => {
     if (onEditingChange) {
@@ -115,6 +120,35 @@ export default function ProviderSheetTable({
     if (onBlur) {
       onBlur()
     }
+  }
+
+  // Handle context menu
+  const handleContextMenu = (e: React.MouseEvent, rowId: string) => {
+    if (!permissions['A']?.editable) return
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, rowId })
+  }
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu(null)
+      }
+    }
+
+    if (contextMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [contextMenu])
+
+  // Handle delete from context menu
+  const handleContextMenuDelete = (rowId: string) => {
+    onDeleteRow(rowId)
+    setContextMenu(null)
   }
 
   const renderCell = (row: SheetRow, column: string) => {
@@ -206,6 +240,7 @@ export default function ProviderSheetTable({
         )
 
       case 'H': // Billing Code
+        const billingCode = billingCodes.find(c => c.code === row.billing_code)
         return (
           <select
             value={row.billing_code || ''}
@@ -218,11 +253,26 @@ export default function ProviderSheetTable({
             onBlur={() => handleBlur(row.id, 'billing_code')}
             disabled={!isEditable}
             className={isLocked ? 'locked' : ''}
-            style={{ backgroundColor: row.billing_code_color || undefined }}
+            style={{ 
+              backgroundColor: billingCode?.color || 'rgba(255, 255, 255, 0.9)',
+              color: billingCode?.color ? '#ffffff' : '#000000',
+              fontWeight: billingCode?.color ? '500' : 'normal',
+              border: 'none',
+              outline: 'none',
+              borderRadius: '0px'
+            }}
           >
-            <option value="">Select...</option>
+            <option value="" style={{ backgroundColor: '#ffffff', color: '#000000' }}>Select...</option>
             {billingCodes.map(code => (
-              <option key={code.id} value={code.code}>
+              <option 
+                key={code.id} 
+                value={code.code}
+                style={{ 
+                  backgroundColor: code.color || '#ffffff',
+                  color: code.color ? '#ffffff' : '#000000',
+                  fontWeight: '500'
+                }}
+              >
                 {code.code} - {code.description}
               </option>
             ))}
@@ -230,6 +280,7 @@ export default function ProviderSheetTable({
         )
 
       case 'I': // Appointment Status
+        const appointmentStatusColor = statusColors.find(s => s.status === row.appointment_status && s.type === 'appointment')
         return (
           <select
             value={row.appointment_status || ''}
@@ -238,15 +289,37 @@ export default function ProviderSheetTable({
             onBlur={() => handleBlur(row.id, 'appointment_status')}
             disabled={!isEditable}
             className={isLocked ? 'locked' : ''}
+            style={{
+              backgroundColor: appointmentStatusColor?.color || 'rgba(255, 255, 255, 0.9)',
+              color: appointmentStatusColor?.text_color || '#000000',
+              fontWeight: appointmentStatusColor ? '500' : 'normal',
+              border: 'none',
+              outline: 'none',
+              borderRadius: '0px'
+            }}
           >
-            <option value="">Select...</option>
-            {APPOINTMENT_STATUSES.map(status => (
-              <option key={status} value={status}>{status}</option>
-            ))}
+            <option value="" style={{ backgroundColor: '#ffffff', color: '#000000' }}>Select...</option>
+            {APPOINTMENT_STATUSES.map(status => {
+              const statusColor = statusColors.find(s => s.status === status && s.type === 'appointment')
+              return (
+                <option 
+                  key={status} 
+                  value={status}
+                  style={{ 
+                    backgroundColor: statusColor?.color || '#ffffff',
+                    color: statusColor?.text_color || '#000000',
+                    fontWeight: '500'
+                  }}
+                >
+                  {status}
+                </option>
+              )
+            })}
           </select>
         )
 
       case 'J': // Claim Status
+        const claimStatusColor = statusColors.find(s => s.status === row.claim_status && s.type === 'claim')
         return (
           <select
             value={row.claim_status || ''}
@@ -255,11 +328,32 @@ export default function ProviderSheetTable({
             onBlur={() => handleBlur(row.id, 'claim_status')}
             disabled={!isEditable}
             className={isLocked ? 'locked' : ''}
+            style={{
+              backgroundColor: claimStatusColor?.color || 'rgba(255, 255, 255, 0.9)',
+              color: claimStatusColor?.text_color || '#000000',
+              fontWeight: claimStatusColor ? '500' : 'normal',
+              border: 'none',
+              outline: 'none',
+              borderRadius: '0px'
+            }}
           >
-            <option value="">Select...</option>
-            {CLAIM_STATUSES.map(status => (
-              <option key={status} value={status}>{status}</option>
-            ))}
+            <option value="" style={{ backgroundColor: '#ffffff', color: '#000000' }}>Select...</option>
+            {CLAIM_STATUSES.map(status => {
+              const statusColor = statusColors.find(s => s.status === status && s.type === 'claim')
+              return (
+                <option 
+                  key={status} 
+                  value={status}
+                  style={{ 
+                    backgroundColor: statusColor?.color || '#ffffff',
+                    color: statusColor?.text_color || '#000000',
+                    fontWeight: '500'
+                  }}
+                >
+                  {status}
+                </option>
+              )
+            })}
           </select>
         )
 
@@ -333,6 +427,7 @@ export default function ProviderSheetTable({
         )
 
       case 'P': // Patient Pay Status
+        const patientPayStatusColor = statusColors.find(s => s.status === row.patient_pay_status && s.type === 'patient_pay')
         return (
           <select
             value={row.patient_pay_status || ''}
@@ -341,11 +436,32 @@ export default function ProviderSheetTable({
             onBlur={() => handleBlur(row.id, 'patient_pay_status')}
             disabled={!isEditable}
             className={isLocked ? 'locked' : ''}
+            style={{
+              backgroundColor: patientPayStatusColor?.color || 'rgba(255, 255, 255, 0.9)',
+              color: patientPayStatusColor?.text_color || '#000000',
+              fontWeight: patientPayStatusColor ? '500' : 'normal',
+              border: 'none',
+              outline: 'none',
+              borderRadius: '0px'
+            }}
           >
-            <option value="">Select...</option>
-            {PATIENT_PAY_STATUSES.map(status => (
-              <option key={status} value={status}>{status}</option>
-            ))}
+            <option value="" style={{ backgroundColor: '#ffffff', color: '#000000' }}>Select...</option>
+            {PATIENT_PAY_STATUSES.map(status => {
+              const statusColor = statusColors.find(s => s.status === status && s.type === 'patient_pay')
+              return (
+                <option 
+                  key={status} 
+                  value={status}
+                  style={{ 
+                    backgroundColor: statusColor?.color || '#ffffff',
+                    color: statusColor?.text_color || '#000000',
+                    fontWeight: '500'
+                  }}
+                >
+                  {status}
+                </option>
+              )
+            })}
           </select>
         )
 
@@ -373,8 +489,8 @@ export default function ProviderSheetTable({
             className={isLocked ? 'locked' : ''}
           >
             <option value="">Select...</option>
-            {AR_TYPES.map(type => (
-              <option key={type} value={type}>{type}</option>
+            {AR_TYPES.filter(type => type !== null).map(type => (
+              <option key={type!} value={type!}>{type!}</option>
             ))}
           </select>
         )
@@ -480,13 +596,21 @@ export default function ProviderSheetTable({
               if (!showColumnsJ_M && ['J', 'K', 'L', 'M'].includes(col)) return null
               const def = COLUMN_DEFINITIONS[col as keyof typeof COLUMN_DEFINITIONS]
               if (!def) return null
+              // Convert Tailwind width classes to pixels for minWidth
+              const widthMap: Record<string, string> = {
+                'w-8': '32px',
+                'w-24': '96px',
+                'w-32': '128px',
+                'w-48': '192px',
+              }
+              const minWidth = widthMap[def.width] || def.width.replace('w-', '').replace('px', '') + 'px'
+              
               return (
-                <th key={col} style={{ minWidth: def.width.replace('w-', '').replace('px', '') + 'px' }}>
+                <th key={col} style={{ width: 'auto', minWidth: minWidth }}>
                   {def.label || col}
                 </th>
               )
             })}
-            <th style={{ width: '48px' }}>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -495,6 +619,7 @@ export default function ProviderSheetTable({
               <tr
                 key={row.id}
                 style={{ backgroundColor: row.highlight_color ? `${row.highlight_color}40` : undefined }}
+                onContextMenu={(e) => permissions['A']?.editable && handleContextMenu(e, row.id)}
               >
                 <td style={{ textAlign: 'center', fontWeight: 500 }}>
                   {index + 1}
@@ -512,16 +637,6 @@ export default function ProviderSheetTable({
                     </td>
                   )
                 })}
-                <td>
-                  <button
-                    onClick={() => onDeleteRow(row.id)}
-                    className="text-red-400 hover:text-red-300"
-                    disabled={!permissions['A']?.editable}
-                    style={{ padding: '4px' }}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </td>
               </tr>
             )
           })}
@@ -534,6 +649,26 @@ export default function ProviderSheetTable({
           )}
         </tbody>
       </table>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[150px]"
+          style={{
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`,
+          }}
+        >
+          <button
+            onClick={() => handleContextMenuDelete(contextMenu.rowId)}
+            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
+          >
+            <Trash2 size={16} />
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   )
 }
