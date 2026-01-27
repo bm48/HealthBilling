@@ -136,14 +136,6 @@ export class DateEditor extends Handsontable.editors.TextEditor {
         this.TEXTAREA.parentNode.replaceChild(dateInput, this.TEXTAREA)
       }
       this.TEXTAREA = dateInput
-      // Set $textarea if it exists, otherwise skip (not critical)
-      if (this.$textarea !== undefined) {
-        try {
-          this.$textarea = dateInput as any
-        } catch (e) {
-          // Ignore if $textarea assignment fails
-        }
-      }
     } else if (this.TEXTAREA && this.TEXTAREA.tagName === 'INPUT') {
       // If it's already an input, just change the type
       (this.TEXTAREA as HTMLInputElement).setAttribute('type', 'date')
@@ -160,9 +152,13 @@ export class DateEditor extends Handsontable.editors.TextEditor {
         const date = new Date(initialValue)
         if (!isNaN(date.getTime())) {
           const year = date.getFullYear()
-          const month = String(date.getMonth() + 1).padStart(2, '0')
-          const day = String(date.getDate()).padStart(2, '0')
-          (this.TEXTAREA as HTMLInputElement).value = `${year}-${month}-${day}`
+          const monthValue = date.getMonth() + 1
+          const monthStr = String(monthValue).padStart(2, '0')
+          const dayValue = date.getDate()
+          const dayStr = String(dayValue).padStart(2, '0')
+          const formattedDate = year + '-' + monthStr + '-' + dayStr
+          const inputElement = this.TEXTAREA as HTMLInputElement
+          inputElement.value = formattedDate
         } else {
           // If it's already in YYYY-MM-DD format, use it directly
           if (/^\d{4}-\d{2}-\d{2}$/.test(initialValue)) {
