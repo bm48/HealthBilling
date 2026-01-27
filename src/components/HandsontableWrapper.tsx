@@ -110,26 +110,24 @@ export default function HandsontableWrapper({
       // Numeric validation and formatting will be handled in the change handler
     }
     
-    // Handle dropdown type
+    // Handle dropdown type - don't set type, let select editor handle it
     if (col.type === 'dropdown' && col.selectOptions) {
-      processedCol.type = 'text' as const
+      delete processedCol.type // Remove type to let select editor work properly
       processedCol.editor = 'select'
       processedCol.selectOptions = col.selectOptions
       processedCol.strict = col.strict !== false
     }
     
-    // Handle date type - convert to text type since date type requires additional dependencies
-    // Date formatting will be handled by custom renderer if provided
-    // Check both col.type and processedCol.type to ensure we catch it
-    if (col.type === 'date' || processedCol.type === 'date' || String(col.type) === 'date' || String(processedCol.type) === 'date') {
-      processedCol.type = 'text' as const // Use text type as base since date type requires Pikaday/Moment.js
-      processedCol.editor = 'text' // Use text editor for date input
-      // Store date format for potential use in renderer/change handler
+    // Handle date type - use date type directly (should be available in full build)
+    if (col.type === 'date' || processedCol.type === 'date') {
+      processedCol.type = 'date' as const
+      // Date editor is automatically used with date type
       if (col.format) {
         processedCol.dateFormat = col.format
+      } else {
+        processedCol.dateFormat = 'YYYY-MM-DD'
       }
-      // Remove any date-specific properties that might cause issues
-      delete (processedCol as any).correctFormat
+      processedCol.correctFormat = true
     }
     
     // Preserve custom renderer if provided
@@ -155,11 +153,17 @@ export default function HandsontableWrapper({
       processedCol.readOnly = false
     }
     
-    // Final safety check: ensure no date type remains
-    if (processedCol.type === 'date' || String(processedCol.type) === 'date') {
-      processedCol.type = 'text' as const
-      if (!processedCol.editor) {
-        processedCol.editor = 'text'
+    // Final safety check: ensure type is valid
+    // Allow date, text types, and undefined (for select editor)
+    if (processedCol.type && 
+        processedCol.type !== 'date' && 
+        processedCol.type !== 'text') {
+      // If type is invalid and we have an editor, use text as fallback
+      if (processedCol.editor && processedCol.editor !== 'select' && processedCol.editor !== 'date') {
+        processedCol.type = 'text' as const
+      } else if (processedCol.editor === 'select') {
+        // For select editor, remove type
+        delete processedCol.type
       }
     }
     
