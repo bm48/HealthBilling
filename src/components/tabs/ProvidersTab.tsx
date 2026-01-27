@@ -667,7 +667,7 @@ export default function ProvidersTab({
               onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as number | null)
             } else if (field === 'appointment_date') {
               onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
-            } else {
+    } else {
               onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as any)
             }
           }

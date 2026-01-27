@@ -2,7 +2,6 @@ import { useRef, useEffect, useMemo } from 'react'
 import { HotTable } from '@handsontable/react'
 import Handsontable from 'handsontable'
 import { HyperFormula } from 'hyperformula'
-import { DateEditor } from '@/lib/handsontableCustomRenderers'
 import 'handsontable/dist/handsontable.full.css'
 
 interface HandsontableWrapperProps {
@@ -111,26 +110,24 @@ export default function HandsontableWrapper({
       // Numeric validation and formatting will be handled in the change handler
     }
     
-    // Handle dropdown type - use autocomplete with strict mode (dropdown is based on autocomplete)
+    // Handle dropdown type - don't set type, let select editor handle it
     if (col.type === 'dropdown' && col.selectOptions) {
-      processedCol.type = 'autocomplete' as const // Use autocomplete type (dropdown is based on this)
-      processedCol.source = col.selectOptions // Use source for autocomplete
-      processedCol.strict = col.strict !== false // Enable strict mode for dropdown-like behavior
-      processedCol.filter = false // Disable filtering for dropdown behavior
-      // Remove selectOptions as autocomplete uses source
-      delete processedCol.selectOptions
+      delete processedCol.type // Remove type to let select editor work properly
+      processedCol.editor = 'select'
+      processedCol.selectOptions = col.selectOptions
+      processedCol.strict = col.strict !== false
     }
     
-    // Handle date type - use text type with custom date editor
+    // Handle date type - use date type directly (should be available in full build)
     if (col.type === 'date' || processedCol.type === 'date') {
-      processedCol.type = 'text' as const // Use text type to avoid registration errors
-      processedCol.editor = DateEditor // Use custom date editor with HTML5 date input
-      // Store date format for potential use
+      processedCol.type = 'date' as const
+      // Date editor is automatically used with date type
       if (col.format) {
         processedCol.dateFormat = col.format
       } else {
         processedCol.dateFormat = 'YYYY-MM-DD'
       }
+      processedCol.correctFormat = true
     }
     
     // Preserve custom renderer if provided
@@ -157,14 +154,16 @@ export default function HandsontableWrapper({
     }
     
     // Final safety check: ensure type is valid
-    // Allow date, text, autocomplete types
+    // Allow date, text types, and undefined (for select editor)
     if (processedCol.type && 
         processedCol.type !== 'date' && 
-        processedCol.type !== 'text' &&
-        processedCol.type !== 'autocomplete') {
+        processedCol.type !== 'text') {
       // If type is invalid and we have an editor, use text as fallback
-      if (processedCol.editor && processedCol.editor !== DateEditor) {
+      if (processedCol.editor && processedCol.editor !== 'select' && processedCol.editor !== 'date') {
         processedCol.type = 'text' as const
+      } else if (processedCol.editor === 'select') {
+        // For select editor, remove type
+        delete processedCol.type
       }
     }
     
