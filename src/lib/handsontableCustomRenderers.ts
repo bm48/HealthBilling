@@ -114,6 +114,82 @@ export function createBubbleDropdownRenderer(colorMap: (value: string) => { colo
 }
 
 /**
+ * Custom date editor using HTML5 date input
+ */
+export class DateEditor extends Handsontable.editors.TextEditor {
+  createElements() {
+    super.createElements()
+    
+    // Replace the textarea with a date input
+    if (this.TEXTAREA && this.TEXTAREA.tagName === 'TEXTAREA') {
+      const dateInput = document.createElement('input')
+      dateInput.setAttribute('type', 'date')
+      dateInput.setAttribute('data-hot-input', 'true')
+      dateInput.className = this.TEXTAREA.className
+      
+      // Copy styles from textarea
+      const textareaStyle = window.getComputedStyle(this.TEXTAREA)
+      dateInput.style.cssText = textareaStyle.cssText
+      
+      // Replace textarea with date input
+      if (this.TEXTAREA.parentNode) {
+        this.TEXTAREA.parentNode.replaceChild(dateInput, this.TEXTAREA)
+      }
+      this.TEXTAREA = dateInput
+      // Set $textarea if it exists, otherwise skip (not critical)
+      if (this.$textarea !== undefined) {
+        try {
+          this.$textarea = dateInput as any
+        } catch (e) {
+          // Ignore if $textarea assignment fails
+        }
+      }
+    } else if (this.TEXTAREA && this.TEXTAREA.tagName === 'INPUT') {
+      // If it's already an input, just change the type
+      (this.TEXTAREA as HTMLInputElement).setAttribute('type', 'date')
+    }
+  }
+  
+  beginEditing(initialValue?: string) {
+    super.beginEditing(initialValue)
+    
+    // Format the date value for HTML5 date input (YYYY-MM-DD)
+    if (initialValue && this.TEXTAREA) {
+      try {
+        // Try to parse and format the date
+        const date = new Date(initialValue)
+        if (!isNaN(date.getTime())) {
+          const year = date.getFullYear()
+          const month = String(date.getMonth() + 1).padStart(2, '0')
+          const day = String(date.getDate()).padStart(2, '0')
+          (this.TEXTAREA as HTMLInputElement).value = `${year}-${month}-${day}`
+        } else {
+          // If it's already in YYYY-MM-DD format, use it directly
+          if (/^\d{4}-\d{2}-\d{2}$/.test(initialValue)) {
+            (this.TEXTAREA as HTMLInputElement).value = initialValue
+          }
+        }
+      } catch (e) {
+        // If parsing fails, try to use the value as-is if it matches YYYY-MM-DD
+        if (/^\d{4}-\d{2}-\d{2}$/.test(initialValue)) {
+          (this.TEXTAREA as HTMLInputElement).value = initialValue
+        }
+      }
+    }
+  }
+  
+  getValue() {
+    return (this.TEXTAREA as HTMLInputElement)?.value || ''
+  }
+  
+  setValue(value: string) {
+    if (this.TEXTAREA) {
+      (this.TEXTAREA as HTMLInputElement).value = value
+    }
+  }
+}
+
+/**
  * Custom editor for dropdown cells with colors
  */
 export function createColoredDropdownEditor(

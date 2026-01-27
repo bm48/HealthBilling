@@ -2,6 +2,7 @@ import { useRef, useEffect, useMemo } from 'react'
 import { HotTable } from '@handsontable/react'
 import Handsontable from 'handsontable'
 import { HyperFormula } from 'hyperformula'
+import { DateEditor } from '@/lib/handsontableCustomRenderers'
 import 'handsontable/dist/handsontable.full.css'
 
 interface HandsontableWrapperProps {
@@ -110,24 +111,24 @@ export default function HandsontableWrapper({
       // Numeric validation and formatting will be handled in the change handler
     }
     
-    // Handle dropdown type - don't set type, let select editor handle it
+    // Handle dropdown type - use text type with select editor
     if (col.type === 'dropdown' && col.selectOptions) {
-      delete processedCol.type // Remove type to let select editor work properly
-      processedCol.editor = 'select'
+      processedCol.type = 'text' as const // Use text type
+      processedCol.editor = 'select' // Use select editor
       processedCol.selectOptions = col.selectOptions
       processedCol.strict = col.strict !== false
     }
     
-    // Handle date type - use date type directly (should be available in full build)
+    // Handle date type - use text type with custom date editor (no external dependencies needed)
     if (col.type === 'date' || processedCol.type === 'date') {
-      processedCol.type = 'date' as const
-      // Date editor is automatically used with date type
+      processedCol.type = 'text' as const // Use text type to avoid registration issues
+      processedCol.editor = DateEditor // Use custom date editor with HTML5 date input
+      // Store date format for potential use
       if (col.format) {
         processedCol.dateFormat = col.format
       } else {
         processedCol.dateFormat = 'YYYY-MM-DD'
       }
-      processedCol.correctFormat = true
     }
     
     // Preserve custom renderer if provided

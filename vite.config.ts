@@ -10,4 +10,7 @@ export default defineConfig({
       '@': resolve(__dirname, './src'),
     },
   },
+  preview: {
+    port: 9998
+  }
 })
