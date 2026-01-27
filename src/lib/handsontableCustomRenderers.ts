@@ -114,6 +114,47 @@ export function createBubbleDropdownRenderer(colorMap: (value: string) => { colo
 }
 
 /**
+ * Custom date editor using HTML5 date input
+ */
+export class DateEditor extends Handsontable.editors.TextEditor {
+  beginEditing(initialValue?: string) {
+    super.beginEditing(initialValue)
+    
+    const input = (this as any).TEXTAREA as HTMLInputElement
+    if (input) {
+      // Change input type to date
+      input.type = 'date'
+      
+      // Format initial value for date input (YYYY-MM-DD format)
+      if (initialValue) {
+        try {
+          const date = new Date(initialValue)
+          if (!isNaN(date.getTime())) {
+            const year = date.getFullYear()
+            const month = String(date.getMonth() + 1).padStart(2, '0')
+            const day = String(date.getDate()).padStart(2, '0')
+            input.value = `${year}-${month}-${day}`
+          }
+        } catch (e) {
+          // If parsing fails, try to use the value as-is if it's already in YYYY-MM-DD format
+          if (initialValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            input.value = initialValue
+          }
+        }
+      }
+    }
+  }
+  
+  getValue() {
+    const input = (this as any).TEXTAREA as HTMLInputElement
+    if (input && input.type === 'date') {
+      return input.value || ''
+    }
+    return super.getValue()
+  }
+}
+
+/**
  * Custom editor for dropdown cells with colors
  */
 export function createColoredDropdownEditor(
