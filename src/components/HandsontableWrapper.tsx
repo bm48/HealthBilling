@@ -118,11 +118,18 @@ export default function HandsontableWrapper({
       processedCol.strict = col.strict !== false
     }
     
-    // Handle date type
-    if (col.type === 'date') {
-      processedCol.type = 'date' as const
-      processedCol.dateFormat = col.format || 'YYYY-MM-DD'
-      processedCol.correctFormat = true
+    // Handle date type - convert to text type since date type requires additional dependencies
+    // Date formatting will be handled by custom renderer if provided
+    // Check both col.type and processedCol.type to ensure we catch it
+    if (col.type === 'date' || processedCol.type === 'date' || String(col.type) === 'date' || String(processedCol.type) === 'date') {
+      processedCol.type = 'text' as const // Use text type as base since date type requires Pikaday/Moment.js
+      processedCol.editor = 'text' // Use text editor for date input
+      // Store date format for potential use in renderer/change handler
+      if (col.format) {
+        processedCol.dateFormat = col.format
+      }
+      // Remove any date-specific properties that might cause issues
+      delete (processedCol as any).correctFormat
     }
     
     // Preserve custom renderer if provided
@@ -147,6 +154,15 @@ export default function HandsontableWrapper({
     } else if (col.readOnly === false) {
       processedCol.readOnly = false
     }
+    
+    // Final safety check: ensure no date type remains
+    if (processedCol.type === 'date' || String(processedCol.type) === 'date') {
+      processedCol.type = 'text' as const
+      if (!processedCol.editor) {
+        processedCol.editor = 'text'
+      }
+    }
+    
     return processedCol
   }), [columns])
 
