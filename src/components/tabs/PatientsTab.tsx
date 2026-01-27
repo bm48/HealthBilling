@@ -119,20 +119,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   
 
   const savePatients = useCallback(async (patientsToSave: Patient[]) => {
-    console.log('[savePatients] Called with:', {
-      clinicId,
-      hasUserProfile: !!userProfile,
-      patientsToSaveCount: patientsToSave.length,
-      patientsToSave: patientsToSave.map(p => ({
-        id: p.id,
-        patient_id: p.patient_id,
-        first_name: p.first_name,
-        last_name: p.last_name,
-        insurance: p.insurance,
-        copay: p.copay,
-        coinsurance: p.coinsurance
-      }))
-    })
 
     if (!clinicId || !userProfile) {
       console.log('[savePatients] Early return - missing clinicId or userProfile', { clinicId, hasUserProfile: !!userProfile })
@@ -177,15 +163,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       for (let i = 0; i < patientsToProcess.length; i++) {
         const patient = patientsToProcess[i]
         const oldId = patient.id // Store the old ID to find it in state
-        console.log(`[savePatients] Processing patient ${i + 1}/${patientsToProcess.length}:`, {
-          id: patient.id,
-          patient_id: patient.patient_id,
-          first_name: patient.first_name,
-          last_name: patient.last_name,
-          insurance: patient.insurance,
-          copay: patient.copay,
-          coinsurance: patient.coinsurance
-        })
 
         // Generate patient_id if missing
         let finalPatientId = patient.patient_id || ''
@@ -193,7 +170,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           const timestamp = Date.now().toString().slice(-6)
           const initials = `${(patient.first_name || '').charAt(0)}${(patient.last_name || '').charAt(0)}`.toUpperCase() || 'PT'
           finalPatientId = `${initials}${timestamp}`
-          console.log(`[savePatients] Generated patient_id: ${finalPatientId}`)
         }
 
         // Prepare patient data
@@ -208,34 +184,28 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           updated_at: new Date().toISOString(),
         }
 
-        console.log(`[savePatients] Prepared patientData:`, patientData)
 
         let savedPatient: Patient | null = null
 
         // If patient has a real database ID (not new- or empty-), update by ID
         if (!patient.id.startsWith('new-') && !patient.id.startsWith('empty-')) {
-          console.log(`[savePatients] Attempting UPDATE by ID: ${patient.id}`)
           const { error: updateError, data: updateData } = await supabase
             .from('patients')
             .update(patientData)
             .eq('id', patient.id)
             .select()
 
-          console.log(`[savePatients] UPDATE result:`, { updateError, updateData })
 
           if (!updateError && updateData && updateData.length > 0) {
-            console.log(`[savePatients] UPDATE successful for patient ID: ${patient.id}`)
             savedPatient = updateData[0] as Patient
             savedPatientsMap.set(oldId, savedPatient)
             continue // Update successful, move to next patient
           }
-          console.log(`[savePatients] UPDATE failed, will try UPSERT:`, updateError)
           // If update failed (e.g., patient not found), fall through to upsert
         }
 
         // Use upsert for new patients (new- or empty- IDs) or when update by ID fails
         // Upsert handles the unique constraint (clinic_id, patient_id) automatically
-        console.log(`[savePatients] Attempting UPSERT for patient_id: ${finalPatientId} (patient ID: ${patient.id})`)
         const { error: upsertError, data: upsertData } = await supabase
           .from('patients')
           .upsert(patientData, {
@@ -244,7 +214,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           })
           .select()
 
-        console.log(`[savePatients] UPSERT result:`, { upsertError, upsertData })
 
         if (upsertError) {
           console.error('[savePatients] Error upserting patient:', upsertError, patientData)
@@ -254,26 +223,22 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         if (upsertData && upsertData.length > 0) {
           savedPatient = upsertData[0] as Patient
           savedPatientsMap.set(oldId, savedPatient) // Map old ID to new patient data
-          console.log(`[savePatients] Successfully saved patient: ${finalPatientId}, new DB ID: ${savedPatient.id}`)
         }
       }
 
       // Update patients in place without reordering - preserve exact row positions
-      console.log('[savePatients] Updating saved patients in place without reordering...')
       setPatients(currentPatients => {
         return currentPatients.map(patient => {
           const savedPatient = savedPatientsMap.get(patient.id)
           if (savedPatient) {
             // This patient was just saved - update with fresh data from database
             // This preserves the row position but updates the data and ID (for new patients)
-            console.log(`[savePatients] Updating patient in place: ${patient.id} -> ${savedPatient.id}`)
             return savedPatient
           }
           return patient // Keep all other patients exactly as they are
         })
       })
       
-      console.log('[savePatients] All patients updated in place - positions preserved')
     } catch (error: any) {
       console.error('[savePatients] Error saving patients:', error)
       alert(error?.message || 'Failed to save patient. Please try again.')
@@ -319,7 +284,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   }, [patients])
   if (patients) {
     
-    console.log('patients: ',patients )
   }
   
   // Column field names mapping to is_lock_patients table columns

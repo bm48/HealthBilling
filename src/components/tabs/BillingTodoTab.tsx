@@ -4,7 +4,7 @@ import { TodoItem, IsLockBillingTodo } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
-import { createColoredDropdownRenderer } from '@/lib/handsontableCustomRenderers'
+import { createBubbleDropdownRenderer } from '@/lib/handsontableCustomRenderers'
 
 interface BillingTodoTabProps {
   clinicId: string
@@ -586,7 +586,7 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       width: 120,
       editor: 'select',
       selectOptions: ['Open', 'In Progress', 'Completed'],
-      renderer: createColoredDropdownRenderer(getStatusColor) as any,
+      renderer: createBubbleDropdownRenderer(getStatusColor) as any,
       readOnly: !canEdit || getReadOnly('status')
     },
     { 

@@ -187,7 +187,6 @@ export default function ClinicDetail() {
         .select('*')
       if (data && data.length > 0) {
         setStatusColors(data)
-        console.log('Status colors: ', data)
       } else {
         console.log('No status colors found, using defaults')
         setStatusColors(getDefaultStatusColors())

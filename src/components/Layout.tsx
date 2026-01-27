@@ -111,7 +111,6 @@ export default function Layout({ children }: LayoutProps) {
         throw error
       }
       
-      console.log(`Fetched ${data?.length || 0} total providers for ${clinicIds.length} clinics:`, data)
       
       // Group providers by clinic_id
       const grouped: Record<string, Provider[]> = {}
@@ -122,7 +121,6 @@ export default function Layout({ children }: LayoutProps) {
         grouped[provider.clinic_id].push(provider)
       })
       
-      console.log('Grouped providers by clinic:', grouped)
       setClinicProviders(grouped)
     } catch (error) {
       console.error('Error fetching providers:', error)

@@ -2,7 +2,7 @@ import { Provider, SheetRow, BillingCode, StatusColor, Patient, IsLockProviders 
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
-import { createColoredDropdownRenderer, createMonthRenderer, createCPTCodeRenderer } from '@/lib/handsontableCustomRenderers'
+import { createBubbleDropdownRenderer } from '@/lib/handsontableCustomRenderers'
 import { useCallback, useMemo, useEffect, useRef } from 'react'
 
 interface ProvidersTabProps {
@@ -73,7 +73,7 @@ export default function ProvidersTab({
     return null
   }, [billingCodes])
 
-  const getStatusColor = useCallback((status: string, type: 'appointment' | 'claim' | 'patient_pay'): { color: string; textColor: string } | null => {
+  const getStatusColor = useCallback((status: string, type: 'appointment' | 'claim' | 'patient_pay' | 'month' | 'cpt_code'): { color: string; textColor: string } | null => {
     if (!status) return null
     const statusColor = statusColors.find(s => s.status === status && s.type === type)
     if (statusColor) {
@@ -326,10 +326,8 @@ export default function ProvidersTab({
       { 
         data: 0, 
         title: 'Patient ID', 
-        type: 'dropdown' as const, 
+        type: 'text' as const, 
         width: 100,
-        editor: 'select',
-        selectOptions: patients.map(p => `${p.patient_id} - ${p.first_name} ${p.last_name}`),
         readOnly: !canEdit || getReadOnly('patient_id')
       },
       { 
@@ -382,7 +380,7 @@ export default function ProvidersTab({
         width: 120,
         editor: 'select',
         selectOptions: billingCodes.map(c => c.code),
-        renderer: createCPTCodeRenderer(getCPTColor) as any,
+        renderer: createBubbleDropdownRenderer((val) => getCPTColor(val)) as any,
         readOnly: !canEdit || getReadOnly('cpt_code')
       },
       { 
@@ -392,7 +390,7 @@ export default function ProvidersTab({
         width: 150,
         editor: 'select',
         selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'],
-        renderer: createColoredDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any,
+        renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any,
         readOnly: !canEdit || getReadOnly('appointment_note_status')
       },
       { 
@@ -402,7 +400,7 @@ export default function ProvidersTab({
         width: 120,
         editor: 'select',
         selectOptions: ['Claim Sent', 'RS', 'IP', 'Pending Pay', 'Paid', 'Deductible', 'N/A', 'PP', 'Denial', 'Rejected', 'No Coverage'],
-        renderer: createColoredDropdownRenderer((val) => getStatusColor(val, 'claim')) as any,
+        renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'claim')) as any,
         readOnly: !canEdit || getReadOnly('claim_status')
       },
       { 
@@ -426,7 +424,7 @@ export default function ProvidersTab({
         width: 100,
         editor: 'select',
         selectOptions: months,
-        renderer: createMonthRenderer(getMonthColor) as any,
+        renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any,
         readOnly: !canEdit || getReadOnly('ins_pay_date')
       },
       { 
@@ -450,7 +448,7 @@ export default function ProvidersTab({
         width: 120,
         editor: 'select',
         selectOptions: ['Paid', 'CC declined', 'Secondary', 'Refunded', 'Payment Plan', 'Waiting on Claim', 'Collections'],
-        renderer: createColoredDropdownRenderer((val) => getStatusColor(val, 'patient_pay')) as any,
+        renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'patient_pay')) as any,
         readOnly: !canEdit || getReadOnly('pt_pay_status')
       },
       { 
@@ -460,7 +458,7 @@ export default function ProvidersTab({
         width: 120,
         editor: 'select',
         selectOptions: months,
-        renderer: createMonthRenderer(getMonthColor) as any,
+        renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any,
         readOnly: !canEdit || getReadOnly('pt_payment_ar_ref_date')
       },
       { 

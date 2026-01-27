@@ -61,6 +61,7 @@ export default function HandsontableWrapper({
 }: HandsontableWrapperProps) {
   const hotTableRef = useRef<any>(null)
   const hyperformulaInstanceRef = useRef<HyperFormula | null>(null)
+  const isBatchOperationRef = useRef<boolean>(false)
 
   useEffect(() => {
     if (enableFormula && hotTableRef.current) {
@@ -149,9 +150,6 @@ export default function HandsontableWrapper({
     return processedCol
   }), [columns])
 
-  if (processedColumns.length > 0) {
-    console.log('processedColumns: ', processedColumns.map(col => col.readOnly).join(', '))
-  }
 
   // Update columns when they change (e.g., when readOnly state changes)
   useEffect(() => {
@@ -198,7 +196,7 @@ export default function HandsontableWrapper({
     
     // Enable copy/paste (Ctrl+C / Ctrl+V)
     copyPaste: {
-      pasteMode: 'shift_down',
+      pasteMode: 'overwrite', // Overwrite cells instead of shifting them down
       rowsLimit: 10000,
       columnsLimit: 1000,
       uiContainer: document.body,
@@ -244,6 +242,10 @@ export default function HandsontableWrapper({
     
     // After change callback
     afterChange: (changes, source) => {
+      // Skip individual callbacks during batch operations (like Ctrl+D fill down)
+      if (isBatchOperationRef.current && String(source) === 'CopyDown') {
+        return
+      }
       if (afterChange && changes) {
         console.log('[Handsontable] After change:', changes, source)
         afterChange(changes, source)
@@ -287,6 +289,178 @@ export default function HandsontableWrapper({
     // Enable comments
     comments: false,
   }
+  
+  // Add Ctrl+D (or Cmd+D on Mac) keyboard shortcut for fill down
+  useEffect(() => {
+    if (!hotTableRef.current?.hotInstance) return
+    
+    const hotInstance = hotTableRef.current.hotInstance
+    const rootElement = hotInstance.rootElement
+    
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check for Ctrl+D (Windows/Linux) or Cmd+D (Mac)
+      if ((event.ctrlKey || event.metaKey) && event.key === 'd') {
+        event.preventDefault()
+        event.stopPropagation()
+        
+        const selected = hotInstance.getSelected()
+        if (!selected || selected.length === 0) return
+        // Get the first selection range
+        let [startRow, startCol, endRow, endCol] = selected[0]
+        
+        // Normalize selection: ensure startRow <= endRow and startCol <= endCol
+        // (selection can be in reverse order when dragging left or up)
+        if (startRow > endRow) {
+          [startRow, endRow] = [endRow, startRow]
+        }
+        if (startCol > endCol) {
+          [startCol, endCol] = [endCol, startCol]
+        }
+        
+        // Fill down: each cell gets the value from the cell directly above it
+        // Process each column independently
+        const changes: Handsontable.CellChange[] = []
+        // Collect all changes first, then apply them in a batch
+        for (let col = startCol; col <= endCol; col++) {
+          // For each column, fill down from top to bottom
+
+          for (let row = startRow; row <= endRow; row++) {
+            // Get the value from the cell directly above (row - 1)
+            const sourceRow = row - 1
+            if (sourceRow < 0) continue // Skip if we're at the top row
+            
+            const sourceValue = hotInstance.getDataAtCell(sourceRow, col)
+            const oldValue = hotInstance.getDataAtCell(row, col)
+            
+            // Only set if there's a value to copy
+            if (sourceValue !== null && sourceValue !== undefined && sourceValue !== '') {
+              changes.push([row, col, oldValue, sourceValue])
+            }
+          }
+        }
+        // Apply all changes in a single batch to prevent flickering
+        if (changes.length > 0) {
+          // Set flag to prevent individual afterChange callbacks during batch
+          isBatchOperationRef.current = true
+          
+          // Suspend rendering to batch all updates
+          hotInstance.suspendRender()
+          try {
+            // Apply all changes
+            for (const [row, col, _oldValue, newValue] of changes) {
+              // Use 'CopyDown' as source to identify this operation
+              hotInstance.setDataAtCell(row, col, newValue, 'CopyDown' as Handsontable.ChangeSource)
+            }
+          } finally {
+            hotInstance.resumeRender()
+            // Reset flag after render completes
+            isBatchOperationRef.current = false
+          }
+          
+          // Use requestAnimationFrame to ensure DOM is fully updated before triggering callback
+          // This prevents the flickering where values appear, disappear, then reappear
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              // Double RAF ensures the render is complete and parent state updates won't cause flicker
+              if (afterChange) {
+                afterChange(changes, 'CopyDown' as Handsontable.ChangeSource)
+              }
+            })
+          })
+        }
+      }
+    }
+    
+    rootElement.addEventListener('keydown', handleKeyDown)
+    
+    return () => {
+      rootElement.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [afterChange])
+
+  // Enable single-click editing for dropdown cells
+  useEffect(() => {
+    if (!hotTableRef.current?.hotInstance) return
+    
+    const hotInstance = hotTableRef.current.hotInstance
+    
+    const handleCellMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      const cell = target.closest('td')
+      if (!cell) return
+      
+      // Skip if clicking on header cells or other non-data cells
+      if (cell.closest('thead') || cell.closest('.ht_clone_top') || cell.closest('.ht_clone_left')) {
+        return
+      }
+      
+      // Get cell coordinates using getCoords with proper error handling
+      let row: number | null = null
+      let col: number | null = null
+      
+      try {
+        const coords = hotInstance.getCoords(cell)
+        // Check if coords is a valid array-like object
+        if (coords && Array.isArray(coords) && coords.length >= 2) {
+          row = coords[0]
+          col = coords[1]
+        }
+      } catch (error) {
+        // If getCoords fails, try alternative method using row/col indices
+        try {
+          const rowElement = cell.closest('tr')
+          if (rowElement && rowElement.parentElement) {
+            const tbody = rowElement.parentElement
+            const rowIndex = Array.from(tbody.children).indexOf(rowElement)
+            const cellIndex = Array.from(rowElement.cells).indexOf(cell as HTMLTableCellElement)
+            
+            if (rowIndex >= 0 && cellIndex >= 0) {
+              // Adjust for row headers if present
+              const hasRowHeaders = hotInstance.getSettings().rowHeaders
+              row = hasRowHeaders ? rowIndex : rowIndex
+              col = hasRowHeaders ? cellIndex - 1 : cellIndex
+            }
+          }
+        } catch (e) {
+          return
+        }
+      }
+      
+      // Validate coordinates
+      if (row === null || col === null || row < 0 || col < 0) return
+      
+      // Check if the cell has a dropdown editor
+      try {
+        const cellProperties = hotInstance.getCellMeta(row, col)
+        if (cellProperties && (cellProperties.type === 'dropdown' || cellProperties.editor === 'select')) {
+          // Only trigger if clicking on the bubble or cell, not if already editing
+          if (!hotInstance.isEditing()) {
+            event.preventDefault()
+            event.stopPropagation()
+            
+            // Select the cell and open editor
+            hotInstance.selectCell(row, col)
+            setTimeout(() => {
+              const editor = hotInstance.getActiveEditor()
+              if (editor) {
+                editor.beginEditing()
+              }
+            }, 10)
+          }
+        }
+      } catch (error) {
+        // Silently fail if cell meta cannot be retrieved
+        return
+      }
+    }
+    
+    const rootElement = hotInstance.rootElement
+    rootElement.addEventListener('mousedown', handleCellMouseDown, true)
+    
+    return () => {
+      rootElement.removeEventListener('mousedown', handleCellMouseDown, true)
+    }
+  }, [])
 
   // Handle context menu
   useEffect(() => {

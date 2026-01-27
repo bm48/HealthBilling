@@ -637,3 +637,30 @@
 .dark-theme .table-spreadsheet tbody tr.empty-row td {
   color: rgba(255, 255, 255, 0.5);
 }
+
+/* Bubble Select Styles for Handsontable */
+.handsontable-bubble-select {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.handsontable-bubble-select:hover {
+  opacity: 0.9;
+}
+
+/* Ensure cell padding for bubble selects */
+.handsontable-custom td:has(.handsontable-bubble-select) {
+  padding: 2px 4px !important;
+  text-align: left !important;
+  vertical-align: middle !important;
+}

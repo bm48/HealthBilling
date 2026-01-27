@@ -4,7 +4,7 @@ import { AccountsReceivable, StatusColor, IsLockAccountsReceivable } from '@/typ
 import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
-import { createColoredDropdownRenderer } from '@/lib/handsontableCustomRenderers'
+import { createBubbleDropdownRenderer } from '@/lib/handsontableCustomRenderers'
 
 interface AccountsReceivableTabProps {
   clinicId: string
@@ -508,7 +508,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
       width: 120,
       editor: 'select',
       selectOptions: ['Patient', 'Insurance', 'Collections', 'MindRx Group'],
-      renderer: createColoredDropdownRenderer(getTypeColor) as any,
+      renderer: createBubbleDropdownRenderer(getTypeColor) as any,
       readOnly: !canEdit || getReadOnly('type')
     },
     { 
