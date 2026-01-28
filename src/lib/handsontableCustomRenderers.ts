@@ -114,6 +114,80 @@ export function createBubbleDropdownRenderer(colorMap: (value: string) => { colo
 }
 
 /**
+ * Multi-bubble renderer for comma-separated values (e.g. multi-select CPT codes).
+ * Renders each value as its own bubble/pill.
+ */
+export function createMultiBubbleDropdownRenderer(colorMap: (value: string) => { color: string; textColor: string } | null) {
+  return function(
+    _instance: any,
+    td: HTMLElement,
+    _row: number,
+    _col: number,
+    _prop: string | number,
+    value: any,
+    cellProperties: any
+  ) {
+    td.innerHTML = ''
+    td.style.backgroundColor = ''
+    td.style.color = ''
+    td.style.fontWeight = ''
+    td.style.padding = '2px 4px'
+    td.style.textAlign = 'left'
+    td.style.verticalAlign = 'middle'
+
+    const raw = value ? String(value) : ''
+    const parts = raw ? raw.split(',').map((s: string) => s.trim()).filter(Boolean) : []
+
+    if (parts.length > 0) {
+      const wrapper = document.createElement('div')
+      wrapper.style.display = 'flex'
+      wrapper.style.flexWrap = 'wrap'
+      wrapper.style.gap = '6px'
+      wrapper.style.alignItems = 'center'
+      wrapper.style.minHeight = '100%'
+      wrapper.style.position = 'relative'
+
+      parts.forEach((code: string) => {
+        const colorConfig = colorMap(code)
+        const bubble = document.createElement('span')
+        bubble.className = 'handsontable-bubble-select'
+        bubble.textContent = code
+        bubble.style.display = 'inline-flex'
+        bubble.style.alignItems = 'center'
+        bubble.style.padding = '4px 10px'
+        bubble.style.borderRadius = '16px'
+        bubble.style.fontSize = '13px'
+        bubble.style.fontWeight = '500'
+        bubble.style.lineHeight = '1.4'
+        bubble.style.whiteSpace = 'nowrap'
+        bubble.style.cursor = cellProperties.readOnly ? 'default' : 'pointer'
+        if (colorConfig) {
+          bubble.style.backgroundColor = colorConfig.color
+          bubble.style.color = colorConfig.textColor
+        } else {
+          bubble.style.backgroundColor = '#e5e7eb'
+          bubble.style.color = '#374151'
+        }
+        wrapper.appendChild(bubble)
+      })
+      const arrow = document.createElement('span')
+      arrow.innerHTML = '▼'
+      arrow.style.fontSize = '10px'
+      arrow.style.opacity = '0.7'
+      arrow.style.marginLeft = '2px'
+      arrow.style.position = 'absolute'
+      arrow.style.right = '4px'
+      arrow.style.top = '50%'
+      arrow.style.transform = 'translateY(-50%)'
+      wrapper.appendChild(arrow)
+      td.appendChild(wrapper)
+    } else {
+      td.textContent = ''
+    }
+  }
+}
+
+/**
  * Custom date editor using HTML5 date input
  */
 export class DateEditor extends Handsontable.editors.TextEditor {
@@ -289,6 +363,200 @@ export function createMonthRenderer(colorMap: (value: string) => { color: string
     }
     
     textRenderer(instance, td as HTMLTableCellElement, row, col, prop, value || '', cellProperties)
+  }
+}
+
+/**
+ * Multi-select CPT code editor: search at top, list with checkmarks, click to toggle selection.
+ * Value stored as comma-separated codes.
+ */
+export class MultiSelectCptEditor extends Handsontable.editors.BaseEditor {
+  private wrapper: HTMLDivElement | null = null
+  private searchInput: HTMLInputElement | null = null
+  private listEl: HTMLDivElement | null = null
+  private selected: Set<string> = new Set()
+  private options: string[] = []
+  private filteredOptions: string[] = []
+  private boundCloseOnClickOutside: (e: MouseEvent) => void = () => {}
+
+  createElements() {
+    // BaseEditor has no createElements; we build our own UI
+    this.wrapper = document.createElement('div')
+    this.wrapper.className = 'handsontable-multiselect-cpt-editor'
+    this.wrapper.style.cssText = `
+      position: fixed;
+      min-width: 200px;
+      max-width: 320px;
+      max-height: 280px;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      color: #000000;
+    `
+    this.searchInput = document.createElement('input')
+    this.searchInput.type = 'text'
+    this.searchInput.placeholder = 'Search...'
+    this.searchInput.style.cssText = `
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 12px;
+      border: none;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 14px;
+      outline: none;
+    `
+    this.listEl = document.createElement('div')
+    this.listEl.style.cssText = `
+      overflow-y: auto;
+      max-height: 240px;
+      padding: 4px 0;
+    `
+    this.wrapper.appendChild(this.searchInput)
+    this.wrapper.appendChild(this.listEl)
+    // Prevent mousedown from bubbling so document listener doesn't close when clicking inside
+    this.wrapper.addEventListener('mousedown', (e) => e.stopPropagation())
+    ;(this as any).TEXTAREA = this.wrapper
+  }
+
+  open() {
+    if (!this.wrapper || !this.searchInput || !this.listEl) {
+      this.createElements()
+    }
+    const meta = this.hot.getCellMeta(this.row, this.col)
+    const colSettings = (this.hot.getSettings() as any).columns?.[this.col]
+    const rawOpts = meta.selectOptions ?? colSettings?.selectOptions
+    const resolved = typeof rawOpts === 'function' ? (rawOpts as () => string[])() : rawOpts
+    this.options = Array.isArray(resolved)
+      ? resolved.map((o: any) => String(o == null ? '' : o))
+      : []
+    const raw = this.originalValue ?? ''
+    this.selected = new Set(raw ? String(raw).split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+    this.filteredOptions = [...this.options]
+    this.renderList()
+    this.positionDropdown()
+    this.searchInput!.value = ''
+    this.searchInput!.focus()
+    this.searchInput!.addEventListener('input', this.onSearch)
+    this.searchInput!.addEventListener('keydown', this.onSearchKeydown)
+    this.boundCloseOnClickOutside = (e: MouseEvent) => {
+      if (this.wrapper && !this.wrapper.contains(e.target as Node)) {
+        this.finishEditing()
+      }
+    }
+    setTimeout(() => document.addEventListener('mousedown', this.boundCloseOnClickOutside), 0)
+  }
+
+  close() {
+    this.searchInput?.removeEventListener('input', this.onSearch)
+    this.searchInput?.removeEventListener('keydown', this.onSearchKeydown)
+    document.removeEventListener('mousedown', this.boundCloseOnClickOutside)
+    if (this.wrapper?.parentNode) {
+      this.wrapper.parentNode.removeChild(this.wrapper)
+    }
+    // BaseEditor.close() is abstract; no super call
+  }
+
+  private onSearch = () => {
+    const q = (this.searchInput!.value || '').trim().toLowerCase()
+    this.filteredOptions = q
+      ? this.options.filter(opt => opt.toLowerCase().includes(q))
+      : [...this.options]
+    this.renderList()
+  }
+
+  private onSearchKeydown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      this.cancelChanges()
+    }
+  }
+
+  private positionDropdown() {
+    if (!this.wrapper || !this.TD) return
+    const tdRect = this.TD.getBoundingClientRect()
+    this.wrapper.style.left = `${tdRect.left}px`
+    this.wrapper.style.top = `${tdRect.bottom + 2}px`
+    this.wrapper.style.minWidth = `${Math.max(tdRect.width, 200)}px`
+    if (!this.wrapper.parentNode) {
+      document.body.appendChild(this.wrapper)
+    }
+  }
+
+  private renderList() {
+    if (!this.listEl) return
+    this.listEl.innerHTML = ''
+    this.filteredOptions.forEach(opt => {
+      const row = document.createElement('div')
+      row.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        cursor: pointer;
+        font-size: 13px;
+      `
+      row.addEventListener('mouseenter', () => { row.style.backgroundColor = '#f3f4f6' })
+      row.addEventListener('mouseleave', () => { row.style.backgroundColor = '' })
+      const checked = this.selected.has(opt)
+      const check = document.createElement('span')
+      check.textContent = checked ? '✓' : ''
+      check.style.cssText = `
+        width: 18px;
+        height: 18px;
+        border: 2px solid ${checked ? '#2563eb' : '#9ca3af'};
+        border-radius: 4px;
+        background: ${checked ? '#2563eb' : 'transparent'};
+        color: #fff;
+        font-size: 12px;
+        font-weight: bold;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      `
+      const label = document.createElement('span')
+      label.textContent = opt
+      row.appendChild(check)
+      row.appendChild(label)
+      row.addEventListener('mousedown', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      })
+      row.addEventListener('click', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (this.selected.has(opt)) {
+          this.selected.delete(opt)
+        } else {
+          this.selected.add(opt)
+        }
+        this.renderList()
+      })
+      this.listEl!.appendChild(row)
+    })
+    if (this.filteredOptions.length === 0) {
+      const empty = document.createElement('div')
+      empty.style.cssText = 'padding: 8px 12px; color: #6b7280; font-size: 13px;'
+      empty.textContent = 'No matches'
+      this.listEl.appendChild(empty)
+    }
+  }
+
+  getValue(): string {
+    return Array.from(this.selected).join(', ')
+  }
+
+  setValue(newValue?: any): void {
+    const raw = newValue != null ? String(newValue) : ''
+    this.selected = new Set(raw ? raw.split(',').map((s: string) => s.trim()).filter(Boolean) : [])
+    if (this.listEl) this.renderList()
+  }
+
+  focus() {
+    this.searchInput?.focus()
   }
 }
 

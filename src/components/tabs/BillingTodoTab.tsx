@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { createBubbleDropdownRenderer } from '@/lib/handsontableCustomRenderers'
+import { Download } from 'lucide-react'
 
 interface BillingTodoTabProps {
   clinicId: string
@@ -29,7 +30,7 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
     id: `empty-${index}`,
     clinic_id: clinicId,
     issue: null,
-    status: 'Open',
+    status: '',
     notes: null,
     followup_notes: null,
     created_by: userProfile?.id || '',
@@ -178,11 +179,12 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
         const todo = todosToProcess[i]
         const oldId = todo.id // Store the old ID to find it in state
 
-        // Prepare todo data
+        // Prepare todo data (no "Open" status; treat as empty)
+        const statusValue = (todo.status === 'Open' || !todo.status) ? '' : todo.status
         const todoData: any = {
           clinic_id: clinicId,
           issue: todo.issue || null,
-          status: todo.status || 'Open',
+          status: statusValue,
           notes: todo.notes || null,
           followup_notes: todo.followup_notes || null,
           updated_at: new Date().toISOString(),
@@ -330,11 +332,43 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
     }
   }, [onDelete, createEmptyTodo])
 
+  // Export todos to CSV (only rows with at least one value)
+  const exportToCsv = useCallback(() => {
+    const headers = ['ID', 'Status', 'Issue', 'Notes', 'F/u notes']
+    const escapeCsv = (val: string): string => {
+      const s = String(val ?? '')
+      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+        return `"${s.replace(/"/g, '""')}"`
+      }
+      return s
+    }
+    const rowsWithData = todos.filter(t => t.issue || t.status || t.notes || t.followup_notes)
+    const statusDisplay = (s: string | null) => (s && s !== 'Open') ? s : ''
+    const csvRows = [
+      headers.join(','),
+      ...rowsWithData.map(t => [
+        t.id.startsWith('empty-') || t.id.startsWith('new-') ? '' : t.id.substring(0, 8) + '...',
+        escapeCsv(statusDisplay(t.status || '')),
+        escapeCsv(t.issue || ''),
+        escapeCsv(t.notes || ''),
+        escapeCsv(t.followup_notes || ''),
+      ].join(',')),
+    ]
+    const csv = csvRows.join('\r\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `billing-todo-${clinicId}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [todos, clinicId])
+
   // Status color mapping
   const getStatusColor = useCallback((status: string): { color: string; textColor: string } | null => {
     switch (status) {
-      case 'Open':
-        return { color: '#238eff', textColor: '#ffffff' }
+      // case '':
+      //   return { color: '#238eff', textColor: '#ffffff' }
       case 'In Progress':
         return { color: '#714ec5', textColor: '#ffffff' }
       case 'Completed':
@@ -376,7 +410,8 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
     // Simply map todos - the useEffect should ensure todos always has 200 items
     const data = todos.map(todo => [
       todo.id.startsWith('empty-') ? '' : todo.id.substring(0, 8) + '...',
-      todo.status || 'Open',
+      // No "Open" status; when no value or legacy "Open", show empty cell
+      (todo.status && todo.status !== 'Open') ? todo.status : '',
       todo.issue || '',
       todo.notes || '',
       todo.followup_notes || '',
@@ -585,7 +620,7 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       type: 'dropdown' as const, 
       width: 120,
       editor: 'select',
-      selectOptions: ['Open', 'In Progress', 'Completed'],
+      selectOptions: ['', 'In Progress', 'Completed'], // '' = empty cell; no "Open"
       renderer: createBubbleDropdownRenderer(getStatusColor) as any,
       readOnly: !canEdit || getReadOnly('status')
     },
@@ -642,7 +677,7 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
           const newId = needsNewId ? `new-${Date.now()}-${idCounter++}-${Math.random()}` : todo.id
           
           if (field === 'status') {
-            updatedTodos[row] = { ...todo, id: newId, status: String(newValue || 'Open'), updated_at: new Date().toISOString() }
+            updatedTodos[row] = { ...todo, id: newId, status: String(newValue || ''), updated_at: new Date().toISOString() }
           } else if (field === 'issue') {
             updatedTodos[row] = { ...todo, id: newId, issue: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() }
           } else if (field === 'notes') {
@@ -695,6 +730,16 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
 
   return (
     <div className="p-6">
+      <div className="flex justify-end mb-3">
+        <button
+          type="button"
+          onClick={exportToCsv}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-colors"
+        >
+          <Download size={18} />
+          Export CSV
+        </button>
+      </div>
       <div className="table-container dark-theme" style={{ 
         maxHeight: '600px', 
         overflowX: 'auto', 

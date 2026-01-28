@@ -88,7 +88,7 @@ export default function HandsontableWrapper({
 
   useEffect(() => {
     if (data.length > 0) {
-      // console.log('data**************************: ', data.length, 'rows')
+      // console.log('data**************************: ', data)
       // Force Handsontable to update when data length changes
       if (hotTableRef.current?.hotInstance) {
         const hotInstance = hotTableRef.current.hotInstance

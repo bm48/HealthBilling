@@ -2,7 +2,7 @@ import { Provider, SheetRow, BillingCode, StatusColor, Patient, IsLockProviders 
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
-import { createBubbleDropdownRenderer } from '@/lib/handsontableCustomRenderers'
+import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor } from '@/lib/handsontableCustomRenderers'
 import { useCallback, useMemo, useEffect, useRef } from 'react'
 
 interface ProvidersTabProps {
@@ -16,7 +16,7 @@ interface ProvidersTabProps {
   currentProvider: Provider | null
   canEdit: boolean
   isInSplitScreen: boolean
-  /** When true, show only Patient ID, CPT Code, Appt/Note Status, Notes (provider role view) */
+  /** When true, show provider columns: Patient ID, First Name, Last Initial, Insurance, Co-pay, Co-Ins, Date of Service, CPT Code, Appt/Note Status */
   isProviderView?: boolean
   onUpdateProviderSheetRow: (providerId: string, rowId: string, field: string, value: any) => void
   onSaveProviderSheetRowsDirect: (providerId: string, rows: SheetRow[]) => Promise<void>
@@ -100,9 +100,19 @@ export default function ProvidersTab({
     return activeProviderRows.map(row => {
       // Find patient for dropdown display
       const patient = patients.find(p => p.patient_id === row.patient_id)
-      const patientDisplay = patient ? `${patient.patient_id} - ${patient.first_name} ${patient.last_name}` : (row.patient_id || '')
+      const patientDisplay = patient ? `${patient.patient_id}` : (row.patient_id || '')
       if (isProviderView) {
-        return [patientDisplay, row.cpt_code || '', row.appointment_status || '', row.notes || '']
+        return [
+          patientDisplay,
+          row.patient_first_name || '',
+          row.last_initial || '',
+          row.patient_insurance || '',
+          row.patient_copay !== null ? row.patient_copay : '',
+          row.patient_coinsurance !== null ? row.patient_coinsurance : '',
+          row.appointment_date || '',
+          row.cpt_code || '',
+          row.appointment_status || '',
+        ]
       }
       return [
         patientDisplay,
@@ -142,8 +152,10 @@ export default function ProvidersTab({
     'Ins Pay', 'Ins Pay Date', 'PT RES', 'Collected from PT', 'PT Pay Status',
     'PT Payment AR Ref Date', 'Total', 'Notes'
   ]
-  const columnFields = isProviderView ? ['patient_id', 'cpt_code', 'appointment_note_status', 'notes'] as const : columnFieldsFull
-  const columnTitles = isProviderView ? ['Patient ID', 'CPT Code', 'Appt/Note Status', 'Notes'] : columnTitlesFull
+  const columnFieldsProviderView = ['patient_id', 'first_name', 'last_initial', 'insurance', 'copay', 'coinsurance', 'date_of_service', 'cpt_code', 'appointment_note_status'] as const
+  const columnTitlesProviderView = ['Patient ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins', 'Date of Service', 'CPT Code', 'Appt/Note Status']
+  const columnFields = isProviderView ? columnFieldsProviderView : columnFieldsFull
+  const columnTitles = isProviderView ? columnTitlesProviderView : columnTitlesFull
 
   const getReadOnly = (columnName: keyof IsLockProviders): boolean => {
     if (!canEdit) return true
@@ -332,9 +344,14 @@ export default function ProvidersTab({
     if (isProviderView) {
       return [
         { data: 0, title: 'Patient ID', type: 'text' as const, width: 180, readOnly: !canEdit },
-        { data: 1, title: 'CPT Code', type: 'dropdown' as const, width: 120, editor: 'select', selectOptions: billingCodes.map(c => c.code), renderer: createBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: !canEdit },
-        { data: 2, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, editor: 'select', selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: !canEdit },
-        { data: 3, title: 'Notes', type: 'text' as const, width: 150, readOnly: !canEdit },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: !canEdit },
+        { data: 2, title: 'Last Initial', type: 'text' as const, width: 80, readOnly: !canEdit },
+        { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: !canEdit },
+        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, readOnly: !canEdit },
+        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, readOnly: !canEdit },
+        { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: !canEdit },
+        { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: !canEdit },
+        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, editor: 'select', selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: !canEdit },
       ]
     }
     
@@ -393,10 +410,10 @@ export default function ProvidersTab({
         data: 7, 
         title: 'CPT Code', 
         type: 'dropdown' as const, 
-        width: 120,
-        editor: 'select',
+        width: 160,
+        editor: MultiSelectCptEditor,
         selectOptions: billingCodes.map(c => c.code),
-        renderer: createBubbleDropdownRenderer((val) => getCPTColor(val)) as any,
+        renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any,
         readOnly: !canEdit || getReadOnly('cpt_code')
       },
       { 
@@ -497,13 +514,16 @@ export default function ProvidersTab({
   const handleProviderRowsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData' || !activeProvider) return
     
-    // Column index -> SheetRow field (provider view has only 4 columns)
+    // Column index -> SheetRow field
     const fieldsFull: Array<keyof SheetRow> = [
       'patient_id', 'patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance',
       'appointment_date', 'cpt_code', 'appointment_status', 'claim_status', 'submit_date', 'insurance_payment',
       'payment_date', 'insurance_adjustment', 'collected_from_patient', 'patient_pay_status', 'ar_date', 'total', 'notes'
     ]
-    const fieldsProviderView: Array<keyof SheetRow> = ['patient_id', 'cpt_code', 'appointment_status', 'notes']
+    const fieldsProviderView: Array<keyof SheetRow> = [
+      'patient_id', 'patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance',
+      'appointment_date', 'cpt_code', 'appointment_status'
+    ]
     const fields: Array<keyof SheetRow> = isProviderView ? fieldsProviderView : fieldsFull
     
     // Compute all changes locally first
@@ -569,9 +589,25 @@ export default function ProvidersTab({
         const newId = needsNewId ? `new-${Date.now()}-${idCounter++}-${Math.random()}` : sheetRow.id
         
         if (field === 'patient_id') {
-          // Extract patient_id from dropdown value (format: "patient_id - first_name last_name")
-          const patientId = String(newValue || '').split(' - ')[0] || ''
-          updatedRows[row] = { ...sheetRow, id: newId, [field]: patientId || null, updated_at: new Date().toISOString() } as SheetRow
+          // Extract patient_id from dropdown value (format: "patient_id - first_name last_name") or raw input
+          const raw = String(newValue || '').trim()
+          const patientIdOrNull = raw ? (raw.split(' - ')[0] || raw) : null
+          // Look up patient from patient database and fill row
+          const patient = patientIdOrNull ? patients.find(p => p.patient_id === patientIdOrNull) : null
+          const merged: Partial<SheetRow> = {
+            ...sheetRow,
+            id: newId,
+            patient_id: patientIdOrNull,
+            updated_at: new Date().toISOString(),
+          }
+          if (patient) {
+            merged.patient_first_name = patient.first_name || null
+            merged.last_initial = patient.last_name ? patient.last_name.charAt(0) : null
+            merged.patient_insurance = patient.insurance || null
+            merged.patient_copay = patient.copay ?? null
+            merged.patient_coinsurance = patient.coinsurance ?? null
+          }
+          updatedRows[row] = merged as SheetRow
         } else if (field === 'patient_copay' || field === 'patient_coinsurance' || field === 'total') {
           const numValue = newValue === '' || newValue === null ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: numValue, updated_at: new Date().toISOString() } as SheetRow
@@ -699,7 +735,7 @@ export default function ProvidersTab({
         console.error('[handleProviderRowsHandsontableChange] Error in saveProviderSheetRowsDirect:', err)
       })
     }, 0)
-  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView])
+  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, patients])
 
   const handleProviderRowsHandsontableContextMenu = useCallback((row: number) => {
     if (isProviderView) return // No context menu (e.g. delete) for provider view
@@ -716,7 +752,7 @@ export default function ProvidersTab({
     if (hotTableRef.current?.hotInstance) {
       const hotInstance = hotTableRef.current.hotInstance
       const headerColors = isProviderView
-        ? ['#f5cbcc', '#fce5cd', '#fce5cd', '#5d9f5d'] // Patient ID, CPT, Appt/Note Status, Notes
+        ? ['#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#fce5cd', '#fce5cd', '#ead1dd'] // Patient info (pink), Date/CPT (orange/beige), Appt/Note Status (purple/pink)
         : [
             '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', // Patient info columns
             '#fce5cd', '#fce5cd', // CPT and Appointment status
