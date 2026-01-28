@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { Patient } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
@@ -7,6 +8,13 @@ import { useDebouncedSave } from '@/lib/useDebouncedSave'
 
 export default function PatientDatabase() {
   const { userProfile } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (userProfile?.role === 'provider') {
+      navigate('/providers/sheet', { replace: true })
+    }
+  }, [userProfile?.role, navigate])
   const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')

@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { SheetRow, ProviderSheet as ProviderSheetType, BillingCode, Patient, StatusColor } from '@/types'
@@ -10,6 +10,13 @@ import { useDebouncedSave } from '@/lib/useDebouncedSave'
 export default function ProviderSheet() {
   const { providerId } = useParams()
   const { userProfile } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (userProfile?.role === 'provider') {
+      navigate('/providers/sheet', { replace: true })
+    }
+  }, [userProfile?.role, navigate])
   const [sheet, setSheet] = useState<ProviderSheetType | null>(null)
   const [rows, setRows] = useState<SheetRow[]>([])
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])

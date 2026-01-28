@@ -1,6 +1,6 @@
 import { useAuth } from '@/contexts/AuthContext'
 import { FileText, Users, CheckSquare, BarChart3, Clock, Building2, AlertCircle } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Clinic } from '@/types'
@@ -23,6 +23,7 @@ interface ClinicStats {
 
 export default function Dashboard() {
   const { userProfile } = useAuth()
+  const navigate = useNavigate()
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [clinicStats, setClinicStats] = useState<Record<string, ClinicStats>>({})
   const [stats, setStats] = useState<DashboardStats>({
@@ -38,6 +39,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (userProfile) {
+      if (userProfile.role === 'provider') {
+        navigate('/providers/sheet', { replace: true })
+        return
+      }
       if (userProfile.role === 'super_admin') {
         fetchSuperAdminDashboard()
       } else {
@@ -45,7 +50,7 @@ export default function Dashboard() {
         setLoading(false)
       }
     }
-  }, [userProfile])
+  }, [userProfile, navigate])
 
   const fetchSuperAdminDashboard = async () => {
     if (!userProfile) return

@@ -14,6 +14,7 @@ import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
 import Landing from '@/pages/Landing'
 import Layout from '@/components/Layout'
+import ProviderSheetPage from '@/pages/providers/ProviderSheetPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -28,6 +29,28 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  return <>{children}</>
+}
+
+function ProviderRoute({ children }: { children: React.ReactNode }) {
+  const { user, userProfile, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+
+  if (userProfile?.role !== 'provider') {
+    return <Navigate to="/dashboard" replace />
   }
 
   return <>{children}</>
@@ -147,6 +170,26 @@ function AppRoutes() {
               <ClinicDetail />
             </Layout>
           </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/providers"
+        element={
+          <ProviderRoute>
+            <Layout>
+              <ProviderSheetPage />
+            </Layout>
+          </ProviderRoute>
+        }
+      />
+      <Route
+        path="/providers/sheet"
+        element={
+          <ProviderRoute>
+            <Layout>
+              <ProviderSheetPage />
+            </Layout>
+          </ProviderRoute>
         }
       />
     </Routes>

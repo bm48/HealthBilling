@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { Download, Loader } from 'lucide-react'
@@ -14,11 +15,18 @@ import { ProviderSheet, Timecard, User, Clinic } from '@/types'
 
 export default function Reports() {
   const { userProfile } = useAuth()
+  const navigate = useNavigate()
   const [reportType, setReportType] = useState('provider')
   const [timeFilter, setTimeFilter] = useState('month')
   const [selectedClinic, setSelectedClinic] = useState<string>('')
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [generating, setGenerating] = useState(false)
+
+  useEffect(() => {
+    if (userProfile?.role === 'provider') {
+      navigate('/providers/sheet', { replace: true })
+    }
+  }, [userProfile?.role, navigate])
 
   useEffect(() => {
     fetchClinics()

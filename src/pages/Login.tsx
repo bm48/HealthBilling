@@ -20,7 +20,14 @@ export default function Login() {
       await signIn(email, password)
       navigate('/dashboard')
     } catch (err: any) {
-      setError(err.message || 'Failed to sign in. Please check your credentials.')
+      // Better error messages for common issues
+      if (err.message?.includes('Email not confirmed') || err.message?.includes('email_not_confirmed')) {
+        setError('Your email is not confirmed. Please check your inbox for a confirmation email, or contact support.')
+      } else if (err.message?.includes('Invalid login credentials') || err.message?.includes('invalid_credentials')) {
+        setError('Invalid email or password. Please check your credentials and try again.')
+      } else {
+        setError(err.message || 'Failed to sign in. Please check your credentials.')
+      }
     } finally {
       setLoading(false)
     }

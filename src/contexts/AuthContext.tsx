@@ -154,25 +154,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       options: {
         data: {
           full_name: fullName,
+          role: role, // Stored in metadata for handle_new_user trigger
         },
       },
     })
     if (error) throw error
     
-    // Create user record in users table with role
+    // Auto-confirm email via database function (backup if trigger doesn't work)
     if (authData.user) {
-      const { error: userError } = await supabase
-        .from('users')
-        .insert({
-          id: authData.user.id,
-          email: email,
-          full_name: fullName,
-          role: role,
-          clinic_ids: [],
-        })
-      
-      if (userError) throw userError
+      try {
+        await supabase.rpc('auto_confirm_user_email', { user_id: authData.user.id })
+      } catch (confirmError) {
+        // Ignore errors - trigger should handle it, or user can confirm via email
+        console.warn('Could not auto-confirm email:', confirmError)
+      }
     }
+    // User profile is created automatically by the handle_new_user trigger on auth.users
   }
 
   return (

@@ -77,7 +77,7 @@ export function useDebouncedSave<T>(
 
   // Force immediate save (useful for blur events)
   const saveImmediately = useCallback(async () => {
-    console.log('saveImmediately: Called', { isSaving, isEditing })
+    // console.log('saveImmediately: Called', { isSaving, isEditing })
     
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
@@ -92,17 +92,17 @@ export function useDebouncedSave<T>(
 
     // Force save on blur - always attempt save regardless of lastSavedRef
     // This ensures user changes are saved when they blur
-    console.log("data: ",data)
+    // console.log("data: ",data)
     const dataString = JSON.stringify(data)
-    console.log("dataString: ",dataString)
+    // console.log("dataString: ",dataString)
     try {
       setIsSaving(true)
-      console.log('saveImmediately: Calling saveFn', { dataString: dataString.substring(0, 100) })
+      // console.log('saveImmediately: Calling saveFn', { dataString: dataString.substring(0, 100) })
       await saveFn(data)
       lastSavedRef.current = dataString
-      console.log('saveImmediately: Save successful')
+      // console.log('saveImmediately: Save successful')
     } catch (error) {
-      console.error('saveImmediately: Error saving:', error)
+      // console.error('saveImmediately: Error saving:', error)
       // Don't update lastSavedRef on error so it will retry
     } finally {
       setIsSaving(false)

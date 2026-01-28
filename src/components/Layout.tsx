@@ -207,6 +207,10 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['admin', 'view_only_admin', 'super_admin'] },
   ]
 
+  const providerNavigation = [
+    { name: 'My Sheet', href: '/providers/sheet', icon: FileText },
+  ]
+
   const canAccess = (roles: string[]) => {
     if (!userProfile) return false
     if (roles.includes('*')) return true
@@ -238,7 +242,28 @@ export default function Layout({ children }: LayoutProps) {
 
           {/* Navigation */}
           <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto scrollbar-hide">
-            {userProfile?.role === 'super_admin' ? (
+            {userProfile?.role === 'provider' ? (
+              <>
+                {providerNavigation.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <Link
+                      key={item.name}
+                      to={item.href}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                        location.pathname === item.href
+                          ? 'bg-primary-600 text-white font-medium shadow-lg'
+                          : 'text-white/70 hover:bg-white/10 hover:text-white'
+                      } ${sidebarCollapsed ? 'justify-center' : ''}`}
+                      title={item.name}
+                    >
+                      <Icon size={20} />
+                      {!sidebarCollapsed && <span>{item.name}</span>}
+                    </Link>
+                  )
+                })}
+              </>
+            ) : userProfile?.role === 'super_admin' ? (
               <>
                 {/* Dashboard for Super Admin */}
                 <Link

@@ -10,21 +10,21 @@ const USER_ROLES: { value: UserRole; label: string; description: string }[] = [
     label: 'Admin',
     description: 'Full access to assigned clinics, AR management, month close',
   },
-  {
-    value: 'view_only_admin',
-    label: 'View-Only Admin',
-    description: 'Read-only access to all clinic data',
-  },
+  // {
+  //   value: 'view_only_admin',
+  //   label: 'View-Only Admin',
+  //   description: 'Read-only access to all clinic data',
+  // },
   {
     value: 'billing_staff',
     label: 'Billing Staff',
     description: 'Edit billing data, manage To-Do list, timecards',
   },
-  {
-    value: 'view_only_billing',
-    label: 'View-Only Billing',
-    description: 'View-only access to provider sheets',
-  },
+  // {
+  //   value: 'view_only_billing',
+  //   label: 'View-Only Billing',
+  //   description: 'View-only access to provider sheets',
+  // },
   {
     value: 'provider',
     label: 'Provider',
