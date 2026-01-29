@@ -60,8 +60,6 @@ export default function ClinicDetail() {
   // Month filter for provider tab
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
   const providersRef = useRef<Provider[]>([])
-  const providerSheetRowsRef = useRef<Record<string, SheetRow[]>>({})
-
   // Provider sheet rows for editable view (when viewing a specific provider's sheet via providerId param)
   const [providerRows, setProviderRows] = useState<Array<{
     id: string
@@ -1689,12 +1687,13 @@ export default function ClinicDetail() {
 
 
   const handleDeleteProviderSheetRow = useCallback(async (providerId: string, rowId: string) => {
+    let rowsAfterDelete: SheetRow[] = []
     setProviderSheetRows(prev => {
       const rows = prev[providerId] || []
-      return { ...prev, [providerId]: rows.filter(r => r.id !== rowId) }
+      rowsAfterDelete = rows.filter(r => r.id !== rowId)
+      return { ...prev, [providerId]: rowsAfterDelete }
     })
-    const updatedRows = providerSheetRowsRef.current[providerId]?.filter(r => r.id !== rowId) || []
-    await saveProviderSheetRows(providerId, updatedRows)
+    await saveProviderSheetRows(providerId, rowsAfterDelete)
   }, [saveProviderSheetRows])
 
 
