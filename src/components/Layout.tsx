@@ -17,7 +17,8 @@ import {
   Database,
   Palette,
   Menu,
-  ArrowLeft
+  ArrowLeft,
+  Calendar
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -28,7 +29,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { userProfile, signOut } = useAuth()
+  const { user, userProfile, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [expandedClinics, setExpandedClinics] = useState<Set<string>>(new Set())
@@ -38,6 +39,11 @@ export default function Layout({ children }: LayoutProps) {
   const [expandedSettings, setExpandedSettings] = useState(false)
   const [expandedClinicsSection, setExpandedClinicsSection] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // Provider sidebar: clinics the logged-in provider belongs to
+  const [providerClinics, setProviderClinics] = useState<Clinic[]>([])
+  const [loadingProviderClinics, setLoadingProviderClinics] = useState(false)
+  const [providerClinicsSectionExpanded, setProviderClinicsSectionExpanded] = useState(false)
+  const [providerClinicExpanded, setProviderClinicExpanded] = useState<Set<string>>(new Set())
 
   const handleSignOut = async () => {
     try {
@@ -55,21 +61,67 @@ export default function Layout({ children }: LayoutProps) {
     }
   }, [userProfile])
 
-  // Auto-expand clinic if on a clinic detail page
+  // Fetch provider's clinics when role is provider
+  useEffect(() => {
+    if (userProfile?.role !== 'provider' || !user?.email) return
+    const fetchProviderClinics = async () => {
+      setLoadingProviderClinics(true)
+      try {
+        let query = supabase.from('providers').select('*').eq('email', user.email!)
+        if (userProfile?.clinic_ids?.length) {
+          query = query.overlaps('clinic_ids', userProfile.clinic_ids)
+        }
+        const { data: providerData, error: err } = await query.limit(1).maybeSingle()
+        if (err || !providerData) {
+          setProviderClinics([])
+          setLoadingProviderClinics(false)
+          return
+        }
+        const ids = (providerData as Provider).clinic_ids || []
+        if (ids.length === 0) {
+          setProviderClinics([])
+          setLoadingProviderClinics(false)
+          return
+        }
+        const { data: clinicsData, error: clinicsErr } = await supabase
+          .from('clinics')
+          .select('*')
+          .in('id', ids)
+          .order('name')
+        if (clinicsErr) {
+          setProviderClinics([])
+          setLoadingProviderClinics(false)
+          return
+        }
+        setProviderClinics(clinicsData || [])
+      } catch {
+        setProviderClinics([])
+      } finally {
+        setLoadingProviderClinics(false)
+      }
+    }
+    fetchProviderClinics()
+  }, [user?.email, userProfile?.role, userProfile?.clinic_ids])
+
+  // Auto-expand clinic if on a clinic detail page (super admin)
   useEffect(() => {
     if (userProfile?.role === 'super_admin' && location.pathname.startsWith('/clinic/')) {
-      // Expand the clinics section
       setExpandedClinicsSection(true)
-      
       const clinicIdMatch = location.pathname.match(/^\/clinic\/([^/]+)/)
       if (clinicIdMatch && clinicIdMatch[1]) {
         const clinicId = clinicIdMatch[1]
-        setExpandedClinics(prev => {
-          if (!prev.has(clinicId)) {
-            return new Set([...prev, clinicId])
-          }
-          return prev
-        })
+        setExpandedClinics(prev => (prev.has(clinicId) ? prev : new Set([...prev, clinicId])))
+      }
+    }
+  }, [location.pathname, userProfile])
+
+  // Auto-expand provider clinics section and clinic when on /providers/clinics/:clinicId/...
+  useEffect(() => {
+    if (userProfile?.role === 'provider' && location.pathname.startsWith('/providers/clinics/')) {
+      setProviderClinicsSectionExpanded(true)
+      const match = location.pathname.match(/^\/providers\/clinics\/([^/]+)/)
+      if (match && match[1]) {
+        setProviderClinicExpanded(prev => (prev.has(match[1]) ? prev : new Set([...prev, match[1]])))
       }
     }
   }, [location.pathname, userProfile])
@@ -101,8 +153,8 @@ export default function Layout({ children }: LayoutProps) {
       const { data, error } = await supabase
         .from('providers')
         .select('*')
-        .in('clinic_id', clinicIds)
-        .order('clinic_id')
+        .overlaps('clinic_ids', clinicIds)
+        .order('first_name')
         .order('last_name')
         .order('first_name')
 
@@ -112,13 +164,13 @@ export default function Layout({ children }: LayoutProps) {
       }
       
       
-      // Group providers by clinic_id
+      // Group providers by clinic (a provider can appear in multiple clinics)
       const grouped: Record<string, Provider[]> = {}
       data?.forEach(provider => {
-        if (!grouped[provider.clinic_id]) {
-          grouped[provider.clinic_id] = []
-        }
-        grouped[provider.clinic_id].push(provider)
+        (provider.clinic_ids || []).forEach((cid: string) => {
+          if (!grouped[cid]) grouped[cid] = []
+          grouped[cid].push(provider)
+        })
       })
       
       setClinicProviders(grouped)
@@ -138,7 +190,7 @@ export default function Layout({ children }: LayoutProps) {
       const { data, error } = await supabase
         .from('providers')
         .select('*')
-        .eq('clinic_id', clinicId)
+        .contains('clinic_ids', [clinicId])
         .order('last_name')
         .order('first_name')
 
@@ -207,9 +259,14 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['admin', 'view_only_admin', 'super_admin'] },
   ]
 
-  const providerNavigation = [
-    { name: 'My Sheet', href: '/providers/sheet', icon: FileText },
-  ]
+  const toggleProviderClinic = (clinicId: string) => {
+    setProviderClinicExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(clinicId)) next.delete(clinicId)
+      else next.add(clinicId)
+      return next
+    })
+  }
 
   const canAccess = (roles: string[]) => {
     if (!userProfile) return false
@@ -244,24 +301,103 @@ export default function Layout({ children }: LayoutProps) {
           <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto scrollbar-hide">
             {userProfile?.role === 'provider' ? (
               <>
-                {providerNavigation.map((item) => {
-                  const Icon = item.icon
-                  return (
-                    <Link
-                      key={item.name}
-                      to={item.href}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                        location.pathname === item.href
-                          ? 'bg-primary-600 text-white font-medium shadow-lg'
+                <Link
+                  to="/providers"
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                    location.pathname === '/providers' || location.pathname === '/providers/'
+                      ? 'bg-primary-600 text-white font-medium shadow-lg'
+                      : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  } ${sidebarCollapsed ? 'justify-center' : ''}`}
+                  title="Dashboard"
+                >
+                  <LayoutDashboard size={20} />
+                  {!sidebarCollapsed && <span>Dashboard</span>}
+                </Link>
+                {!sidebarCollapsed && (
+                  <div className="mb-1">
+                    <button
+                      type="button"
+                      onClick={() => setProviderClinicsSectionExpanded(!providerClinicsSectionExpanded)}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-left ${
+                        location.pathname.startsWith('/providers/clinics/')
+                          ? 'bg-primary-600/50 text-white font-medium'
                           : 'text-white/70 hover:bg-white/10 hover:text-white'
-                      } ${sidebarCollapsed ? 'justify-center' : ''}`}
-                      title={item.name}
+                      }`}
                     >
-                      <Icon size={20} />
-                      {!sidebarCollapsed && <span>{item.name}</span>}
-                    </Link>
-                  )
-                })}
+                      {providerClinicsSectionExpanded ? (
+                        <ChevronDown size={16} />
+                      ) : (
+                        <ChevronRight size={16} />
+                      )}
+                      <Building2 size={20} />
+                      <span>Clinics</span>
+                    </button>
+                    {providerClinicsSectionExpanded && (
+                      <div className="ml-2 mt-1 space-y-1">
+                        {loadingProviderClinics ? (
+                          <div className="px-4 py-2 text-xs text-white/50">Loading clinics...</div>
+                        ) : (
+                          providerClinics.map((clinic) => {
+                            const isExpanded = providerClinicExpanded.has(clinic.id)
+                            const isClinicActive = location.pathname.startsWith(`/providers/clinics/${clinic.id}`)
+                            return (
+                              <div key={clinic.id} className="mb-1">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      toggleProviderClinic(clinic.id)
+                                    }}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-left flex-1 ${
+                                      isClinicActive
+                                        ? 'bg-primary-600/50 text-white font-medium'
+                                        : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                    }`}
+                                  >
+                                    {isExpanded ? (
+                                      <ChevronDown size={16} />
+                                    ) : (
+                                      <ChevronRight size={16} />
+                                    )}
+                                    <Building2 size={16} />
+                                    <span className="flex-1 truncate">{clinic.name}</span>
+                                  </button>
+                                </div>
+                                {isExpanded && (
+                                  <div className="ml-6 mt-1 space-y-1">
+                                    <Link
+                                      to={`/providers/clinics/${clinic.id}/sheet`}
+                                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                        location.pathname === `/providers/clinics/${clinic.id}/sheet`
+                                          ? 'bg-primary-600 text-white font-medium'
+                                          : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                      }`}
+                                    >
+                                      <FileText size={16} />
+                                      <span>Sheet</span>
+                                    </Link>
+                                    <Link
+                                      to={`/providers/clinics/${clinic.id}/schedule`}
+                                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                        location.pathname === `/providers/clinics/${clinic.id}/schedule`
+                                          ? 'bg-primary-600 text-white font-medium'
+                                          : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                      }`}
+                                    >
+                                      <Calendar size={16} />
+                                      <span>Schedule</span>
+                                    </Link>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             ) : userProfile?.role === 'super_admin' ? (
               <>

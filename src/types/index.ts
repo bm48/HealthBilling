@@ -59,7 +59,7 @@ export interface Clinic {
 
 export interface Provider {
   id: string
-  clinic_id: string
+  clinic_ids: string[]
   first_name: string
   last_name: string
   specialty: string | null
@@ -85,6 +85,21 @@ export interface Patient {
   phone: string | null
   email: string | null
   address: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Provider schedule entry – independent of patients table; clinic_id, provider_id, patient info. */
+export interface ProviderScheduleEntry {
+  id: string
+  clinic_id: string
+  provider_id: string
+  patient_id: string | null
+  patient_name: string | null
+  insurance: string | null
+  copay: number | null
+  coinsurance: number | null
+  date_of_service: string | null
   created_at: string
   updated_at: string
 }

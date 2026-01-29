@@ -24,7 +24,7 @@ export default function Reports() {
 
   useEffect(() => {
     if (userProfile?.role === 'provider') {
-      navigate('/providers/sheet', { replace: true })
+      navigate('/providers', { replace: true })
     }
   }, [userProfile?.role, navigate])
 

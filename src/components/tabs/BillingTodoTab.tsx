@@ -373,8 +373,6 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
         return { color: '#f59e0b', textColor: '#ffffff' }
       case 'In Progress':
         return { color: '#714ec5', textColor: '#ffffff' }
-      case 'Complete':
-        return { color: '#00bb5a', textColor: '#ffffff' }
       case 'Updated':
         return { color: '#0ea5e9', textColor: '#ffffff' }
       case 'Completed':
@@ -626,7 +624,8 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       type: 'dropdown' as const, 
       width: 120,
       editor: 'select',
-      selectOptions: ['', 'New', 'Waiting', 'In Progress', 'Complete', 'Updated'],
+      selectOptions: ['New', 'Waiting', 'In Progress', 'Complete', 'Updated'],
+      allowEmpty: false,
       renderer: createBubbleDropdownRenderer(getStatusColor) as any,
       readOnly: !canEdit || getReadOnly('status')
     },

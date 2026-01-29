@@ -40,7 +40,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (userProfile) {
       if (userProfile.role === 'provider') {
-        navigate('/providers/sheet', { replace: true })
+        navigate('/providers', { replace: true })
         return
       }
       if (userProfile.role === 'super_admin') {
@@ -63,7 +63,7 @@ export default function Dashboard() {
         supabase.from('clinics').select('id', { count: 'exact', head: true }),
         supabase.from('patients').select('id', { count: 'exact', head: true }),
         supabase.from('users').select('id', { count: 'exact', head: true }),
-        supabase.from('todo_items').select('id, completed_at', { count: 'exact' }),
+        supabase.from('todo_list').select('id, completed_at', { count: 'exact' }),
         supabase.from('provider_sheets').select('id', { count: 'exact', head: true }),
       ])
 
@@ -141,7 +141,7 @@ export default function Dashboard() {
             supabase
               .from('providers')
               .select('id', { count: 'exact', head: true })
-              .eq('clinic_id', clinicId),
+              .contains('clinic_ids', [clinicId]),
           ])
 
           statsMap[clinicId] = {

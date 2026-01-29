@@ -94,19 +94,19 @@ export default function SuperAdminSettings() {
       const { data, error } = await supabase
         .from('providers')
         .select('*')
-        .in('clinic_id', clinicIds)
+        .overlaps('clinic_ids', clinicIds)
         .order('last_name')
         .order('first_name')
       
       if (error) throw error
       
-      // Group providers by clinic_id
+      // Group providers by clinic (a provider can appear in multiple clinics)
       const grouped: Record<string, Provider[]> = {}
       data?.forEach(provider => {
-        if (!grouped[provider.clinic_id]) {
-          grouped[provider.clinic_id] = []
-        }
-        grouped[provider.clinic_id].push(provider)
+        (provider.clinic_ids || []).forEach((cid: string) => {
+          if (!grouped[cid]) grouped[cid] = []
+          grouped[cid].push(provider)
+        })
       })
       
       setProvidersByClinic(grouped)

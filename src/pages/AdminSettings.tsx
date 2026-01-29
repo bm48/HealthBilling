@@ -55,7 +55,7 @@ export default function AdminSettings() {
       const { data, error } = await supabase
         .from('provider_sheets')
         .select('*')
-        .eq('clinic_id', selectedClinic)
+        .contains('clinic_ids', [selectedClinic])
         .eq('month', selectedMonth)
         .eq('year', selectedYear)
 

@@ -1267,7 +1267,7 @@ export default function ClinicDetail() {
       const { data, error } = await supabase
         .from('providers')
         .select('*')
-        .eq('clinic_id', clinicId)
+        .contains('clinic_ids', [clinicId])
         .order('last_name')
         .order('first_name')
 
@@ -1297,7 +1297,7 @@ export default function ClinicDetail() {
       const { data: providersData } = await supabase
         .from('providers')
         .select('id')
-        .eq('clinic_id', clinicId)
+        .contains('clinic_ids', [clinicId])
 
       if (!providersData || providersData.length === 0) return
 

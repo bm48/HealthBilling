@@ -12,7 +12,7 @@ export default function PatientDatabase() {
 
   useEffect(() => {
     if (userProfile?.role === 'provider') {
-      navigate('/providers/sheet', { replace: true })
+      navigate('/providers', { replace: true })
     }
   }, [userProfile?.role, navigate])
   const [patients, setPatients] = useState<Patient[]>([])

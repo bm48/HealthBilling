@@ -14,7 +14,9 @@ import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
 import Landing from '@/pages/Landing'
 import Layout from '@/components/Layout'
+import ProviderDashboardPage from '@/pages/providers/ProviderDashboardPage'
 import ProviderSheetPage from '@/pages/providers/ProviderSheetPage'
+import ProviderSchedulePage from '@/pages/providers/ProviderSchedulePage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -177,17 +179,35 @@ function AppRoutes() {
         element={
           <ProviderRoute>
             <Layout>
-              <ProviderSheetPage />
+              <ProviderDashboardPage />
             </Layout>
           </ProviderRoute>
         }
       />
       <Route
         path="/providers/sheet"
+        element={<Navigate to="/providers" replace />}
+      />
+      <Route
+        path="/providers/schedule"
+        element={<Navigate to="/providers" replace />}
+      />
+      <Route
+        path="/providers/clinics/:clinicId/sheet"
         element={
           <ProviderRoute>
             <Layout>
               <ProviderSheetPage />
+            </Layout>
+          </ProviderRoute>
+        }
+      />
+      <Route
+        path="/providers/clinics/:clinicId/schedule"
+        element={
+          <ProviderRoute>
+            <Layout>
+              <ProviderSchedulePage />
             </Layout>
           </ProviderRoute>
         }

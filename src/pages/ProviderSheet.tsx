@@ -14,7 +14,7 @@ export default function ProviderSheet() {
 
   useEffect(() => {
     if (userProfile?.role === 'provider') {
-      navigate('/providers/sheet', { replace: true })
+      navigate('/providers', { replace: true })
     }
   }, [userProfile?.role, navigate])
   const [sheet, setSheet] = useState<ProviderSheetType | null>(null)
@@ -168,7 +168,7 @@ export default function ProviderSheet() {
       if (userProfile?.role === 'super_admin') {
         // No filter needed - Super Admin can see all
       } else if (userProfile?.clinic_ids.length) {
-        query = query.in('clinic_id', userProfile.clinic_ids)
+        query = query.overlaps('clinic_ids', userProfile.clinic_ids)
       } else {
         return // No clinic access
       }

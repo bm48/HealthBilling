@@ -79,7 +79,7 @@ export default function BillingTodo() {
     fetchingRef.current = true
     try {
       let query = supabase
-        .from('todo_items')
+        .from('todo_list')
         .select('*')
         .is('completed_at', null)
         .order('created_at', { ascending: false })
@@ -406,7 +406,7 @@ export default function BillingTodo() {
 
     try {
       const { error } = await supabase
-        .from('todo_items')
+        .from('todo_list')
         .delete()
         .eq('id', todoId)
 

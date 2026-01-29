@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -16,6 +16,7 @@ import ProvidersTab from '@/components/tabs/ProvidersTab'
 export default function ProviderSheetPage() {
   const { user, userProfile, loading: authLoading } = useAuth()
   const navigate = useNavigate()
+  const { clinicId: urlClinicId } = useParams<{ clinicId: string }>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [provider, setProvider] = useState<Provider | null>(null)
@@ -28,7 +29,7 @@ export default function ProviderSheetPage() {
   const providerSheetRowsRef = useRef<Record<string, SheetRow[]>>({})
   const [currentSheet, setCurrentSheet] = useState<ProviderSheet | null>(null)
 
-  // Redirect non-providers
+  // Redirect non-providers; redirect to dashboard if no clinic in URL
   useEffect(() => {
     if (authLoading) return
     if (!user) {
@@ -37,8 +38,12 @@ export default function ProviderSheetPage() {
     }
     if (userProfile?.role !== 'provider') {
       navigate('/dashboard', { replace: true })
+      return
     }
-  }, [user, userProfile, authLoading, navigate])
+    if (!urlClinicId) {
+      navigate('/providers', { replace: true })
+    }
+  }, [user, userProfile, authLoading, navigate, urlClinicId])
 
   // Resolve provider by user email (and optional clinic_ids)
   useEffect(() => {
@@ -54,7 +59,7 @@ export default function ProviderSheetPage() {
           .eq('email', user.email!)
 
         if (userProfile?.clinic_ids?.length) {
-          query = query.in('clinic_id', userProfile.clinic_ids)
+          query = query.overlaps('clinic_ids', userProfile.clinic_ids)
         }
         query = query.limit(1)
 
@@ -80,11 +85,20 @@ export default function ProviderSheetPage() {
     resolveProvider()
   }, [user?.email, userProfile?.role, userProfile?.clinic_ids])
 
+  // Use clinic from URL; must be one of the provider's clinics
+  const clinicId = urlClinicId && provider?.clinic_ids?.includes(urlClinicId) ? urlClinicId : undefined
+
+  // Redirect if URL clinic is invalid for this provider (after provider has loaded)
+  useEffect(() => {
+    if (!provider || !urlClinicId) return
+    if (!provider.clinic_ids?.includes(urlClinicId)) {
+      navigate('/providers', { replace: true })
+    }
+  }, [provider, urlClinicId, navigate])
+
   // Fetch clinic, patients, billing codes, status colors, and sheet when provider is set
   useEffect(() => {
-    if (!provider) return
-
-    const clinicId = provider.clinic_id
+    if (!provider || !clinicId) return
 
     const fetchClinic = async () => {
       const { data } = await supabase.from('clinics').select('*').eq('id', clinicId).maybeSingle()
@@ -119,14 +133,13 @@ export default function ProviderSheetPage() {
     fetchPatients()
     fetchBillingCodes()
     fetchStatusColors()
-  }, [provider])
+  }, [provider, clinicId])
 
   // Fetch provider sheet for selected month
   const fetchProviderSheetData = useCallback(async () => {
-    if (!provider || !clinic) return
+    if (!provider || !clinic || !clinicId) return
 
     const providerId = provider.id
-    const clinicId = provider.clinic_id
     const month = selectedMonth.getMonth() + 1
     const year = selectedMonth.getFullYear()
 
