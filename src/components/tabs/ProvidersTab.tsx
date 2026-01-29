@@ -590,10 +590,12 @@ export default function ProvidersTab({
         
         if (field === 'patient_id') {
           // Extract patient_id from dropdown value (format: "patient_id - first_name last_name") or raw input
-          const raw = String(newValue || '').trim()
-          const patientIdOrNull = raw ? (raw.split(' - ')[0] || raw) : null
-          // Look up patient from patient database and fill row
-          const patient = patientIdOrNull ? patients.find(p => p.patient_id === patientIdOrNull) : null
+          const raw = String(newValue ?? '').trim()
+          const patientIdOrNull = raw ? (raw.split(' - ')[0]?.trim() || raw) : null
+          // Look up patient from patient database (case-insensitive, trimmed) and fill row
+          const patient = patientIdOrNull
+            ? patients.find(p => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase())
+            : null
           const merged: Partial<SheetRow> = {
             ...sheetRow,
             id: newId,

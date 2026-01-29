@@ -1417,6 +1417,9 @@ export default function ClinicDetail() {
     const sheet = providerSheets[providerId]
     if (!sheet) return
 
+    // Optimistic update: apply full rows to state immediately so the row (e.g. patient fill) appears right away
+    setProviderSheetRows(prev => ({ ...prev, [providerId]: rowsToSave }))
+
     // Filter out only truly empty rows (empty- rows with no data)
     // Allow empty- rows that have data to be saved
     const rowsToProcess = rowsToSave.filter(r => {
