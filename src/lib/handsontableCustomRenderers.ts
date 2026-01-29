@@ -134,6 +134,8 @@ export function createMultiBubbleDropdownRenderer(colorMap: (value: string) => {
     td.style.padding = '2px 4px'
     td.style.textAlign = 'left'
     td.style.verticalAlign = 'middle'
+    td.style.paddingRight = '10px'
+    td.style.position = 'relative'
 
     const raw = value ? String(value) : ''
     const parts = raw ? raw.split(',').map((s: string) => s.trim()).filter(Boolean) : []
@@ -141,12 +143,14 @@ export function createMultiBubbleDropdownRenderer(colorMap: (value: string) => {
     if (parts.length > 0) {
       const wrapper = document.createElement('div')
       wrapper.style.display = 'flex'
-      wrapper.style.flexWrap = 'wrap'
+      wrapper.style.flexWrap = 'nowrap'
+      wrapper.style.overflow = 'hidden'
+
       wrapper.style.gap = '6px'
       wrapper.style.alignItems = 'center'
       wrapper.style.minHeight = '100%'
       wrapper.style.position = 'relative'
-
+      wrapper.style.marginRight = '15px'
       parts.forEach((code: string) => {
         const colorConfig = colorMap(code)
         const bubble = document.createElement('span')
@@ -154,12 +158,18 @@ export function createMultiBubbleDropdownRenderer(colorMap: (value: string) => {
         bubble.textContent = code
         bubble.style.display = 'inline-flex'
         bubble.style.alignItems = 'center'
+        bubble.style.justifyContent = 'center'
         bubble.style.padding = '4px 10px'
         bubble.style.borderRadius = '16px'
         bubble.style.fontSize = '13px'
         bubble.style.fontWeight = '500'
         bubble.style.lineHeight = '1.4'
         bubble.style.whiteSpace = 'nowrap'
+        bubble.style.overflow = 'hidden'
+        bubble.style.textOverflow = 'ellipsis'
+        bubble.style.minWidth = '52px'
+        bubble.style.maxWidth = '52px'
+        bubble.style.textAlign = 'center'
         bubble.style.cursor = cellProperties.readOnly ? 'default' : 'pointer'
         if (colorConfig) {
           bubble.style.backgroundColor = colorConfig.color
@@ -178,8 +188,9 @@ export function createMultiBubbleDropdownRenderer(colorMap: (value: string) => {
       arrow.style.position = 'absolute'
       arrow.style.right = '4px'
       arrow.style.top = '50%'
+      arrow.style.zIndex = '1001'
       arrow.style.transform = 'translateY(-50%)'
-      wrapper.appendChild(arrow)
+      td.appendChild(arrow)
       td.appendChild(wrapper)
     } else {
       td.textContent = ''

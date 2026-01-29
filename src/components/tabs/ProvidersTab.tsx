@@ -20,7 +20,7 @@ interface ProvidersTabProps {
   isProviderView?: boolean
   onUpdateProviderSheetRow: (providerId: string, rowId: string, field: string, value: any) => void
   onSaveProviderSheetRowsDirect: (providerId: string, rows: SheetRow[]) => Promise<void>
-  onContextMenu: (e: React.MouseEvent, type: 'providerRow', id: string, providerId: string) => void
+  onDeleteRow?: (providerId: string, rowId: string) => void
   onPreviousMonth: () => void
   onNextMonth: () => void
   formatMonthYear: (date: Date) => string
@@ -44,7 +44,7 @@ export default function ProvidersTab({
   isProviderView = false,
   onUpdateProviderSheetRow,
   onSaveProviderSheetRowsDirect,
-  onContextMenu,
+  onDeleteRow,
   onPreviousMonth,
   onNextMonth,
   formatMonthYear,
@@ -737,14 +737,21 @@ export default function ProvidersTab({
     }, 0)
   }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, patients])
 
+  const handleDeleteProviderSheetRow = useCallback((providerId: string, rowId: string) => {
+    if (!confirm('Are you sure you want to delete this row?')) return
+    if (onDeleteRow) onDeleteRow(providerId, rowId)
+  }, [onDeleteRow])
+
   const handleProviderRowsHandsontableContextMenu = useCallback((row: number) => {
-    if (isProviderView) return // No context menu (e.g. delete) for provider view
+    if (isProviderView) return
     const sheetRow = activeProviderRows[row]
-    if (sheetRow && activeProvider && canEdit && !sheetRow.id.startsWith('new-') && !sheetRow.id.startsWith('empty-')) {
-      const syntheticEvent = { preventDefault: () => {} } as React.MouseEvent
-      onContextMenu(syntheticEvent, 'providerRow', sheetRow.id, activeProvider.id)
+    if (sheetRow && activeProvider && canEdit) {
+      const providerId = activeProvider.id
+      const rowId = sheetRow.id
+      // Defer confirm so it runs after the contextmenu event; browsers often block modals opened directly from contextmenu
+        handleDeleteProviderSheetRow(providerId, rowId)
     }
-  }, [activeProvider, activeProviderRows, canEdit, onContextMenu, isProviderView])
+  }, [activeProvider, activeProviderRows, canEdit, handleDeleteProviderSheetRow, isProviderView])
 
   // Apply custom header colors after table renders
   const hotTableRef = useRef<any>(null)

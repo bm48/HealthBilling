@@ -364,13 +364,19 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
     URL.revokeObjectURL(url)
   }, [todos, clinicId])
 
-  // Status color mapping
+  // Status color mapping (five statuses: New, Waiting, In Progress, Complete, Updated)
   const getStatusColor = useCallback((status: string): { color: string; textColor: string } | null => {
     switch (status) {
-      // case '':
-      //   return { color: '#238eff', textColor: '#ffffff' }
+      case 'New':
+        return { color: '#3b82f6', textColor: '#ffffff' }
+      case 'Waiting':
+        return { color: '#f59e0b', textColor: '#ffffff' }
       case 'In Progress':
         return { color: '#714ec5', textColor: '#ffffff' }
+      case 'Complete':
+        return { color: '#00bb5a', textColor: '#ffffff' }
+      case 'Updated':
+        return { color: '#0ea5e9', textColor: '#ffffff' }
       case 'Completed':
         return { color: '#00bb5a', textColor: '#ffffff' }
       default:
@@ -620,7 +626,7 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       type: 'dropdown' as const, 
       width: 120,
       editor: 'select',
-      selectOptions: ['', 'In Progress', 'Completed'], // '' = empty cell; no "Open"
+      selectOptions: ['', 'New', 'Waiting', 'In Progress', 'Complete', 'Updated'],
       renderer: createBubbleDropdownRenderer(getStatusColor) as any,
       readOnly: !canEdit || getReadOnly('status')
     },
@@ -649,69 +655,57 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
 
   const handleTodosHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData') return
-    
-    // Don't save during initial load - wait until data is fully loaded
-    if (isInitialLoadRef.current || loading) {
-      return
-    }
-    
-    // Compute all changes locally first - don't rely on state
-    setTodos(currentTodos => {
-      let updatedTodos = [...currentTodos]
-      let idCounter = 0
-      
-      changes.forEach(([row, col, , newValue]) => {
-        // Ensure we have enough rows in the array
-        while (updatedTodos.length <= row) {
-          const existingEmptyCount = updatedTodos.filter(t => t.id.startsWith('empty-')).length
-          updatedTodos.push(createEmptyTodo(existingEmptyCount))
-        }
-        
-        const todo = updatedTodos[row]
-        if (todo) {
-          const fields: Array<'id' | 'status' | 'issue' | 'notes' | 'followup_notes'> = ['id', 'status', 'issue', 'notes', 'followup_notes']
-          const field = fields[col as number]
-          
-          // Generate unique ID for empty rows
-          const needsNewId = todo.id.startsWith('empty-')
-          const newId = needsNewId ? `new-${Date.now()}-${idCounter++}-${Math.random()}` : todo.id
-          
-          if (field === 'status') {
-            updatedTodos[row] = { ...todo, id: newId, status: String(newValue || ''), updated_at: new Date().toISOString() }
-          } else if (field === 'issue') {
-            updatedTodos[row] = { ...todo, id: newId, issue: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() }
-          } else if (field === 'notes') {
-            updatedTodos[row] = { ...todo, id: newId, notes: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() }
-          } else if (field === 'followup_notes') {
-            updatedTodos[row] = { ...todo, id: newId, followup_notes: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() }
-          } else if (needsNewId) {
-            updatedTodos[row] = { ...todo, id: newId, updated_at: new Date().toISOString() }
-          }
-        }
-      })
-      
-      // Ensure we always have exactly 200 rows after changes
-      if (updatedTodos.length > 200) {
-        updatedTodos = updatedTodos.slice(0, 200)
-      } else if (updatedTodos.length < 200) {
-        const emptyRowsNeeded = 200 - updatedTodos.length
+
+    if (isInitialLoadRef.current || loading) return
+
+    // Use ref as single source of truth (like ProvidersTab) so rapid edits don't see stale state
+    const currentTodos = todosRef.current.length > 0 ? todosRef.current : todos
+    const updatedTodos = [...currentTodos]
+    const fields: Array<'id' | 'status' | 'issue' | 'notes' | 'followup_notes'> = ['id', 'status', 'issue', 'notes', 'followup_notes']
+    let idCounter = 0
+
+    changes.forEach(([row, col, , newValue]) => {
+      while (updatedTodos.length <= row) {
         const existingEmptyCount = updatedTodos.filter(t => t.id.startsWith('empty-')).length
-        const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => 
-          createEmptyTodo(existingEmptyCount + i)
-        )
-        updatedTodos = [...updatedTodos, ...newEmptyRows]
+        updatedTodos.push(createEmptyTodo(existingEmptyCount))
       }
-      
-      // Save with computed updated data directly - don't wait for state to update
-      setTimeout(() => {
-        saveTodos(updatedTodos).catch(err => {
-          console.error('[handleTodosHandsontableChange] Error in saveTodos:', err)
-        })
-      }, 0)
-      
-      return updatedTodos
+
+      const todo = updatedTodos[row]
+      if (todo) {
+        const field = fields[col as number]
+        const needsNewId = todo.id.startsWith('empty-')
+        const newId = needsNewId ? `new-${Date.now()}-${idCounter++}-${Math.random()}` : todo.id
+
+        if (field === 'status') {
+          updatedTodos[row] = { ...todo, id: newId, status: String(newValue || ''), updated_at: new Date().toISOString() }
+        } else if (field === 'issue') {
+          updatedTodos[row] = { ...todo, id: newId, issue: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() }
+        } else if (field === 'notes') {
+          updatedTodos[row] = { ...todo, id: newId, notes: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() }
+        } else if (field === 'followup_notes') {
+          updatedTodos[row] = { ...todo, id: newId, followup_notes: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() }
+        } else if (needsNewId) {
+          updatedTodos[row] = { ...todo, id: newId, updated_at: new Date().toISOString() }
+        }
+      }
     })
-  }, [saveTodos, createEmptyTodo, loading])
+
+    if (updatedTodos.length > 200) {
+      updatedTodos.splice(200)
+    } else if (updatedTodos.length < 200) {
+      const emptyRowsNeeded = 200 - updatedTodos.length
+      const existingEmptyCount = updatedTodos.filter(t => t.id.startsWith('empty-')).length
+      updatedTodos.push(...Array.from({ length: emptyRowsNeeded }, (_, i) => createEmptyTodo(existingEmptyCount + i)))
+    }
+
+    todosRef.current = updatedTodos
+    setTodos(updatedTodos)
+    setTimeout(() => {
+      saveTodos(updatedTodos).catch(err => {
+        console.error('[handleTodosHandsontableChange] Error in saveTodos:', err)
+      })
+    }, 0)
+  }, [saveTodos, createEmptyTodo, loading, todos])
 
   const handleTodosHandsontableContextMenu = useCallback((row: number) => {
     const todo = todos[row]

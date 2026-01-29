@@ -39,7 +39,7 @@ interface HandsontableWrapperProps {
   className?: string
   style?: React.CSSProperties
   enableFormula?: boolean
-  onContextMenu?: (row: number, col: number) => void
+  onContextMenu?: (row: number, col: number, event: MouseEvent) => void
   readOnly?: boolean
 }
 
@@ -490,9 +490,11 @@ export default function HandsontableWrapper({
       if (hotInstance) {
         const handleContextMenu = (event: MouseEvent) => {
           event.preventDefault()
-          const coords = hotInstance.getSelectedLast()
-          if (coords) {
-            onContextMenu(coords[0], coords[1])
+          const td = (event.target as HTMLElement).closest('td')
+          if (!td) return
+          const coords = hotInstance.getCoords(td as any)
+          if (coords && coords.row >= 0 && coords.col >= 0) {
+            onContextMenu(coords.row, coords.col, event)
           }
         }
         

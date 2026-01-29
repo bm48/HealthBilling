@@ -65,51 +65,40 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
       const fetchedAR = data || []
 
       setAccountsReceivable(currentAR => {
-        // Separate unsaved AR (new- and empty-)
-        const unsavedAR = currentAR.filter(ar => ar.id.startsWith('new-') || ar.id.startsWith('empty-'))
-        
-        // Create a map of existing AR by their database ID to preserve order
-        const existingARMap = new Map<string, AccountsReceivable>()
-        currentAR.forEach(ar => {
-          // Only include AR with real database IDs (not new- or empty-)
-          if (!ar.id.startsWith('new-') && !ar.id.startsWith('empty-')) {
-            existingARMap.set(ar.id, ar)
-          }
-        })
-        
-        // Create a map of fetched AR by ID
+        // Map of fetched AR by ID for lookups
         const fetchedARMap = new Map<string, AccountsReceivable>()
         fetchedAR.forEach(ar => {
           fetchedARMap.set(ar.id, ar)
         })
-        
-        // Preserve the order of existing AR, updating them with fresh data from database
+
+        // Preserve visual table order: walk current rows in order.
+        // For each row: keep unsaved (new-/empty-) in place; replace real IDs with fresh data; skip deleted (real but not in fetched).
         const preservedOrder: AccountsReceivable[] = []
         currentAR.forEach(ar => {
-          if (!ar.id.startsWith('new-') && !ar.id.startsWith('empty-')) {
-            // If this AR exists in fetched data, use the fresh data
+          if (ar.id.startsWith('new-') || ar.id.startsWith('empty-')) {
+            preservedOrder.push(ar)
+          } else {
             const freshData = fetchedARMap.get(ar.id)
             if (freshData) {
               preservedOrder.push(freshData)
-              fetchedARMap.delete(ar.id) // Remove from map so we don't add it again
+              fetchedARMap.delete(ar.id)
             }
+            // Deleted AR (real id but not in fetched): skip, so row is effectively removed
           }
         })
-        
-        // Add any newly fetched AR that weren't in the current state (newly created from other sources)
+
+        // Add any fetched AR not in current state (e.g. created elsewhere)
         const newFetchedAR = Array.from(fetchedARMap.values())
-        
-        // Combine: unsaved AR first, then preserved order of existing AR, then new fetched AR
-        const updated = [...unsavedAR, ...preservedOrder, ...newFetchedAR]
-        
+        const updated = [...preservedOrder, ...newFetchedAR]
+
         const totalRows = updated.length
         const emptyRowsNeeded = Math.max(0, 200 - totalRows)
-        const existingEmptyCount = unsavedAR.filter(ar => ar.id.startsWith('empty-')).length
-        const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => 
+        const existingEmptyCount = updated.filter(ar => ar.id.startsWith('empty-')).length
+        const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) =>
           createEmptyAR(existingEmptyCount + i)
         )
         const finalUpdated = [...updated, ...newEmptyRows]
-        
+
         accountsReceivableRef.current = fetchedAR
         return finalUpdated
       })

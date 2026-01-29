@@ -1689,14 +1689,10 @@ export default function ClinicDetail() {
 
 
   const handleDeleteProviderSheetRow = useCallback(async (providerId: string, rowId: string) => {
-    if (!confirm('Are you sure you want to delete this row?')) return
-
     setProviderSheetRows(prev => {
       const rows = prev[providerId] || []
       return { ...prev, [providerId]: rows.filter(r => r.id !== rowId) }
     })
-    
-    // Save immediately after deletion
     const updatedRows = providerSheetRowsRef.current[providerId]?.filter(r => r.id !== rowId) || []
     await saveProviderSheetRows(providerId, updatedRows)
   }, [saveProviderSheetRows])
@@ -1794,7 +1790,7 @@ export default function ClinicDetail() {
             isInSplitScreen={!!splitScreen}
             onUpdateProviderSheetRow={handleUpdateProviderSheetRow}
             onSaveProviderSheetRowsDirect={saveProviderSheetRowsDirect}
-            onContextMenu={handleContextMenu}
+            onDeleteRow={handleDeleteProviderSheetRow}
             onPreviousMonth={handlePreviousMonth}
             onNextMonth={handleNextMonth}
             formatMonthYear={formatMonthYear}

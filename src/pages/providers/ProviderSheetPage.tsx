@@ -307,8 +307,6 @@ export default function ProviderSheetPage() {
       n.setMonth(n.getMonth() + 1)
       return n
     })
-  const handleContextMenu = () => {}
-
   if (authLoading || (userProfile?.role === 'provider' && loading && !provider)) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -352,7 +350,6 @@ export default function ProviderSheetPage() {
         isProviderView={true}
         onUpdateProviderSheetRow={handleUpdateProviderSheetRow}
         onSaveProviderSheetRowsDirect={saveProviderSheetRowsDirect}
-        onContextMenu={handleContextMenu}
         onPreviousMonth={handlePreviousMonth}
         onNextMonth={handleNextMonth}
         formatMonthYear={formatMonthYear}
