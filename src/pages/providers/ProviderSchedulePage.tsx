@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { Clinic, Provider, ProviderScheduleEntry } from '@/types'
+import { Clinic, Provider, ProviderScheduleEntry, Patient } from '@/types'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { DateEditor } from '@/lib/handsontableCustomRenderers'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 const SCHEDULE_COLUMNS = ['patient_id', 'patient_name', 'insurance', 'copay', 'coinsurance', 'date_of_service'] as const
 const COLUMN_TITLES = ['Patient ID', 'Patient Name', 'Insurance', 'Co Pay', 'Co Ins', 'Date of Service']
@@ -36,7 +37,9 @@ export default function ProviderSchedulePage() {
   const [clinic, setClinic] = useState<Clinic | null>(null)
   const [entries, setEntries] = useState<ProviderScheduleEntry[]>([])
   const entriesRef = useRef<ProviderScheduleEntry[]>([])
+  const saveEntryRef = useRef<(entryOrId: ProviderScheduleEntry | string) => Promise<void>>(null as any)
   const [saving, setSaving] = useState(false)
+  const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
 
   useEffect(() => {
     entriesRef.current = entries
@@ -108,21 +111,26 @@ export default function ProviderSchedulePage() {
   const fetchSchedule = useCallback(async () => {
     if (!provider) return
     const cid = clinicId ?? provider.clinic_ids?.[0]
+    const year = selectedMonth.getFullYear()
+    const month = selectedMonth.getMonth() + 1
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`
+    const lastDay = new Date(year, month, 0).getDate()
+    const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
     let query = supabase
       .from('provider_schedules')
       .select('*')
       .eq('provider_id', provider.id)
+      .gte('date_of_service', startDate)
+      .lte('date_of_service', endDate)
     if (cid) {
       query = query.eq('clinic_id', cid)
     }
     const { data, error: err } = await query.order('date_of_service', { ascending: true })
-    console.log("query: ",query)
     if (err) {
       console.error(err)
       setEntries([])
       return
     }
-    console.log("data: ",data)
     const list = (data || []) as ProviderScheduleEntry[]
     const emptyCount = Math.max(0, 200 - list.length)
     const entryCid = cid ?? ''
@@ -130,7 +138,7 @@ export default function ProviderSchedulePage() {
       createEmptyEntry(i, entryCid, provider.id)
     )
     setEntries([...list, ...emptyRows])
-  }, [provider, clinicId])
+  }, [provider, clinicId, selectedMonth])
 
   useEffect(() => {
     if (provider && clinicId) {
@@ -138,6 +146,21 @@ export default function ProviderSchedulePage() {
       fetchSchedule()
     }
   }, [provider, clinicId, fetchClinic, fetchSchedule])
+
+  const formatMonthYear = (date: Date) =>
+    date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const handlePreviousMonth = () =>
+    setSelectedMonth((d) => {
+      const n = new Date(d)
+      n.setMonth(n.getMonth() - 1)
+      return n
+    })
+  const handleNextMonth = () =>
+    setSelectedMonth((d) => {
+      const n = new Date(d)
+      n.setMonth(n.getMonth() + 1)
+      return n
+    })
 
   const saveEntry = useCallback(async (entryOrId: ProviderScheduleEntry | string) => {
     if (!provider) return
@@ -191,6 +214,43 @@ export default function ProviderSchedulePage() {
       setSaving(false)
     }
   }, [provider])
+
+  useEffect(() => {
+    saveEntryRef.current = saveEntry
+  }, [saveEntry])
+
+  const lookupPatientAndFillRow = useCallback(async (rowIndex: number, patientIdValue: string) => {
+    if (!clinicId || !patientIdValue.trim()) return
+    try {
+      const { data: patient, error: err } = await supabase
+        .from('patients')
+        .select('first_name, last_name, insurance, copay, coinsurance')
+        .eq('clinic_id', clinicId)
+        .eq('patient_id', patientIdValue.trim())
+        .maybeSingle()
+      if (err || !patient) return
+      const p = patient as Pick<Patient, 'first_name' | 'last_name' | 'insurance' | 'copay' | 'coinsurance'>
+      const fullName = [p.first_name, p.last_name].filter(Boolean).join(' ').trim() || null
+      const entry = entriesRef.current[rowIndex]
+      if (!entry) return
+      const updatedEntry: ProviderScheduleEntry = {
+        ...entry,
+        patient_name: fullName,
+        insurance: p.insurance ?? null,
+        copay: p.copay ?? null,
+        coinsurance: p.coinsurance ?? null,
+        updated_at: new Date().toISOString(),
+      }
+      setEntries(prev => {
+        const next = [...prev]
+        if (rowIndex >= 0 && rowIndex < next.length) next[rowIndex] = updatedEntry
+        return next
+      })
+      saveEntryRef.current?.(updatedEntry).catch(console.error)
+    } catch {
+      // ignore lookup errors
+    }
+  }, [clinicId])
 
   const deleteEntry = useCallback(async (id: string) => {
     if (!confirm('Delete this schedule entry?')) return
@@ -293,7 +353,13 @@ export default function ProviderSchedulePage() {
       const entry = updated[row]
       if (entry) saveEntry(entry).catch(console.error)
     })
-  }, [entries, provider, saveEntry])
+    // When user enters a Patient ID, fill row from patients table
+    changes.forEach(([row, col, , newValue]) => {
+      if (col === 0 && newValue != null && String(newValue).trim()) {
+        lookupPatientAndFillRow(row, String(newValue).trim())
+      }
+    })
+  }, [entries, provider, saveEntry, lookupPatientAndFillRow])
 
   const handleScheduleContextMenu = useCallback((row: number, _col: number, _event: MouseEvent) => {
     const entry = entries[row]
@@ -324,6 +390,28 @@ export default function ProviderSchedulePage() {
         <h1 className="text-3xl font-bold text-white mb-2">Schedule</h1>
         {clinic && <p className="text-white/70">{clinic.name}</p>}
         {saving && <span className="text-white/50 text-sm ml-2">Saving…</span>}
+      </div>
+
+      <div className="mb-4 flex items-center justify-center gap-4 bg-slate-800/50 rounded-lg p-3 border border-slate-700">
+        <button
+          type="button"
+          onClick={handlePreviousMonth}
+          className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-white"
+          title="Previous month"
+        >
+          <ChevronLeft size={20} />
+        </button>
+        <div className="text-lg font-semibold text-white min-w-[200px] text-center">
+          {formatMonthYear(selectedMonth)}
+        </div>
+        <button
+          type="button"
+          onClick={handleNextMonth}
+          className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-white"
+          title="Next month"
+        >
+          <ChevronRight size={20} />
+        </button>
       </div>
 
       <div
