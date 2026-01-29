@@ -1817,12 +1817,6 @@ export default function ClinicDetail() {
 
   const canEdit = userProfile?.role === 'super_admin'
 
-  // Handle context menu
-  const handleContextMenu = (e: React.MouseEvent, type: 'patient' | 'todo' | 'providerRow' | 'ar', id: string, providerId?: string) => {
-    if (!canEdit) return
-    e.preventDefault()
-    setContextMenu({ x: e.clientX, y: e.clientY, type, id, providerId })
-  }
 
   // Close context menu when clicking outside
   useEffect(() => {
