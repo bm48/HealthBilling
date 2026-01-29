@@ -116,22 +116,55 @@ export default function ProviderSchedulePage() {
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`
     const lastDay = new Date(year, month, 0).getDate()
     const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
-    let query = supabase
+    // Fetch rows with date in selected month OR date_of_service null (unscheduled)
+    let queryInRange = supabase
       .from('provider_schedules')
       .select('*')
       .eq('provider_id', provider.id)
       .gte('date_of_service', startDate)
       .lte('date_of_service', endDate)
+    let queryNullDate = supabase
+      .from('provider_schedules')
+      .select('*')
+      .eq('provider_id', provider.id)
+      .is('date_of_service', null)
     if (cid) {
-      query = query.eq('clinic_id', cid)
+      queryInRange = queryInRange.eq('clinic_id', cid)
+      queryNullDate = queryNullDate.eq('clinic_id', cid)
     }
-    const { data, error: err } = await query.order('date_of_service', { ascending: true })
-    if (err) {
-      console.error(err)
+    const [resRange, resNull] = await Promise.all([
+      queryInRange.order('date_of_service', { ascending: true }),
+      queryNullDate.order('created_at', { ascending: true }),
+    ])
+    if (resRange.error) {
+      console.error(resRange.error)
       setEntries([])
       return
     }
-    const list = (data || []) as ProviderScheduleEntry[]
+    const inRange = (resRange.data || []) as ProviderScheduleEntry[]
+    const withNullDate = (resNull.data || []) as ProviderScheduleEntry[]
+    const seen = new Set<string>()
+    const list: ProviderScheduleEntry[] = []
+    inRange.forEach((e) => {
+      if (!seen.has(e.id)) {
+        seen.add(e.id)
+        list.push(e)
+      }
+    })
+    withNullDate.forEach((e) => {
+      if (!seen.has(e.id)) {
+        seen.add(e.id)
+        list.push(e)
+      }
+    })
+    list.sort((a, b) => {
+      const da = a.date_of_service || ''
+      const db = b.date_of_service || ''
+      if (da && db) return da.localeCompare(db)
+      if (da) return -1
+      if (db) return 1
+      return 0
+    })
     const emptyCount = Math.max(0, 200 - list.length)
     const entryCid = cid ?? ''
     const emptyRows = Array.from({ length: emptyCount }, (_, i) =>
@@ -168,6 +201,11 @@ export default function ProviderSchedulePage() {
       ? entriesRef.current.find(e => e.id === entryOrId)
       : entryOrId
     if (!entry) return
+    const cid = clinicId ?? provider.clinic_ids?.[0] ?? ''
+    if (!cid) {
+      console.error('Cannot save schedule entry: no clinic context.')
+      return
+    }
     const isNew = entry.id.startsWith('new-') || entry.id.startsWith('empty-')
     const hasData = !!(
       (entry.patient_id ?? '').toString().trim() ||
@@ -180,8 +218,7 @@ export default function ProviderSchedulePage() {
     if (isNew && !hasData) return
     setSaving(true)
     try {
-      const cid = clinicId ?? provider.clinic_ids?.[0] ?? ''
-    const payload = {
+      const payload = {
         clinic_id: cid,
         provider_id: provider.id,
         patient_id: (entry.patient_id ?? '').toString().trim() || null,
@@ -198,22 +235,28 @@ export default function ProviderSchedulePage() {
           .insert(payload)
           .select()
           .single()
-        if (err) throw err
+        if (err) {
+          console.error('Schedule insert error:', err)
+          throw err
+        }
         setEntries(prev => prev.map(e => (e.id === entry.id ? (data as ProviderScheduleEntry) : e)))
       } else {
         const { error: err } = await supabase
           .from('provider_schedules')
           .update(payload)
           .eq('id', entry.id)
-        if (err) throw err
+        if (err) {
+          console.error('Schedule update error:', err)
+          throw err
+        }
       }
     } catch (e) {
       console.error(e)
-      alert('Failed to save entry.')
+      alert('Failed to save entry. Check the console for details.')
     } finally {
       setSaving(false)
     }
-  }, [provider])
+  }, [provider, clinicId])
 
   useEffect(() => {
     saveEntryRef.current = saveEntry
