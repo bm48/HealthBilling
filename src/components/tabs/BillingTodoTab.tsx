@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { createBubbleDropdownRenderer } from '@/lib/handsontableCustomRenderers'
-import { Download, Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 
 interface BillingTodoTabProps {
   clinicId: string
@@ -385,15 +385,15 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
     URL.revokeObjectURL(url)
   }, [todos, clinicId])
 
-  // Expose export to parent when in split screen (header shows Export CSV)
+  // Expose export to parent for header (single view and split screen)
   useEffect(() => {
-    if (exportRef && isInSplitScreen) {
+    if (exportRef) {
       exportRef.current = { exportToCSV: exportToCsv }
       return () => {
         exportRef.current = null
       }
     }
-  }, [exportRef, isInSplitScreen, exportToCsv])
+  }, [exportRef, exportToCsv])
 
   // Status color mapping (five statuses: New, Waiting, In Progress, Complete, Updated)
   const getStatusColor = useCallback((status: string): { color: string; textColor: string } | null => {
@@ -828,18 +828,6 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       className="p-6" 
       style={isInSplitScreen ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
     >
-      {!isInSplitScreen && (
-        <div className="flex justify-end mb-3">
-          <button
-            type="button"
-            onClick={exportToCsv}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-colors"
-          >
-            <Download size={18} />
-            Export CSV
-          </button>
-        </div>
-      )}
       <div 
         ref={tableContainerRef}
         className="table-container dark-theme" 

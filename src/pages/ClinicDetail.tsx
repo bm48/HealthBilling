@@ -1950,55 +1950,67 @@ export default function ClinicDetail() {
         {clinic?.address && <p className="text-white/70">{clinic.address}</p>}
       </div>
 
-      <div className="flex gap-2 mb-6 border-b border-white/20">
-        <button
-          onClick={() => handleTabChange('patients')}
-          onContextMenu={(e) => handleTabContextMenu(e, 'patients')}
-          className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
-            activeTab === 'patients' || splitScreen?.left === 'patients'
-              ? 'text-primary-400 border-b-2 border-primary-400'
-              : 'text-white/70 hover:text-white'
-          }`}
-        >
-          <Users size={18} />
-          Patient Info
-        </button>
-        <button
-          onClick={() => handleTabChange('todo')}
-          onContextMenu={(e) => handleTabContextMenu(e, 'todo')}
-          className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
-            activeTab === 'todo' || splitScreen?.right === 'todo' || splitScreen?.left === 'todo'
-              ? 'text-primary-400 border-b-2 border-primary-400'
-              : 'text-white/70 hover:text-white'
-          }`}
-        >
-          <CheckSquare size={18} />
-          Billing To-Do
-        </button>
-        <button
-          onClick={() => handleTabChange('providers')}
-          onContextMenu={(e) => handleTabContextMenu(e, 'providers')}
-          className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
-            activeTab === 'providers' || splitScreen?.left === 'providers'
-              ? 'text-primary-400 border-b-2 border-primary-400'
-              : 'text-white/70 hover:text-white'
-          }`}
-        >
-          <FileText size={18} />
-          Providers
-        </button>
-        <button
-          onClick={() => handleTabChange('accounts_receivable')}
-          onContextMenu={(e) => handleTabContextMenu(e, 'accounts_receivable')}
-          className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
-            activeTab === 'accounts_receivable' || splitScreen?.right === 'accounts_receivable'
-              ? 'text-primary-400 border-b-2 border-primary-400'
-              : 'text-white/70 hover:text-white'
-          }`}
-        >
-          <FileText size={18} />
-          Accounts Receivable
-        </button>
+      <div className="flex gap-2 mb-6 border-b border-white/20 justify-between items-center">
+        <div className="flex gap-2">
+          <button
+            onClick={() => handleTabChange('patients')}
+            onContextMenu={(e) => handleTabContextMenu(e, 'patients')}
+            className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
+              activeTab === 'patients' || splitScreen?.left === 'patients'
+                ? 'text-primary-400 border-b-2 border-primary-400'
+                : 'text-white/70 hover:text-white'
+            }`}
+          >
+            <Users size={18} />
+            Patient Info
+          </button>
+          <button
+            onClick={() => handleTabChange('todo')}
+            onContextMenu={(e) => handleTabContextMenu(e, 'todo')}
+            className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
+              activeTab === 'todo' || splitScreen?.right === 'todo' || splitScreen?.left === 'todo'
+                ? 'text-primary-400 border-b-2 border-primary-400'
+                : 'text-white/70 hover:text-white'
+            }`}
+          >
+            <CheckSquare size={18} />
+            Billing To-Do
+          </button>
+          <button
+            onClick={() => handleTabChange('providers')}
+            onContextMenu={(e) => handleTabContextMenu(e, 'providers')}
+            className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
+              activeTab === 'providers' || splitScreen?.left === 'providers'
+                ? 'text-primary-400 border-b-2 border-primary-400'
+                : 'text-white/70 hover:text-white'
+            }`}
+          >
+            <FileText size={18} />
+            Providers
+          </button>
+          <button
+            onClick={() => handleTabChange('accounts_receivable')}
+            onContextMenu={(e) => handleTabContextMenu(e, 'accounts_receivable')}
+            className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
+              activeTab === 'accounts_receivable' || splitScreen?.right === 'accounts_receivable'
+                ? 'text-primary-400 border-b-2 border-primary-400'
+                : 'text-white/70 hover:text-white'
+            }`}
+          >
+            <FileText size={18} />
+            Accounts Receivable
+          </button>
+        </div>
+        {activeTab === 'todo' && !splitScreen && (
+          <button
+            type="button"
+            onClick={() => billingTodoExportRef.current?.exportToCSV()}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-colors mb-1"
+          >
+            <Download size={18} />
+            Export CSV
+          </button>
+        )}
       </div>
 
       <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20">
