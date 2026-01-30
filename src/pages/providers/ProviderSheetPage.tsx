@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   Clinic,
@@ -164,7 +165,6 @@ export default function ProviderSheetPage() {
             provider_id: providerId,
             month,
             year,
-            row_data: [],
             locked: false,
             locked_columns: [],
           })
@@ -178,7 +178,7 @@ export default function ProviderSheetPage() {
 
       setCurrentSheet(sheet)
 
-      const sheetRows = Array.isArray(sheet.row_data) ? sheet.row_data : []
+      const sheetRows = await fetchSheetRows(supabase, sheet.id)
       const createEmptyRow = (index: number): SheetRow => ({
         id: `empty-${providerId}-${index}`,
         patient_id: null,
@@ -284,13 +284,8 @@ export default function ProviderSheetPage() {
       if (currentSheet.month !== month || currentSheet.year !== year) return
 
       try {
-        await supabase
-          .from('provider_sheets')
-          .update({
-            row_data: rowsToSave.filter(r => !r.id.startsWith('empty-')),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', currentSheet.id)
+        const rowsToProcess = rowsToSave.filter(r => !r.id.startsWith('empty-'))
+        await saveSheetRows(supabase, currentSheet.id, rowsToProcess)
       } catch (e) {
         console.error('Error saving provider sheet:', e)
       }

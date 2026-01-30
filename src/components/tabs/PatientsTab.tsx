@@ -4,6 +4,9 @@ import { Patient, IsLockPatients } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
+import { Plus, Trash2 } from 'lucide-react'
+import { currencyCellRenderer, percentCellRenderer } from '@/lib/handsontableCustomRenderers'
+import { toDisplayValue, toStoredString } from '@/lib/utils'
 
 interface PatientsTabProps {
   clinicId: string
@@ -12,13 +15,16 @@ interface PatientsTabProps {
   isLockPatients?: IsLockPatients | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockPatients) => boolean
+  isInSplitScreen?: boolean
 }
 
-export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatients, onLockColumn, isColumnLocked }: PatientsTabProps) {
+export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen }: PatientsTabProps) {
   const { userProfile } = useAuth()
   const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
   const patientsRef = useRef<Patient[]>([])
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const [tableHeight, setTableHeight] = useState(600)
   const lockData = isLockPatients || null
 
   const createEmptyPatient = useCallback((index: number): Patient => ({
@@ -62,21 +68,37 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           } else {
             const freshData = fetchedPatientsMap.get(p.id)
             if (freshData) {
-              preservedOrder.push(freshData)
+              preservedOrder.push({
+                ...freshData,
+                first_name: (freshData.first_name != null && freshData.first_name !== 'null') ? freshData.first_name : '',
+                last_name: (freshData.last_name != null && freshData.last_name !== 'null') ? freshData.last_name : '',
+                insurance: (freshData.insurance != null && freshData.insurance !== 'null') ? freshData.insurance : null,
+              })
               fetchedPatientsMap.delete(p.id)
             }
           }
         })
-        const newFetchedPatients = Array.from(fetchedPatientsMap.values())
+        const newFetchedPatients = Array.from(fetchedPatientsMap.values()).map(px => ({
+          ...px,
+          first_name: (px.first_name != null && px.first_name !== 'null') ? px.first_name : '',
+          last_name: (px.last_name != null && px.last_name !== 'null') ? px.last_name : '',
+          insurance: (px.insurance != null && px.insurance !== 'null') ? px.insurance : null,
+        }))
         const updated = [...preservedOrder, ...newFetchedPatients]
 
-        const totalRows = updated.length
+        // Cap at 200 rows: keep non-empty rows first, then empty rows; trim any excess
+        const nonEmpty = updated.filter(p => !p.id.startsWith('empty-'))
+        const emptyOnes = updated.filter(p => p.id.startsWith('empty-'))
+        let result = [...nonEmpty, ...emptyOnes].slice(0, 200)
+
+        // When there are no more empty rows (or fewer than 200), add empty rows to reach 200
+        const totalRows = result.length
         const emptyRowsNeeded = Math.max(0, 200 - totalRows)
-        const existingEmptyCount = updated.filter(p => p.id.startsWith('empty-')).length
+        const existingEmptyCount = result.filter(p => p.id.startsWith('empty-')).length
         const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) =>
           createEmptyPatient(existingEmptyCount + i)
         )
-        return [...updated, ...newEmptyRows]
+        return [...result, ...newEmptyRows]
       })
     } catch (error) {
       console.error('Error fetching patients:', error)
@@ -96,20 +118,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   }, [clinicId, fetchPatients])
 
   const savePatients = useCallback(async (patientsToSave: Patient[]) => {
-    console.log('[savePatients] Called with:', {
-      clinicId,
-      hasUserProfile: !!userProfile,
-      patientsToSaveCount: patientsToSave.length,
-      patientsToSave: patientsToSave.map(p => ({
-        id: p.id,
-        patient_id: p.patient_id,
-        first_name: p.first_name,
-        last_name: p.last_name,
-        insurance: p.insurance,
-        copay: p.copay,
-        coinsurance: p.coinsurance
-      }))
-    })
 
     if (!clinicId || !userProfile) {
       console.log('[savePatients] Early return - missing clinicId or userProfile', { clinicId, hasUserProfile: !!userProfile })
@@ -128,18 +136,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       return hasData
     })
     
-    console.log('[savePatients] After filtering:', {
-      patientsToProcessCount: patientsToProcess.length,
-      patientsToProcess: patientsToProcess.map(p => ({
-        id: p.id,
-        patient_id: p.patient_id,
-        first_name: p.first_name,
-        last_name: p.last_name,
-        insurance: p.insurance,
-        copay: p.copay,
-        coinsurance: p.coinsurance
-      }))
-    })
     
     if (patientsToProcess.length === 0) {
       console.log('[savePatients] No patients to process - all filtered out')
@@ -154,15 +150,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       for (let i = 0; i < patientsToProcess.length; i++) {
         const patient = patientsToProcess[i]
         const oldId = patient.id // Store the old ID to find it in state
-        console.log(`[savePatients] Processing patient ${i + 1}/${patientsToProcess.length}:`, {
-          id: patient.id,
-          patient_id: patient.patient_id,
-          first_name: patient.first_name,
-          last_name: patient.last_name,
-          insurance: patient.insurance,
-          copay: patient.copay,
-          coinsurance: patient.coinsurance
-        })
 
         // Generate patient_id if missing
         let finalPatientId = patient.patient_id || ''
@@ -170,38 +157,33 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           const timestamp = Date.now().toString().slice(-6)
           const initials = `${(patient.first_name || '').charAt(0)}${(patient.last_name || '').charAt(0)}`.toUpperCase() || 'PT'
           finalPatientId = `${initials}${timestamp}`
-          console.log(`[savePatients] Generated patient_id: ${finalPatientId}`)
         }
 
-        // Prepare patient data
+        // Prepare patient data (never send string "null" to DB)
         const patientData: any = {
           clinic_id: clinicId,
           patient_id: finalPatientId,
-          first_name: patient.first_name || '',
-          last_name: patient.last_name || '',
-          insurance: patient.insurance || null,
-          copay: patient.copay || null,
-          coinsurance: patient.coinsurance || null,
+          first_name: (patient.first_name && patient.first_name !== 'null') ? patient.first_name : null,
+          last_name: (patient.last_name && patient.last_name !== 'null') ? patient.last_name : null,
+          insurance: (patient.insurance && patient.insurance !== 'null') ? patient.insurance : null,
+          copay: patient.copay != null ? patient.copay : null,
+          coinsurance: patient.coinsurance != null ? patient.coinsurance : null,
           updated_at: new Date().toISOString(),
         }
 
-        console.log(`[savePatients] Prepared patientData:`, patientData)
 
         let savedPatient: Patient | null = null
 
         // If patient has a real database ID (not new- or empty-), update by ID
         if (!patient.id.startsWith('new-') && !patient.id.startsWith('empty-')) {
-          console.log(`[savePatients] Attempting UPDATE by ID: ${patient.id}`)
           const { error: updateError, data: updateData } = await supabase
             .from('patients')
             .update(patientData)
             .eq('id', patient.id)
             .select()
 
-          console.log(`[savePatients] UPDATE result:`, { updateError, updateData })
 
           if (!updateError && updateData && updateData.length > 0) {
-            console.log(`[savePatients] UPDATE successful for patient ID: ${patient.id}`)
             savedPatient = updateData[0] as Patient
             savedPatientsMap.set(oldId, savedPatient)
             continue // Update successful, move to next patient
@@ -241,10 +223,13 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         return currentPatients.map(patient => {
           const savedPatient = savedPatientsMap.get(patient.id)
           if (savedPatient) {
-            // This patient was just saved - update with fresh data from database
-            // This preserves the row position but updates the data and ID (for new patients)
-            console.log(`[savePatients] Updating patient in place: ${patient.id} -> ${savedPatient.id}`)
-            return savedPatient
+            // Normalize string "null" from DB so table never displays "null"
+            return {
+              ...savedPatient,
+              first_name: (savedPatient.first_name != null && savedPatient.first_name !== 'null') ? savedPatient.first_name : '',
+              last_name: (savedPatient.last_name != null && savedPatient.last_name !== 'null') ? savedPatient.last_name : '',
+              insurance: (savedPatient.insurance != null && savedPatient.insurance !== 'null') ? savedPatient.insurance : null,
+            }
           }
           return patient // Keep all other patients exactly as they are
         })
@@ -261,8 +246,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   // Note: handleUpdatePatient removed - state is updated directly in handlePatientsHandsontableChange
 
   const handleDeletePatient = useCallback(async (patientId: string) => {
-    if (!confirm('Are you sure you want to delete this patient?')) return
-
     if (patientId.startsWith('new-')) {
       setPatients(prev => prev.filter(p => p.id !== patientId))
       return
@@ -286,12 +269,12 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
 
   const getPatientsHandsontableData = useCallback(() => {
     return patients.map(patient => [
-      patient.patient_id || '',
-      patient.first_name || '',
-      patient.last_name || '',
-      patient.insurance || '',
-      patient.copay ?? '',
-      patient.coinsurance ?? '',
+      toDisplayValue(patient.patient_id),
+      toDisplayValue(patient.first_name),
+      toDisplayValue(patient.last_name),
+      toDisplayValue(patient.insurance),
+      toDisplayValue(patient.copay),
+      toDisplayValue(patient.coinsurance),
     ])
   }, [patients])
   const columnFields: Array<keyof IsLockPatients> = ['patient_id', 'first_name', 'last_name', 'insurance', 'copay', 'coinsurance']
@@ -400,8 +383,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
     { data: 1, title: 'Patient First', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('first_name') },
     { data: 2, title: 'Patient Last', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('last_name') },
     { data: 3, title: 'Insurance', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('insurance') },
-    { data: 4, title: 'Copay', type: 'numeric' as const, width: 100, numericFormat: { pattern: '0.00', culture: 'en-US' }, readOnly: !canEdit || getReadOnly('copay') },
-    { data: 5, title: 'Coinsurance', type: 'numeric' as const, width: 100, numericFormat: { pattern: '0.00', culture: 'en-US' }, readOnly: !canEdit || getReadOnly('coinsurance') },
+    { data: 4, title: 'Copay', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: !canEdit || getReadOnly('copay') },
+    { data: 5, title: 'Coinsurance', type: 'numeric' as const, width: 100, renderer: percentCellRenderer, readOnly: !canEdit || getReadOnly('coinsurance') },
   ]
   
   const handlePatientsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
@@ -420,12 +403,12 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       if (patient) {
         const field = fields[col as number]
         if (field === 'copay' || field === 'coinsurance') {
-          const numValue = newValue === '' || newValue === null ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
+          const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
           updatedPatients[row] = { ...patient, [field]: numValue, updated_at: new Date().toISOString() } as Patient
         } else if (field === 'insurance') {
-          updatedPatients[row] = { ...patient, [field]: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() } as Patient
+          updatedPatients[row] = { ...patient, [field]: toStoredString(String(newValue ?? '')), updated_at: new Date().toISOString() } as Patient
         } else if (field) {
-          updatedPatients[row] = { ...patient, [field]: String(newValue || ''), updated_at: new Date().toISOString() } as Patient
+          updatedPatients[row] = { ...patient, [field]: toStoredString(String(newValue ?? '')) ?? '', updated_at: new Date().toISOString() } as Patient
         }
       }
     })
@@ -446,13 +429,81 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       })
     }, 0)
   }, [patients, savePatients, createEmptyPatient])
-  
-  const handlePatientsHandsontableContextMenu = useCallback((row: number) => {
+
+  const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
+  const tableContextMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!tableContextMenu) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tableContextMenuRef.current && !tableContextMenuRef.current.contains(event.target as Node)) {
+        setTableContextMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [tableContextMenu])
+
+  const handlePatientsHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
+    event.preventDefault()
+    if (!canEdit) return
     const patient = patients[row]
-    if (patient && canEdit && !patient.id.startsWith('new-') && !patient.id.startsWith('empty-')) {
+    if (patient) {
+      setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row })
+    }
+  }, [patients, canEdit])
+
+  const handleContextMenuAddRow = useCallback(() => {
+    if (tableContextMenu == null) return
+    const { rowIndex } = tableContextMenu
+    const existingEmptyCount = patients.filter(p => p.id.startsWith('empty-')).length
+    const newRow = createEmptyPatient(existingEmptyCount)
+    const updated = [...patients.slice(0, rowIndex + 1), newRow, ...patients.slice(rowIndex + 1)]
+    const capped = updated.length > 200 ? updated.slice(0, 200) : updated
+    const toSave = capped.length < 200
+      ? [...capped, ...Array.from({ length: 200 - capped.length }, (_, i) => createEmptyPatient(existingEmptyCount + 1 + i))]
+      : capped
+    patientsRef.current = toSave
+    setPatients(toSave)
+    savePatients(toSave).catch(err => console.error('savePatients after add row', err))
+    setTableContextMenu(null)
+  }, [tableContextMenu, patients, createEmptyPatient, savePatients])
+
+  const handleContextMenuDeleteRow = useCallback(() => {
+    if (tableContextMenu == null) return
+    const patient = patients[tableContextMenu.rowIndex]
+    if (!patient) {
+      setTableContextMenu(null)
+      return
+    }
+    if (patient.id.startsWith('empty-') || patient.id.startsWith('new-')) {
+      const updated = patients.filter((_, i) => i !== tableContextMenu.rowIndex)
+      const emptyNeeded = Math.max(0, 200 - updated.length)
+      const existingEmpty = updated.filter(p => p.id.startsWith('empty-')).length
+      const toSave = emptyNeeded > existingEmpty
+        ? [...updated, ...Array.from({ length: emptyNeeded - existingEmpty }, (_, i) => createEmptyPatient(existingEmpty + i))]
+        : updated.slice(0, 200)
+      patientsRef.current = toSave
+      setPatients(toSave)
+      savePatients(toSave).catch(err => console.error('savePatients after delete row', err))
+    } else {
       handleDeletePatient(patient.id)
     }
-  }, [patients, canEdit, handleDeletePatient])
+    setTableContextMenu(null)
+  }, [tableContextMenu, patients, createEmptyPatient, savePatients, handleDeletePatient])
+
+  // ResizeObserver for split screen: fill table height (must run before any early return)
+  useEffect(() => {
+    if (!isInSplitScreen) return
+    const el = tableContainerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      setTableHeight(el.clientHeight)
+    })
+    ro.observe(el)
+    setTableHeight(el.clientHeight)
+    return () => ro.disconnect()
+  }, [isInSplitScreen])
   
   if (loading) {
     return (
@@ -463,23 +514,32 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   }
 
   return (
-    <div className="p-6">
-      <div className="table-container dark-theme" style={{ 
-        maxHeight: '600px', 
-        overflowX: 'auto', 
-        overflowY: 'auto',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '8px',
-        backgroundColor: '#d2dbe5'
-      }}>
+    <div 
+      className="p-6" 
+      style={isInSplitScreen ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
+    >
+      <div 
+        ref={tableContainerRef}
+        className="table-container dark-theme" 
+        style={{ 
+          maxHeight: isInSplitScreen ? undefined : '600px',
+          flex: isInSplitScreen ? 1 : undefined,
+          minHeight: isInSplitScreen ? 0 : undefined,
+          overflowX: 'auto', 
+          overflowY: 'auto',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '8px',
+          backgroundColor: '#d2dbe5'
+        }}
+      >
         <HandsontableWrapper
-          key={`patients-${patients.length}-${JSON.stringify(lockData)}`}
+          key={`patients-${clinicId}`}
           data={getPatientsHandsontableData()}
           columns={patientsColumns}
           colHeaders={columnTitles}
           rowHeaders={true}
           width="100%"
-          height={600}
+          height={isInSplitScreen ? tableHeight : 600}
           afterChange={handlePatientsHandsontableChange}
           onContextMenu={handlePatientsHandsontableContextMenu}
           enableFormula={true}
@@ -488,6 +548,31 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           className="handsontable-custom"
         />
       </div>
+
+      {tableContextMenu != null && (
+        <div
+          ref={tableContextMenuRef}
+          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[160px]"
+          style={{ left: tableContextMenu.x, top: tableContextMenu.y }}
+        >
+          <button
+            type="button"
+            onClick={handleContextMenuAddRow}
+            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
+          >
+            <Plus size={16} />
+            Add row
+          </button>
+          <button
+            type="button"
+            onClick={handleContextMenuDeleteRow}
+            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
+          >
+            <Trash2 size={16} />
+            Delete row
+          </button>
+        </div>
+      )}
     </div>
   )
 }

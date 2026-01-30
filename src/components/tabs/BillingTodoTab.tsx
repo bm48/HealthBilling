@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, type MutableRefObject } from 'react'
 import { supabase } from '@/lib/supabase'
 import { TodoItem, IsLockBillingTodo } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { createBubbleDropdownRenderer } from '@/lib/handsontableCustomRenderers'
-import { Download } from 'lucide-react'
+import { Download, Plus, Trash2 } from 'lucide-react'
 
 interface BillingTodoTabProps {
   clinicId: string
@@ -14,15 +14,19 @@ interface BillingTodoTabProps {
   isLockBillingTodo?: IsLockBillingTodo | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockBillingTodo) => boolean
+  isInSplitScreen?: boolean
+  exportRef?: MutableRefObject<{ exportToCSV: () => void } | null>
 }
 
-export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBillingTodo, onLockColumn, isColumnLocked }: BillingTodoTabProps) {
+export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBillingTodo, onLockColumn, isColumnLocked, isInSplitScreen, exportRef }: BillingTodoTabProps) {
   const { userProfile } = useAuth()
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [loading, setLoading] = useState(true)
   const todosRef = useRef<TodoItem[]>([])
   const isInitialLoadRef = useRef(true) // Track if we're still in initial load phase
-  
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const [tableHeight, setTableHeight] = useState(600)
+
   // Use isLockBillingTodo from props directly - it will update when parent refreshes
   const lockData = isLockBillingTodo || null
 
@@ -55,8 +59,13 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       setTodos(currentTodos => {
         // On initial load (empty state), just use all fetched todos and add empty rows
         if (currentTodos.length === 0) {
-          // Cap fetched todos at 200
-          let todosToUse = fetchedTodos.length > 200 ? fetchedTodos.slice(0, 200) : fetchedTodos
+          // Cap fetched todos at 200; normalize string "null" from DB to real null
+          let todosToUse = (fetchedTodos.length > 200 ? fetchedTodos.slice(0, 200) : fetchedTodos).map(t => ({
+            ...t,
+            issue: (t.issue && t.issue !== 'null') ? t.issue : null,
+            notes: (t.notes && t.notes !== 'null') ? t.notes : null,
+            followup_notes: (t.followup_notes && t.followup_notes !== 'null') ? t.followup_notes : null,
+          }))
           const emptyRowsNeeded = 200 - todosToUse.length
           const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => 
             createEmptyTodo(i)
@@ -91,14 +100,24 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
             // If this todo exists in fetched data, use the fresh data
             const freshData = fetchedTodosMap.get(t.id)
             if (freshData) {
-              preservedOrder.push(freshData)
+              preservedOrder.push({
+                ...freshData,
+                issue: (freshData.issue && freshData.issue !== 'null') ? freshData.issue : null,
+                notes: (freshData.notes && freshData.notes !== 'null') ? freshData.notes : null,
+                followup_notes: (freshData.followup_notes && freshData.followup_notes !== 'null') ? freshData.followup_notes : null,
+              })
               fetchedTodosMap.delete(t.id) // Remove from map so we don't add it again
             }
           }
         })
         
         // Add any newly fetched todos that weren't in the current state (newly created from other sources)
-        const newFetchedTodos = Array.from(fetchedTodosMap.values())
+        const newFetchedTodos = Array.from(fetchedTodosMap.values()).map(t => ({
+          ...t,
+          issue: (t.issue && t.issue !== 'null') ? t.issue : null,
+          notes: (t.notes && t.notes !== 'null') ? t.notes : null,
+          followup_notes: (t.followup_notes && t.followup_notes !== 'null') ? t.followup_notes : null,
+        }))
         
         // Combine: unsaved todos first, then preserved order of existing todos, then new fetched todos
         let updated = [...unsavedTodos, ...preservedOrder, ...newFetchedTodos]
@@ -183,10 +202,10 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
         const statusValue = (todo.status === 'Open' || !todo.status) ? '' : todo.status
         const todoData: any = {
           clinic_id: clinicId,
-          issue: todo.issue || null,
+          issue: (todo.issue && todo.issue !== 'null') ? todo.issue : null,
           status: statusValue,
-          notes: todo.notes || null,
-          followup_notes: todo.followup_notes || null,
+          notes: (todo.notes && todo.notes !== 'null') ? todo.notes : null,
+          followup_notes: (todo.followup_notes && todo.followup_notes !== 'null') ? todo.followup_notes : null,
           updated_at: new Date().toISOString(),
         }
 
@@ -249,9 +268,13 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
         const updated = currentTodos.map(todo => {
           const savedTodo = savedTodosMap.get(todo.id)
           if (savedTodo) {
-            // This todo was just saved - update with fresh data from database
-            // This preserves the row position but updates the data and ID (for new todos)
-            return savedTodo
+            // Normalize string "null" from DB to real null so F/u notes and Notes don't display "null"
+            return {
+              ...savedTodo,
+              issue: (savedTodo.issue && savedTodo.issue !== 'null') ? savedTodo.issue : null,
+              notes: (savedTodo.notes && savedTodo.notes !== 'null') ? savedTodo.notes : null,
+              followup_notes: (savedTodo.followup_notes && savedTodo.followup_notes !== 'null') ? savedTodo.followup_notes : null,
+            }
           }
           return todo // Keep all other todos exactly as they are
         })
@@ -288,8 +311,6 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
   }, [clinicId, userProfile, createEmptyTodo, loading])
 
   const handleDeleteTodo = useCallback(async (todoId: string) => {
-    if (!confirm('Are you sure you want to delete this to-do item?')) return
-
     if (todoId.startsWith('new-') || todoId.startsWith('empty-')) {
       setTodos(prev => {
         const filtered = prev.filter(t => t.id !== todoId)
@@ -349,9 +370,9 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       ...rowsWithData.map(t => [
         t.id.startsWith('empty-') || t.id.startsWith('new-') ? '' : t.id.substring(0, 8) + '...',
         escapeCsv(statusDisplay(t.status || '')),
-        escapeCsv(t.issue || ''),
-        escapeCsv(t.notes || ''),
-        escapeCsv(t.followup_notes || ''),
+        escapeCsv((t.issue && t.issue !== 'null') ? t.issue : ''),
+        escapeCsv((t.notes && t.notes !== 'null') ? t.notes : ''),
+        escapeCsv((t.followup_notes && t.followup_notes !== 'null') ? t.followup_notes : ''),
       ].join(',')),
     ]
     const csv = csvRows.join('\r\n')
@@ -363,6 +384,16 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
     a.click()
     URL.revokeObjectURL(url)
   }, [todos, clinicId])
+
+  // Expose export to parent when in split screen (header shows Export CSV)
+  useEffect(() => {
+    if (exportRef && isInSplitScreen) {
+      exportRef.current = { exportToCSV: exportToCsv }
+      return () => {
+        exportRef.current = null
+      }
+    }
+  }, [exportRef, isInSplitScreen, exportToCsv])
 
   // Status color mapping (five statuses: New, Waiting, In Progress, Complete, Updated)
   const getStatusColor = useCallback((status: string): { color: string; textColor: string } | null => {
@@ -416,9 +447,9 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       todo.id.startsWith('empty-') ? '' : todo.id.substring(0, 8) + '...',
       // No "Open" status; when no value or legacy "Open", show empty cell
       (todo.status && todo.status !== 'Open') ? todo.status : '',
-      todo.issue || '',
-      todo.notes || '',
-      todo.followup_notes || '',
+      (todo.issue && todo.issue !== 'null') ? todo.issue : '',
+      (todo.notes && todo.notes !== 'null') ? todo.notes : '',
+      (todo.followup_notes && todo.followup_notes !== 'null') ? todo.followup_notes : '',
     ])
     
     if (data.length !== 200) {
@@ -678,11 +709,14 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
         if (field === 'status') {
           updatedTodos[row] = { ...todo, id: newId, status: String(newValue || ''), updated_at: new Date().toISOString() }
         } else if (field === 'issue') {
-          updatedTodos[row] = { ...todo, id: newId, issue: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() }
+          const issueVal = (newValue === '' || newValue === 'null') ? null : String(newValue)
+          updatedTodos[row] = { ...todo, id: newId, issue: issueVal, updated_at: new Date().toISOString() }
         } else if (field === 'notes') {
-          updatedTodos[row] = { ...todo, id: newId, notes: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() }
+          const notesVal = (newValue === '' || newValue === 'null') ? null : String(newValue)
+          updatedTodos[row] = { ...todo, id: newId, notes: notesVal, updated_at: new Date().toISOString() }
         } else if (field === 'followup_notes') {
-          updatedTodos[row] = { ...todo, id: newId, followup_notes: newValue === '' ? null : String(newValue), updated_at: new Date().toISOString() }
+          const followupVal = (newValue === '' || newValue === 'null') ? null : String(newValue)
+          updatedTodos[row] = { ...todo, id: newId, followup_notes: followupVal, updated_at: new Date().toISOString() }
         } else if (needsNewId) {
           updatedTodos[row] = { ...todo, id: newId, updated_at: new Date().toISOString() }
         }
@@ -706,12 +740,80 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
     }, 0)
   }, [saveTodos, createEmptyTodo, loading, todos])
 
-  const handleTodosHandsontableContextMenu = useCallback((row: number) => {
+  const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
+  const tableContextMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!tableContextMenu) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tableContextMenuRef.current && !tableContextMenuRef.current.contains(event.target as Node)) {
+        setTableContextMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [tableContextMenu])
+
+  const handleTodosHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
+    event.preventDefault()
+    if (!canEdit) return
     const todo = todos[row]
-    if (todo && canEdit && !todo.id.startsWith('new-') && !todo.id.startsWith('empty-')) {
+    if (todo) {
+      setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row })
+    }
+  }, [todos, canEdit])
+
+  const handleContextMenuAddRow = useCallback(() => {
+    if (tableContextMenu == null) return
+    const { rowIndex } = tableContextMenu
+    const existingEmptyCount = todos.filter(t => t.id.startsWith('empty-')).length
+    const newRow = createEmptyTodo(existingEmptyCount)
+    const updated = [...todos.slice(0, rowIndex + 1), newRow, ...todos.slice(rowIndex + 1)]
+    const capped = updated.length > 200 ? updated.slice(0, 200) : updated
+    const toSave = capped.length < 200
+      ? [...capped, ...Array.from({ length: 200 - capped.length }, (_, i) => createEmptyTodo(existingEmptyCount + 1 + i))]
+      : capped
+    todosRef.current = toSave
+    setTodos(toSave)
+    saveTodos(toSave).catch(err => console.error('saveTodos after add row', err))
+    setTableContextMenu(null)
+  }, [tableContextMenu, todos, createEmptyTodo, saveTodos])
+
+  const handleContextMenuDeleteRow = useCallback(() => {
+    if (tableContextMenu == null) return
+    const todo = todos[tableContextMenu.rowIndex]
+    if (!todo) {
+      setTableContextMenu(null)
+      return
+    }
+    if (todo.id.startsWith('empty-') || todo.id.startsWith('new-')) {
+      const updated = todos.filter((_, i) => i !== tableContextMenu.rowIndex)
+      const emptyNeeded = Math.max(0, 200 - updated.length)
+      const existingEmpty = updated.filter(t => t.id.startsWith('empty-')).length
+      const toSave = emptyNeeded > existingEmpty
+        ? [...updated, ...Array.from({ length: emptyNeeded - existingEmpty }, (_, i) => createEmptyTodo(existingEmpty + i))]
+        : updated.slice(0, 200)
+      todosRef.current = toSave
+      setTodos(toSave)
+      saveTodos(toSave).catch(err => console.error('saveTodos after delete row', err))
+    } else {
       handleDeleteTodo(todo.id)
     }
-  }, [todos, canEdit, handleDeleteTodo])
+    setTableContextMenu(null)
+  }, [tableContextMenu, todos, createEmptyTodo, saveTodos, handleDeleteTodo])
+
+  // ResizeObserver for split screen: fill table height (must run before any early return)
+  useEffect(() => {
+    if (!isInSplitScreen) return
+    const el = tableContainerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      setTableHeight(el.clientHeight)
+    })
+    ro.observe(el)
+    setTableHeight(el.clientHeight)
+    return () => ro.disconnect()
+  }, [isInSplitScreen])
 
   if (loading) {
     return (
@@ -722,25 +824,36 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
   }
 
   return (
-    <div className="p-6">
-      <div className="flex justify-end mb-3">
-        <button
-          type="button"
-          onClick={exportToCsv}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-colors"
-        >
-          <Download size={18} />
-          Export CSV
-        </button>
-      </div>
-      <div className="table-container dark-theme" style={{ 
-        maxHeight: '600px', 
-        overflowX: 'auto', 
-        overflowY: 'auto',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '8px',
-        backgroundColor: '#d2dbe5'
-      }}>
+    <div 
+      className="p-6" 
+      style={isInSplitScreen ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
+    >
+      {!isInSplitScreen && (
+        <div className="flex justify-end mb-3">
+          <button
+            type="button"
+            onClick={exportToCsv}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-colors"
+          >
+            <Download size={18} />
+            Export CSV
+          </button>
+        </div>
+      )}
+      <div 
+        ref={tableContainerRef}
+        className="table-container dark-theme" 
+        style={{ 
+          maxHeight: isInSplitScreen ? undefined : '600px',
+          flex: isInSplitScreen ? 1 : undefined,
+          minHeight: isInSplitScreen ? 0 : undefined,
+          overflowX: 'auto', 
+          overflowY: 'auto',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '8px',
+          backgroundColor: '#d2dbe5'
+        }}
+      >
         <HandsontableWrapper
           key={`todos-${todos.length}-${JSON.stringify(lockData)}`}
           data={getTodosHandsontableData()}
@@ -748,7 +861,7 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
           colHeaders={columnTitles}
           rowHeaders={true}
           width="100%"
-          height={600}
+          height={isInSplitScreen ? tableHeight : 600}
           afterChange={handleTodosHandsontableChange}
           onContextMenu={handleTodosHandsontableContextMenu}
           enableFormula={false}
@@ -757,6 +870,31 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
           className="handsontable-custom"
         />
       </div>
+
+      {tableContextMenu != null && (
+        <div
+          ref={tableContextMenuRef}
+          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[160px]"
+          style={{ left: tableContextMenu.x, top: tableContextMenu.y }}
+        >
+          <button
+            type="button"
+            onClick={handleContextMenuAddRow}
+            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
+          >
+            <Plus size={16} />
+            Add row
+          </button>
+          <button
+            type="button"
+            onClick={handleContextMenuDeleteRow}
+            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
+          >
+            <Trash2 size={16} />
+            Delete row
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -34,3 +34,15 @@ export function formatDateTime(date: string | null | undefined): string {
     minute: '2-digit',
   })
 }
+
+/** Use for table cell display: never show the literal "null" or null/undefined. */
+export function toDisplayValue(value: string | number | null | undefined): string {
+  if (value == null || value === '' || value === 'null') return ''
+  return String(value)
+}
+
+/** Use when storing optional string fields: treat '' and string 'null' as null. */
+export function toStoredString(value: string | null | undefined): string | null {
+  if (value === '' || value === 'null') return null
+  return value ?? null
+}

@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
 import { SheetRow, ProviderSheet as ProviderSheetType, BillingCode, Patient, StatusColor } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import ProviderSheetTable from '@/components/ProviderSheetTable'
@@ -67,7 +68,8 @@ export default function ProviderSheet() {
 
       if (data) {
         setSheet(data)
-        setRows(Array.isArray(data.row_data) ? data.row_data : [])
+        const sheetRows = await fetchSheetRows(supabase, data.id)
+        setRows(sheetRows)
       } else {
         // Verify that the provider_id exists in the providers table before creating
         const { data: provider, error: providerCheckError } = await supabase
@@ -112,7 +114,6 @@ export default function ProviderSheet() {
             clinic_id: clinicId,
             month: month,
             year: year,
-            row_data: [],
             locked: false,
             locked_columns: [],
           }
@@ -201,15 +202,8 @@ export default function ProviderSheet() {
 
     try {
       setSaving(true)
-      const { error } = await supabase
-        .from('provider_sheets')
-        .update({
-          row_data: dataToSave,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', sheet.id)
-
-      if (error) throw error
+      const rowsToProcess = dataToSave.filter(r => !r.id.startsWith('empty-'))
+      await saveSheetRows(supabase, sheet.id, rowsToProcess)
     } catch (error) {
       console.error('Error saving sheet:', error)
       // Don't show alert for auto-save failures, just log

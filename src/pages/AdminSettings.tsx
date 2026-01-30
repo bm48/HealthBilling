@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
 import { useAuth } from '@/contexts/AuthContext'
 import { ProviderSheet, Clinic } from '@/types'
 import { Lock, Unlock, Calculator, Calendar } from 'lucide-react'
@@ -55,7 +56,7 @@ export default function AdminSettings() {
       const { data, error } = await supabase
         .from('provider_sheets')
         .select('*')
-        .contains('clinic_ids', [selectedClinic])
+        .eq('clinic_id', selectedClinic)
         .eq('month', selectedMonth)
         .eq('year', selectedYear)
 
@@ -116,39 +117,26 @@ export default function AdminSettings() {
     }
 
     try {
-      // Calculate provider payments for all sheets in the selected month
       for (const sheet of sheets) {
-        const rows = Array.isArray(sheet.row_data) ? sheet.row_data : []
-        
+        const rows = await fetchSheetRows(supabase, sheet.id)
         let totalInsurance = 0
         let totalPatient = 0
         let totalAR = 0
 
         rows.forEach((row: any) => {
-          totalInsurance += row.insurance_payment || 0
-          totalPatient += row.collected_from_patient || 0
+          totalInsurance += parseFloat(String(row.insurance_payment)) || 0
+          totalPatient += parseFloat(String(row.collected_from_patient)) || 0
           totalAR += row.ar_amount || 0
         })
 
-        // Calculate provider payment (example: 60% of total revenue)
         const providerPayment = (totalInsurance + totalPatient + totalAR) * 0.6
-
-        // Update each row with provider payment
         const updatedRows = rows.map((row: any) => ({
           ...row,
-          provider_payment_amount: providerPayment / rows.length, // Distribute evenly (simplified)
+          provider_payment_amount: rows.length ? providerPayment / rows.length : 0,
           provider_payment_date: new Date().toISOString().split('T')[0],
         }))
 
-        const { error } = await supabase
-          .from('provider_sheets')
-          .update({
-            row_data: updatedRows,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', sheet.id)
-
-        if (error) throw error
+        await saveSheetRows(supabase, sheet.id, updatedRows)
       }
 
       alert('Provider payments calculated successfully!')

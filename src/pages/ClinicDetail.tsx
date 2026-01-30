@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
 import { Patient, ProviderSheet, SheetRow, Clinic, Provider, BillingCode, StatusColor, ColumnLock, IsLockPatients, IsLockBillingTodo, IsLockProviders, IsLockAccountsReceivable } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
-import { Users, CheckSquare, FileText, Trash2, Lock, Unlock } from 'lucide-react'
+import { Users, CheckSquare, FileText, Trash2, Lock, Unlock, Download } from 'lucide-react'
 import { useDebouncedSave } from '@/lib/useDebouncedSave'
 import PatientsTab from '@/components/tabs/PatientsTab'
 import BillingTodoTab from '@/components/tabs/BillingTodoTab'
@@ -44,6 +45,7 @@ export default function ClinicDetail() {
   const [splitScreenLeftWidth, setSplitScreenLeftWidth] = useState<number>(50) // Percentage
   const [isResizing, setIsResizing] = useState(false)
   const splitScreenContainerRef = useRef<HTMLDivElement>(null)
+  const billingTodoExportRef = useRef<{ exportToCSV: () => void } | null>(null)
   const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number; tab: TabType } | null>(null)
   const tabContextMenuRef = useRef<HTMLDivElement>(null)
   
@@ -1051,7 +1053,6 @@ export default function ClinicDetail() {
             provider_id: providerId,
             month,
             year,
-            row_data: [],
             locked: false,
             locked_columns: [],
           })
@@ -1077,8 +1078,10 @@ export default function ClinicDetail() {
         rowId: string
       }> = []
 
-      if (sheet && Array.isArray(sheet.row_data)) {
-        sheet.row_data.forEach((row: SheetRow) => {
+      let sheetRowsForProvider: SheetRow[] = []
+      if (sheet) {
+        sheetRowsForProvider = await fetchSheetRows(supabase, sheet.id)
+        sheetRowsForProvider.forEach((row: SheetRow) => {
           rows.push({
             id: row.id,
             cpt_code: row.billing_code || '',
@@ -1136,7 +1139,7 @@ export default function ClinicDetail() {
         updated_at: new Date().toISOString(),
       })
 
-      const sheetRows = Array.isArray(sheet.row_data) ? sheet.row_data : []
+      const sheetRows = sheet ? await fetchSheetRows(supabase, sheet.id) : []
       const emptyRowsNeeded = Math.max(0, 200 - sheetRows.length)
       const emptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => 
         createEmptyProviderSheetRow(i)
@@ -1165,20 +1168,13 @@ export default function ClinicDetail() {
     if (!currentSheet) return
 
     try {
-      // Convert rows back to SheetRow format and update the sheet
-      const updatedRowData: SheetRow[] = []
-      
-      // Get existing row data
-      const existingRows = Array.isArray(currentSheet.row_data) ? currentSheet.row_data : []
-      
-      // Create a map of existing rows by ID
+      const existingRows = await fetchSheetRows(supabase, currentSheet.id)
       const existingRowsMap = new Map(existingRows.map((r: SheetRow) => [r.id, r]))
+      const updatedRowData: SheetRow[] = []
 
-      // Update rows
       rowsToSave.forEach(row => {
         const existingRow = existingRowsMap.get(row.rowId)
         if (existingRow) {
-          // Update existing row
           updatedRowData.push({
             ...existingRow,
             billing_code: row.cpt_code || null,
@@ -1187,7 +1183,6 @@ export default function ClinicDetail() {
           })
           existingRowsMap.delete(row.rowId)
         } else if (row.id.startsWith('new-')) {
-          // New row
           const newRow: SheetRow = {
             id: `row-${Date.now()}-${Math.random()}`,
             patient_id: null,
@@ -1234,23 +1229,9 @@ export default function ClinicDetail() {
           updatedRowData.push(newRow)
         }
       })
-
-      // Keep any remaining existing rows that weren't updated
       existingRowsMap.forEach(row => updatedRowData.push(row))
 
-      // Update the sheet
-      const { error } = await supabase
-        .from('provider_sheets')
-        .update({
-          row_data: updatedRowData,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', currentSheet.id)
-
-      if (error) throw error
-
-      // Update local state
-      setCurrentSheet({ ...currentSheet, row_data: updatedRowData })
+      await saveSheetRows(supabase, currentSheet.id, updatedRowData)
       await fetchProviderSheetData()
     } catch (error) {
       console.error('Error saving provider rows:', error)
@@ -1329,7 +1310,6 @@ export default function ClinicDetail() {
               provider_id: providerId,
               month,
               year,
-              row_data: [],
               locked: false,
               locked_columns: [],
             })
@@ -1348,7 +1328,7 @@ export default function ClinicDetail() {
         }
 
         sheetsMap[providerId] = sheet
-        const sheetRows = Array.isArray(sheet.row_data) ? sheet.row_data : []
+        const sheetRows = await fetchSheetRows(supabase, sheet.id)
         
         // Add empty rows to reach 200 total rows per provider
         const createEmptyProviderSheetRow = (index: number): SheetRow => ({
@@ -1436,48 +1416,26 @@ export default function ClinicDetail() {
     })
 
     try {
-      const { error } = await supabase
-        .from('provider_sheets')
-        .update({
-          row_data: rowsToProcess,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', sheet.id)
+      const savedRows = await saveSheetRows(supabase, sheet.id, rowsToProcess)
+      const oldIdToSaved = new Map<string, SheetRow>()
+      rowsToProcess.forEach((row, i) => {
+        if (savedRows[i]) oldIdToSaved.set(row.id, savedRows[i])
+      })
 
-      if (error) throw error
-      
       // Update rows in place without reordering - preserve exact row positions
       setProviderSheetRows(prev => {
         const currentRows = prev[providerId] || []
-        // Create a map of saved rows by their old ID
         const savedRowsMap = new Map<string, SheetRow>()
-        rowsToProcess.forEach(savedRow => {
-          // Find the row in currentRows that matches this saved row
-          const matchingRow = currentRows.find(cr => {
-            if (savedRow.id.startsWith('empty-')) {
-              // For empty rows that were saved, match by position or data
-              return cr.id === savedRow.id || 
-                     (cr.patient_id === savedRow.patient_id && 
-                      cr.patient_first_name === savedRow.patient_first_name &&
-                      cr.last_initial === savedRow.last_initial)
-            } else {
-              return cr.id === savedRow.id
-            }
-          })
-          if (matchingRow) {
-            savedRowsMap.set(matchingRow.id, savedRow)
-          }
+        currentRows.forEach(cr => {
+          const savedRow = oldIdToSaved.get(cr.id)
+          if (savedRow) savedRowsMap.set(cr.id, savedRow)
         })
-        
-        // Update rows in place, preserving order
+
+        // Update rows in place, preserving order (use saved row with new id when applicable)
         const updatedRows = currentRows.map(row => {
           const savedRow = savedRowsMap.get(row.id)
-          if (savedRow) {
-            // This row was just saved - update with fresh data
-            // For empty rows that were saved, they now have real data but keep their position
-            return savedRow
-          }
-          return row // Keep all other rows exactly as they are
+          if (savedRow) return savedRow
+          return row
         })
         
         // Ensure empty rows are maintained after save
@@ -1699,7 +1657,58 @@ export default function ClinicDetail() {
     await saveProviderSheetRows(providerId, rowsAfterDelete)
   }, [saveProviderSheetRows])
 
-
+  const handleAddProviderRowBelow = useCallback((providerId: string, afterRowId: string) => {
+    const rows = providerSheetRows[providerId] || []
+    const idx = rows.findIndex(r => r.id === afterRowId)
+    if (idx < 0) return
+    const createEmptyRow = (): SheetRow => ({
+      id: `empty-${providerId}-${Date.now()}`,
+      patient_id: null,
+      patient_first_name: null,
+      patient_last_name: null,
+      patient_insurance: null,
+      patient_copay: null,
+      patient_coinsurance: null,
+      appointment_date: null,
+      appointment_time: null,
+      visit_type: null,
+      notes: null,
+      billing_code: null,
+      billing_code_color: null,
+      appointment_status: null,
+      appointment_status_color: null,
+      claim_status: null,
+      claim_status_color: null,
+      submit_date: null,
+      insurance_payment: null,
+      insurance_adjustment: null,
+      invoice_amount: null,
+      collected_from_patient: null,
+      patient_pay_status: null,
+      patient_pay_status_color: null,
+      payment_date: null,
+      payment_date_color: null,
+      ar_type: null,
+      ar_amount: null,
+      ar_date: null,
+      ar_date_color: null,
+      ar_notes: null,
+      provider_payment_amount: null,
+      provider_payment_date: null,
+      provider_payment_notes: null,
+      highlight_color: null,
+      total: null,
+      last_initial: null,
+      cpt_code: null,
+      cpt_code_color: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    const newRow = createEmptyRow()
+    const newRows = [...rows.slice(0, idx + 1), newRow, ...rows.slice(idx + 1)]
+    setProviderSheetRows(prev => ({ ...prev, [providerId]: newRows }))
+    saveProviderSheetRows(providerId, newRows).catch(err => console.error('Failed to save after add row', err))
+  }, [providerSheetRows, saveProviderSheetRows])
 
   // Direct save function that accepts providerId and rows - for use when we have computed updated data
   const saveProviderSheetRowsDirect = useCallback(async (providerId: string, rowsToSave: SheetRow[]) => {
@@ -1728,6 +1737,7 @@ export default function ClinicDetail() {
           <PatientsTab
             clinicId={clinicId!}
             canEdit={canEdit}
+            isInSplitScreen={!!splitScreen}
             isLockPatients={isLockPatients}
             onLockColumn={(columnName: string) => {
               // Get existing comment if column is already locked
@@ -1747,6 +1757,8 @@ export default function ClinicDetail() {
             clinicId={clinicId!}
             canEdit={canEdit}
             isLockBillingTodo={isLockBillingTodo}
+            isInSplitScreen={!!splitScreen}
+            exportRef={billingTodoExportRef}
             onLockColumn={(columnName: string) => {
               // Get existing comment if column is already locked
               const existingComment = isLockBillingTodo && isBillingTodoColumnLocked(columnName as keyof IsLockBillingTodo)
@@ -1764,6 +1776,7 @@ export default function ClinicDetail() {
           <AccountsReceivableTab
             clinicId={clinicId!}
             canEdit={canEdit}
+            isInSplitScreen={!!splitScreen}
             isLockAccountsReceivable={isLockAccountsReceivable}
             onLockColumn={(columnName: string) => {
               // Get existing comment if column is already locked
@@ -1793,6 +1806,7 @@ export default function ClinicDetail() {
             onUpdateProviderSheetRow={handleUpdateProviderSheetRow}
             onSaveProviderSheetRowsDirect={saveProviderSheetRowsDirect}
             onDeleteRow={handleDeleteProviderSheetRow}
+            onAddRowBelow={handleAddProviderRowBelow}
             onPreviousMonth={handlePreviousMonth}
             onNextMonth={handleNextMonth}
             formatMonthYear={formatMonthYear}
@@ -1847,30 +1861,25 @@ export default function ClinicDetail() {
     setTabContextMenu({ x: e.clientX, y: e.clientY, tab })
   }
   
-  // Handle split screen
+  // Tab order for cycling in split screen (left/right Switch)
+  const TAB_ORDER: TabType[] = ['patients', 'todo', 'providers', 'accounts_receivable']
+  const getNextTab = (current: TabType, skip?: TabType): TabType => {
+    const i = TAB_ORDER.indexOf(current)
+    let next = TAB_ORDER[(i + 1) % TAB_ORDER.length]
+    if (skip && next === skip) next = TAB_ORDER[(i + 2) % TAB_ORDER.length]
+    return next
+  }
+  const getTabLabel = (tab: TabType) =>
+    tab === 'patients' ? 'Patient Info' : tab === 'todo' ? 'Billing To-Do' : tab === 'providers' ? 'Providers' : 'Accounts Receivable'
+
+  // Handle split screen: allow any tab on left and right so e.g. Patients + Providers is possible
   const handleSplitScreen = () => {
     if (!tabContextMenu) return
-    
-    // Determine which tab to show on the right side
-    const rightTab = tabContextMenu.tab
-    
-    // Determine which tabs can be on the right side (accounts_receivable and todo)
-    // For other tabs (patients, providers), they will be on the left side
-    const rightSideTabs: TabType[] = ['accounts_receivable', 'todo']
-    const isRightSideTab = rightSideTabs.includes(rightTab)
-    
-    if (isRightSideTab) {
-      // If right-clicked tab is a right-side tab, use it on the right
-      // Use current active tab as left side, or default to 'patients'
-      const leftTab = activeTab === rightTab ? 'patients' : activeTab
-      setSplitScreen({ left: leftTab, right: rightTab })
-    } else {
-      // If right-clicked tab is not a right-side tab, use it on the left
-      // Use a default right-side tab (accounts_receivable)
-      setSplitScreen({ left: rightTab, right: 'accounts_receivable' })
-    }
-    
-    setSplitScreenLeftWidth(50) // Reset to 50/50 split
+    const clickedTab = tabContextMenu.tab
+    const leftTab = clickedTab
+    const rightTab = activeTab !== clickedTab ? activeTab : (clickedTab === 'patients' ? 'providers' : clickedTab === 'providers' ? 'patients' : clickedTab === 'todo' ? 'accounts_receivable' : 'todo')
+    setSplitScreen({ left: leftTab, right: rightTab })
+    setSplitScreenLeftWidth(50)
     setTabContextMenu(null)
   }
   
@@ -1997,34 +2006,59 @@ export default function ClinicDetail() {
           <div 
             ref={splitScreenContainerRef}
             className="flex" 
-            style={{ minHeight: '600px', width: '100%', overflow: 'hidden', position: 'relative' }}
+            style={{ height: 'calc(100vh - 110px)', minHeight: '650px', width: '100%', overflow: 'hidden', position: 'relative' }}
           >
             {/* Left side */}
             <div 
-              className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20" 
+              className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20 flex flex-col" 
               style={{ 
                 width: `${splitScreenLeftWidth}%`,
                 minWidth: 0, 
                 overflow: 'hidden',
-                transition: isResizing ? 'none' : 'width 0.1s ease'
+                transition: isResizing ? 'none' : 'width 0.1s ease',
+                minHeight: 0
               }}
             >
               <div className="p-2 border-b border-white/20 flex justify-between items-center">
-                <span className="text-white font-medium">
-                  {splitScreen.left === 'patients' ? 'Patient Info' : 
-                   splitScreen.left === 'todo' ? 'Billing To-Do' : 
-                   splitScreen.left === 'providers' ? 'Providers' : 'Accounts Receivable'}
-                </span>
-                              <button
-                  onClick={() => setSplitScreen({ ...splitScreen, left: splitScreen.left === 'patients' ? 'todo' : splitScreen.left === 'todo' ? 'providers' : 'patients' })}
-                  className="text-white/70 hover:text-white text-sm px-2"
-                >
-                  Switch
-                              </button>
+                <div className="flex items-center gap-3">
+                  <span className="text-white font-medium">
+                    {getTabLabel(splitScreen.left)}
+                  </span>
+                  {splitScreen.left === 'providers' && currentProvider && (
+                    <span className="text-white/90 text-sm text-[#ffd600]">
+                      {currentProvider.first_name} {currentProvider.last_name}
+                      {currentProvider.specialty && (
+                        <span className="text-white/70 ml-1 text-[#ffd600]">({currentProvider.specialty})</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {splitScreen.left === 'todo' && (
+                    <button
+                      type="button"
+                      onClick={() => billingTodoExportRef.current?.exportToCSV()}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded text-sm text-white/90 hover:text-white border border-white/20 hover:bg-white/10 transition-colors"
+                    >
+                      <Download size={14} />
+                      Export CSV
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setSplitScreen({ ...splitScreen, left: getNextTab(splitScreen.left, splitScreen.right) })}
+                    className="text-white/70 hover:text-white text-sm px-2"
+                    title="Switch left tab"
+                  >
+                    Switch
+                  </button>
+                </div>
             </div>
-              <div style={{ width: '100%', overflow: 'hidden', height: 'calc(100% - 40px)' }}>
+              <div 
+                className="flex flex-col flex-1 min-h-0 overflow-hidden" 
+                style={{ width: '100%' }}
+              >
                 {renderTabContent(splitScreen.left)}
-          </div>
+              </div>
             </div>
             
             {/* Resizable Divider */}
@@ -2050,33 +2084,50 @@ export default function ClinicDetail() {
               />
                               </div>
             
-            {/* Right side - Accounts Receivable or Billing To-Do */}
+            {/* Right side - any tab (Patient Info, Billing To-Do, Providers, Accounts Receivable) */}
             <div 
-              className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20" 
+              className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20 flex flex-col" 
               style={{ 
                 width: `${100 - splitScreenLeftWidth}%`,
                 minWidth: 0, 
                 overflow: 'hidden',
-                transition: isResizing ? 'none' : 'width 0.1s ease'
+                transition: isResizing ? 'none' : 'width 0.1s ease',
+                minHeight: 0
               }}
             >
               <div className="p-2 border-b border-white/20 flex justify-between items-center">
-                <span className="text-white font-medium">
-                  {splitScreen.right === 'accounts_receivable' ? 'Accounts Receivable' : 'Billing To-Do'}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-white font-medium">
+                    {getTabLabel(splitScreen.right)}
+                  </span>
+                  {splitScreen.right === 'providers' && currentProvider && (
+                    <span className="text-white/90 text-sm text-[#ffd600]">
+                      {currentProvider.first_name} {currentProvider.last_name}
+                      {currentProvider.specialty && (
+                        <span className="text-white/70 ml-1 text-[#ffd600]">({currentProvider.specialty})</span>
+                      )}
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
-                              <button
-                    onClick={() => {
-                      // Cycle through available right-side tabs (accounts_receivable and todo)
-                      const nextRightTab = splitScreen.right === 'accounts_receivable' ? 'todo' : 'accounts_receivable'
-                      setSplitScreen({ ...splitScreen, right: nextRightTab })
-                    }}
+                  {splitScreen.right === 'todo' && (
+                    <button
+                      type="button"
+                      onClick={() => billingTodoExportRef.current?.exportToCSV()}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded text-sm text-white/90 hover:text-white border border-white/20 hover:bg-white/10 transition-colors"
+                    >
+                      <Download size={14} />
+                      Export CSV
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setSplitScreen({ ...splitScreen, right: getNextTab(splitScreen.right, splitScreen.left) })}
                     className="text-white/70 hover:text-white text-sm px-2"
                     title="Switch right tab"
                   >
                     Switch
-                              </button>
-              <button
+                  </button>
+                  <button
                     onClick={handleExitSplitScreen}
                     className="text-white/70 hover:text-white text-sm px-2"
                     title="Exit split screen"
@@ -2085,9 +2136,12 @@ export default function ClinicDetail() {
               </button>
               </div>
             </div>
-              <div style={{ width: '100%', overflow: 'hidden', height: 'calc(100% - 40px)' }}>
+              <div 
+                className="flex flex-col flex-1 min-h-0 overflow-hidden" 
+                style={{ width: '100%' }}
+              >
                 {renderTabContent(splitScreen.right)}
-                            </div>
+              </div>
             </div>
                                 </div>
                               ) : (

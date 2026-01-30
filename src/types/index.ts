@@ -108,7 +108,6 @@ export interface ProviderSheet {
   id: string
   clinic_id: string
   provider_id: string
-  row_data: SheetRow[]
   month: number
   year: number
   locked: boolean

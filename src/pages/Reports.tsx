@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { fetchSheetRows } from '@/lib/providerSheetRows'
 import { useAuth } from '@/contexts/AuthContext'
 import { Download, Loader } from 'lucide-react'
 import {
@@ -93,6 +94,11 @@ export default function Reports() {
         return sheetDate >= startDate && sheetDate <= endDate
       })
 
+      const rowsBySheetId: Record<string, import('@/types').SheetRow[]> = {}
+      await Promise.all(sheets.map(async sheet => {
+        rowsBySheetId[sheet.id] = await fetchSheetRows(supabase, sheet.id)
+      }))
+
       // Fetch timecards for labor report
       if (reportType === 'labor') {
         let timecardsQuery = supabase
@@ -125,16 +131,16 @@ export default function Reports() {
 
       switch (reportType) {
         case 'provider':
-          pdf = await generateProviderReport(sheets, users, { startDate, endDate, clinicId: selectedClinic })
+          pdf = await generateProviderReport(sheets, users, { startDate, endDate, clinicId: selectedClinic }, rowsBySheetId)
           break
         case 'clinic':
-          pdf = await generateClinicReport(sheets, users, clinicsData, { startDate, endDate })
+          pdf = await generateClinicReport(sheets, users, clinicsData, { startDate, endDate }, rowsBySheetId)
           break
         case 'claim':
-          pdf = await generateClaimReport(sheets, { startDate, endDate, clinicId: selectedClinic })
+          pdf = await generateClaimReport(sheets, { startDate, endDate, clinicId: selectedClinic }, rowsBySheetId)
           break
         case 'patient':
-          pdf = await generatePatientInvoiceReport(sheets, { startDate, endDate, clinicId: selectedClinic })
+          pdf = await generatePatientInvoiceReport(sheets, { startDate, endDate, clinicId: selectedClinic }, rowsBySheetId)
           break
         case 'labor':
           pdf = await generateLaborReport(timecards, users, { startDate, endDate })

@@ -5,6 +5,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { createBubbleDropdownRenderer } from '@/lib/handsontableCustomRenderers'
+import { Plus, Trash2 } from 'lucide-react'
+import { toDisplayValue, toStoredString } from '@/lib/utils'
 
 interface AccountsReceivableTabProps {
   clinicId: string
@@ -13,15 +15,18 @@ interface AccountsReceivableTabProps {
   isLockAccountsReceivable?: IsLockAccountsReceivable | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockAccountsReceivable) => boolean
+  isInSplitScreen?: boolean
 }
 
-export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isLockAccountsReceivable, onLockColumn, isColumnLocked }: AccountsReceivableTabProps) {
+export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen }: AccountsReceivableTabProps) {
   const { userProfile } = useAuth()
   const [accountsReceivable, setAccountsReceivable] = useState<AccountsReceivable[]>([])
   const [statusColors, setStatusColors] = useState<StatusColor[]>([])
   const [loading, setLoading] = useState(true)
   const accountsReceivableRef = useRef<AccountsReceivable[]>([])
-  
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const [tableHeight, setTableHeight] = useState(600)
+
   // Use isLockAccountsReceivable from props directly - it will update when parent refreshes
   const lockData = isLockAccountsReceivable || null
 
@@ -80,15 +85,29 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           } else {
             const freshData = fetchedARMap.get(ar.id)
             if (freshData) {
-              preservedOrder.push(freshData)
+              preservedOrder.push({
+                ...freshData,
+                name: (freshData.name != null && freshData.name !== 'null') ? freshData.name : null,
+                date_of_service: (freshData.date_of_service != null && freshData.date_of_service !== 'null') ? freshData.date_of_service : null,
+                date_recorded: (freshData.date_recorded != null && freshData.date_recorded !== 'null') ? freshData.date_recorded : null,
+                type: (freshData.type != null && (freshData.type as unknown) !== 'null') ? freshData.type : null,
+                notes: (freshData.notes != null && freshData.notes !== 'null') ? freshData.notes : null,
+              })
               fetchedARMap.delete(ar.id)
             }
             // Deleted AR (real id but not in fetched): skip, so row is effectively removed
           }
         })
 
-        // Add any fetched AR not in current state (e.g. created elsewhere)
-        const newFetchedAR = Array.from(fetchedARMap.values())
+        // Add any fetched AR not in current state (e.g. created elsewhere); normalize string "null"
+        const newFetchedAR = Array.from(fetchedARMap.values()).map(ax => ({
+          ...ax,
+          name: (ax.name != null && ax.name !== 'null') ? ax.name : null,
+          date_of_service: (ax.date_of_service != null && ax.date_of_service !== 'null') ? ax.date_of_service : null,
+          date_recorded: (ax.date_recorded != null && ax.date_recorded !== 'null') ? ax.date_recorded : null,
+          type: (ax.type != null && (ax.type as unknown) !== 'null') ? ax.type : null,
+          notes: (ax.notes != null && ax.notes !== 'null') ? ax.notes : null,
+        }))
         const updated = [...preservedOrder, ...newFetchedAR]
 
         const totalRows = updated.length
@@ -149,16 +168,16 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           finalArId = `AR-${Date.now()}-${i}`
         }
 
-        // Prepare AR data
+        // Prepare AR data (never send string "null" to DB)
         const arData: any = {
           clinic_id: clinicId,
           ar_id: finalArId.trim(),
-          name: ar.name || null,
-          date_of_service: ar.date_of_service || null,
-          amount: ar.amount || null,
-          date_recorded: ar.date_recorded || null,
-          type: ar.type || null,
-          notes: ar.notes || null,
+          name: (ar.name != null && ar.name !== 'null') ? ar.name : null,
+          date_of_service: (ar.date_of_service != null && ar.date_of_service !== 'null') ? ar.date_of_service : null,
+          amount: (ar.amount != null && (ar.amount as unknown) !== 'null') ? ar.amount : null,
+          date_recorded: (ar.date_recorded != null && ar.date_recorded !== 'null') ? ar.date_recorded : null,
+          type: (ar.type != null && (ar.type as unknown) !== 'null') ? ar.type : null,
+          notes: (ar.notes != null && ar.notes !== 'null') ? ar.notes : null,
           updated_at: new Date().toISOString(),
         }
 
@@ -203,9 +222,15 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
         return currentAR.map(ar => {
           const savedAR = savedARMap.get(ar.id)
           if (savedAR) {
-            // This AR was just saved - update with fresh data from database
-            // This preserves the row position but updates the data and ID (for new AR)
-            return savedAR
+            // Normalize string "null" from DB so table never displays "null"
+            return {
+              ...savedAR,
+              name: (savedAR.name != null && savedAR.name !== 'null') ? savedAR.name : null,
+              date_of_service: (savedAR.date_of_service != null && savedAR.date_of_service !== 'null') ? savedAR.date_of_service : null,
+              date_recorded: (savedAR.date_recorded != null && savedAR.date_recorded !== 'null') ? savedAR.date_recorded : null,
+              type: (savedAR.type != null && (savedAR.type as unknown) !== 'null') ? savedAR.type : null,
+              notes: (savedAR.notes != null && savedAR.notes !== 'null') ? savedAR.notes : null,
+            }
           }
           return ar // Keep all other AR exactly as they are
         })
@@ -220,8 +245,6 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
   }, [clinicId, userProfile])
 
   const handleDeleteAR = useCallback(async (arId: string) => {
-    if (!confirm('Are you sure you want to delete this accounts receivable record?')) return
-
     if (arId.startsWith('new-')) {
       setAccountsReceivable(prev => prev.filter(a => a.id !== arId))
       return
@@ -252,16 +275,16 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
     return null
   }, [statusColors])
 
-  // Convert AR to Handsontable data format
+  // Convert AR to Handsontable data format; never show "null"
   const getARHandsontableData = useCallback(() => {
     return accountsReceivable.map(ar => [
-      ar.ar_id || '',
-      ar.name || '',
-      ar.date_of_service || '',
-      ar.amount !== null ? ar.amount : '',
-      ar.date_recorded || '',
-      ar.type || '',
-      ar.notes || '',
+      toDisplayValue(ar.ar_id),
+      toDisplayValue(ar.name),
+      toDisplayValue(ar.date_of_service),
+      toDisplayValue(ar.amount),
+      toDisplayValue(ar.date_recorded),
+      toDisplayValue(ar.type),
+      toDisplayValue(ar.notes),
     ])
   }, [accountsReceivable])
 
@@ -534,16 +557,16 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           const newId = needsNewId ? `new-${Date.now()}-${idCounter++}-${Math.random()}` : ar.id
           
           if (field === 'amount') {
-            const numValue = newValue === '' || newValue === null ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
+            const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
             updatedAR[row] = { ...ar, id: newId, [field]: numValue, updated_at: new Date().toISOString() } as AccountsReceivable
-          } else if (field === 'date_of_service' || field === 'date_recorded') {
-            const value = newValue === '' ? null : String(newValue)
+          } else if (field === 'date_of_service' || field === 'date_recorded' || field === 'type' || field === 'notes') {
+            const value = toStoredString(String(newValue ?? ''))
             updatedAR[row] = { ...ar, id: newId, [field]: value, updated_at: new Date().toISOString() } as AccountsReceivable
-          } else if (field === 'type') {
-            const value = newValue === '' ? null : String(newValue)
+          } else if (field === 'ar_id') {
+            const value = (newValue === '' || newValue === 'null') ? '' : String(newValue)
             updatedAR[row] = { ...ar, id: newId, [field]: value, updated_at: new Date().toISOString() } as AccountsReceivable
           } else {
-            const value = String(newValue || '')
+            const value = toStoredString(String(newValue ?? ''))
             updatedAR[row] = { ...ar, id: newId, [field]: value, updated_at: new Date().toISOString() } as AccountsReceivable
           }
         }
@@ -572,12 +595,80 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
     })
   }, [saveAccountsReceivable, createEmptyAR])
 
-  const handleARHandsontableContextMenu = useCallback((row: number) => {
+  const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
+  const tableContextMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!tableContextMenu) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tableContextMenuRef.current && !tableContextMenuRef.current.contains(event.target as Node)) {
+        setTableContextMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [tableContextMenu])
+
+  const handleARHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
+    event.preventDefault()
+    if (!canEdit) return
     const ar = accountsReceivable[row]
-    if (ar && canEdit && !ar.id.startsWith('new-') && !ar.id.startsWith('empty-')) {
+    if (ar) {
+      setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row })
+    }
+  }, [accountsReceivable, canEdit])
+
+  const handleContextMenuAddRow = useCallback(() => {
+    if (tableContextMenu == null) return
+    const { rowIndex } = tableContextMenu
+    const existingEmptyCount = accountsReceivable.filter(ar => ar.id.startsWith('empty-')).length
+    const newRow = createEmptyAR(existingEmptyCount)
+    const updated = [...accountsReceivable.slice(0, rowIndex + 1), newRow, ...accountsReceivable.slice(rowIndex + 1)]
+    const capped = updated.length > 200 ? updated.slice(0, 200) : updated
+    const toSave = capped.length < 200
+      ? [...capped, ...Array.from({ length: 200 - capped.length }, (_, i) => createEmptyAR(existingEmptyCount + 1 + i))]
+      : capped
+    accountsReceivableRef.current = toSave
+    setAccountsReceivable(toSave)
+    saveAccountsReceivable(toSave).catch(err => console.error('saveAccountsReceivable after add row', err))
+    setTableContextMenu(null)
+  }, [tableContextMenu, accountsReceivable, createEmptyAR, saveAccountsReceivable])
+
+  const handleContextMenuDeleteRow = useCallback(() => {
+    if (tableContextMenu == null) return
+    const ar = accountsReceivable[tableContextMenu.rowIndex]
+    if (!ar) {
+      setTableContextMenu(null)
+      return
+    }
+    if (ar.id.startsWith('empty-') || ar.id.startsWith('new-')) {
+      const updated = accountsReceivable.filter((_, i) => i !== tableContextMenu.rowIndex)
+      const emptyNeeded = Math.max(0, 200 - updated.length)
+      const existingEmpty = updated.filter(a => a.id.startsWith('empty-')).length
+      const toSave = emptyNeeded > existingEmpty
+        ? [...updated, ...Array.from({ length: emptyNeeded - existingEmpty }, (_, i) => createEmptyAR(existingEmpty + i))]
+        : updated.slice(0, 200)
+      accountsReceivableRef.current = toSave
+      setAccountsReceivable(toSave)
+      saveAccountsReceivable(toSave).catch(err => console.error('saveAccountsReceivable after delete row', err))
+    } else {
       handleDeleteAR(ar.id)
     }
-  }, [accountsReceivable, canEdit, handleDeleteAR])
+    setTableContextMenu(null)
+  }, [tableContextMenu, accountsReceivable, createEmptyAR, saveAccountsReceivable, handleDeleteAR])
+
+  // ResizeObserver for split screen: fill table height (must run before any early return)
+  useEffect(() => {
+    if (!isInSplitScreen) return
+    const el = tableContainerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      setTableHeight(el.clientHeight)
+    })
+    ro.observe(el)
+    setTableHeight(el.clientHeight)
+    return () => ro.disconnect()
+  }, [isInSplitScreen])
 
   if (loading) {
     return (
@@ -588,18 +679,29 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-white">ACCOUNTS RECEIVABLE</h2>
-      </div>
-      <div className="table-container dark-theme" style={{ 
-        maxHeight: 'calc(100vh - 300px)', 
-        overflowY: 'auto',
-        overflowX: 'auto',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '8px',
-        backgroundColor: '#d2dbe5'
-      }}>
+    <div 
+      className="p-6" 
+      style={isInSplitScreen ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
+    >
+      {!isInSplitScreen && (
+        <div className="mb-4 flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-white">ACCOUNTS RECEIVABLE</h2>
+        </div>
+      )}
+      <div 
+        ref={tableContainerRef}
+        className="table-container dark-theme" 
+        style={{ 
+          maxHeight: isInSplitScreen ? undefined : 'calc(100vh - 300px)',
+          flex: isInSplitScreen ? 1 : undefined,
+          minHeight: isInSplitScreen ? 0 : undefined,
+          overflowY: 'auto',
+          overflowX: 'auto',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '8px',
+          backgroundColor: '#d2dbe5'
+        }}
+      >
         <HandsontableWrapper
           key={`ar-${accountsReceivable.length}-${JSON.stringify(lockData)}`}
           data={getARHandsontableData()}
@@ -607,7 +709,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           colHeaders={columnTitles}
           rowHeaders={true}
           width="100%"
-          height={600}
+          height={isInSplitScreen ? tableHeight : 600}
           afterChange={handleARHandsontableChange}
           onContextMenu={handleARHandsontableContextMenu}
           enableFormula={false}
@@ -616,6 +718,31 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           className="handsontable-custom"
         />
       </div>
+
+      {tableContextMenu != null && (
+        <div
+          ref={tableContextMenuRef}
+          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[160px]"
+          style={{ left: tableContextMenu.x, top: tableContextMenu.y }}
+        >
+          <button
+            type="button"
+            onClick={handleContextMenuAddRow}
+            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
+          >
+            <Plus size={16} />
+            Add row
+          </button>
+          <button
+            type="button"
+            onClick={handleContextMenuDeleteRow}
+            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
+          >
+            <Trash2 size={16} />
+            Delete row
+          </button>
+        </div>
+      )}
     </div>
   )
 }

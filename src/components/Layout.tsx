@@ -17,8 +17,7 @@ import {
   Database,
   Palette,
   Menu,
-  ArrowLeft,
-  Calendar
+  ArrowLeft
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -341,7 +340,7 @@ export default function Layout({ children }: LayoutProps) {
                             const isExpanded = providerClinicExpanded.has(clinic.id)
                             const isClinicActive = location.pathname.startsWith(`/providers/clinics/${clinic.id}`)
                             return (
-                              <div key={clinic.id} className="mb-1">
+                              <Link to={`/providers/clinics/${clinic.id}/sheet`} key={clinic.id} className="mb-1">
                                 <div className="flex items-center gap-2">
                                   <button
                                     type="button"
@@ -364,6 +363,7 @@ export default function Layout({ children }: LayoutProps) {
                                     <span className="flex-1 truncate">{clinic.name}</span>
                                   </button>
                                 </div>
+{/* 
                                 {isExpanded && (
                                   <div className="ml-6 mt-1 space-y-1">
                                     <Link
@@ -390,7 +390,8 @@ export default function Layout({ children }: LayoutProps) {
                                     </Link>
                                   </div>
                                 )}
-                              </div>
+                                 */}
+                              </Link>
                             )
                           })
                         )}

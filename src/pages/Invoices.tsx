@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchSheetRows } from '@/lib/providerSheetRows'
 import { SheetRow, Clinic } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatCurrency, formatDate } from '@/lib/utils'
@@ -76,9 +77,12 @@ export default function Invoices() {
 
       if (sheetsError) throw sheetsError
 
+      const sheets = sheetsData || []
+      const rowsBySheet = await Promise.all(sheets.map(s => fetchSheetRows(supabase, s.id)))
+
       // Fetch clinics and users for display
-      const clinicIds = [...new Set((sheetsData || []).map(s => s.clinic_id))]
-      const providerIds = [...new Set((sheetsData || []).map(s => s.provider_id))]
+      const clinicIds = [...new Set(sheets.map(s => s.clinic_id))]
+      const providerIds = [...new Set(sheets.map(s => s.provider_id))]
 
       const [clinicsData, usersData, patientsData] = await Promise.all([
         supabase.from('clinics').select('*').in('id', clinicIds),
@@ -90,13 +94,12 @@ export default function Invoices() {
       const usersMap = new Map((usersData.data || []).map(u => [u.id, u]))
       const patientsMap = new Map((patientsData.data || []).map(p => [`${p.clinic_id}-${p.patient_id}`, p]))
 
-      // Process invoice data
       const invoiceRows: InvoiceRow[] = []
 
-      sheetsData?.forEach(sheet => {
+      sheets.forEach((sheet, i) => {
         const clinic = clinicsMap.get(sheet.clinic_id)
         const provider = usersMap.get(sheet.provider_id)
-        const rows = Array.isArray(sheet.row_data) ? sheet.row_data : []
+        const rows = rowsBySheet[i] || []
 
         rows.forEach((row: SheetRow) => {
           if (row.invoice_amount || row.collected_from_patient) {

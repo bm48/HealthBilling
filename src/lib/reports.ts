@@ -13,7 +13,8 @@ export interface ReportData {
 export async function generateProviderReport(
   sheets: ProviderSheet[],
   users: User[],
-  reportData: ReportData
+  reportData: ReportData,
+  rowsBySheetId: Record<string, SheetRow[]>
 ): Promise<jsPDF> {
   const doc = new jsPDF()
   
@@ -26,7 +27,7 @@ export async function generateProviderReport(
   
   sheets.forEach(sheet => {
     const provider = users.find(u => u.id === sheet.provider_id)
-    const rows = Array.isArray(sheet.row_data) ? sheet.row_data : []
+    const rows = rowsBySheetId[sheet.id] || []
     
     let totalInsurance = 0
     let totalPatient = 0
@@ -60,7 +61,8 @@ export async function generateClinicReport(
   sheets: ProviderSheet[],
   users: User[],
   clinics: Clinic[],
-  reportData: ReportData
+  reportData: ReportData,
+  rowsBySheetId: Record<string, SheetRow[]>
 ): Promise<jsPDF> {
   const doc = new jsPDF()
   
@@ -88,7 +90,7 @@ export async function generateClinicReport(
     const data = clinicData.get(clinicName)!
     const provider = users.find(u => u.id === sheet.provider_id)
     const providerName = provider?.full_name || provider?.email || 'Unknown'
-    const rows = Array.isArray(sheet.row_data) ? sheet.row_data : []
+    const rows = rowsBySheetId[sheet.id] || []
     
     let insurance = 0
     let patient = 0
@@ -150,7 +152,8 @@ export async function generateClinicReport(
 
 export async function generateClaimReport(
   sheets: ProviderSheet[],
-  reportData: ReportData
+  reportData: ReportData,
+  rowsBySheetId: Record<string, SheetRow[]>
 ): Promise<jsPDF> {
   const doc = new jsPDF()
   
@@ -162,7 +165,7 @@ export async function generateClaimReport(
   const claimData = new Map<string, number>()
 
   sheets.forEach(sheet => {
-    const rows = Array.isArray(sheet.row_data) ? sheet.row_data : []
+    const rows = rowsBySheetId[sheet.id] || []
     rows.forEach((row: SheetRow) => {
       if (row.claim_status) {
         claimData.set(
@@ -189,7 +192,8 @@ export async function generateClaimReport(
 
 export async function generatePatientInvoiceReport(
   sheets: ProviderSheet[],
-  reportData: ReportData
+  reportData: ReportData,
+  rowsBySheetId: Record<string, SheetRow[]>
 ): Promise<jsPDF> {
   const doc = new jsPDF()
   
@@ -201,7 +205,7 @@ export async function generatePatientInvoiceReport(
   const tableData: any[] = []
 
   sheets.forEach(sheet => {
-    const rows = Array.isArray(sheet.row_data) ? sheet.row_data : []
+    const rows = rowsBySheetId[sheet.id] || []
     rows.forEach((row: SheetRow) => {
       if (row.invoice_amount && row.patient_pay_status && 
           ['CC declined', 'Payment Plan'].includes(row.patient_pay_status)) {

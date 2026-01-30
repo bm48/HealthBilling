@@ -210,9 +210,10 @@ export default function ProviderDashboardPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
           {clinics.map((clinic) => (
-            <div
+            <Link
+              to={`/providers/clinics/${clinic.id}/sheet`}
               key={clinic.id}
-              className="rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:bg-slate-800/60 transition-colors flex flex-col"
+              className="cursor-pointer rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:bg-slate-800/60 transition-colors flex flex-col"
             >
               <div className="flex items-center gap-3 mb-3">
                 <Building2 size={24} className="text-primary-400 shrink-0" />
@@ -240,7 +241,7 @@ export default function ProviderDashboardPage() {
                   </div>
                 )}
               </div>
-              <div className="flex flex-wrap gap-3 mt-auto pt-3 border-t border-white/10">
+              {/* <div className="flex flex-wrap gap-3 mt-auto pt-3 border-t border-white/10">
                 <Link
                   to={`/providers/clinics/${clinic.id}/sheet`}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition-colors"
@@ -255,8 +256,8 @@ export default function ProviderDashboardPage() {
                   <Calendar size={18} />
                   Schedule
                 </Link>
-              </div>
-            </div>
+              </div> */}
+            </Link>
           ))}
         </div>
       )}

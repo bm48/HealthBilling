@@ -63,6 +63,11 @@ export default function HandsontableWrapper({
   const hotTableRef = useRef<any>(null)
   const hyperformulaInstanceRef = useRef<HyperFormula | null>(null)
   const isBatchOperationRef = useRef<boolean>(false)
+  const dataRef = useRef(data)
+  dataRef.current = data
+  const prevDataLengthRef = useRef(data.length)
+  // Stable ref for settings.data so HotTable doesn't overwrite grid on every re-render (avoids stale data wiping typed input)
+  const dataForSettingsRef = useRef(data)
 
   useEffect(() => {
     if (enableFormula && hotTableRef.current) {
@@ -87,19 +92,20 @@ export default function HandsontableWrapper({
   }, [enableFormula])
 
   useEffect(() => {
-    if (data.length > 0) {
-      // console.log('data**************************: ', data)
-      // Force Handsontable to update when data length changes
-      if (hotTableRef.current?.hotInstance) {
-        const hotInstance = hotTableRef.current.hotInstance
-        // Update the data to ensure Handsontable recognizes all rows
+    if (dataRef.current.length > 0 && hotTableRef.current?.hotInstance) {
+      const hotInstance = hotTableRef.current.hotInstance
+      // Only push data when row count changes (e.g. new rows); avoid overwriting during typing
+      if (prevDataLengthRef.current !== dataRef.current.length) {
+        prevDataLengthRef.current = dataRef.current.length
         hotInstance.updateSettings({
-          data: data
+          data: dataRef.current
         })
-        // console.log('[HandsontableWrapper] Updated Handsontable with', data.length, 'rows')
+        dataForSettingsRef.current = dataRef.current
       }
+    } else {
+      prevDataLengthRef.current = dataRef.current.length
     }
-  }, [data])
+  }, [data.length])
   
   // Process columns to handle numeric type and custom renderers/editors
   const processedColumns = useMemo(() => columns.map(col => {
@@ -189,7 +195,7 @@ export default function HandsontableWrapper({
       : (rowHeaders as boolean | string[] | undefined)
 
   const settings: Handsontable.GridSettings = {
-    data,
+    data: dataForSettingsRef.current,
     columns: processedColumns,
     colHeaders,
     rowHeaders: processedRowHeaders,

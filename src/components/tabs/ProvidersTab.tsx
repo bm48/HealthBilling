@@ -1,9 +1,10 @@
 import { Provider, SheetRow, BillingCode, StatusColor, Patient, IsLockProviders } from '@/types'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
-import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor } from '@/lib/handsontableCustomRenderers'
-import { useCallback, useMemo, useEffect, useRef } from 'react'
+import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor, currencyCellRenderer, percentCellRenderer } from '@/lib/handsontableCustomRenderers'
+import { useCallback, useMemo, useEffect, useRef, useState } from 'react'
+import { toDisplayValue } from '@/lib/utils'
 
 interface ProvidersTabProps {
   providers: Provider[]
@@ -21,6 +22,7 @@ interface ProvidersTabProps {
   onUpdateProviderSheetRow: (providerId: string, rowId: string, field: string, value: any) => void
   onSaveProviderSheetRowsDirect: (providerId: string, rows: SheetRow[]) => Promise<void>
   onDeleteRow?: (providerId: string, rowId: string) => void
+  onAddRowBelow?: (providerId: string, afterRowId: string) => void
   onPreviousMonth: () => void
   onNextMonth: () => void
   formatMonthYear: (date: Date) => string
@@ -45,6 +47,7 @@ export default function ProvidersTab({
   onUpdateProviderSheetRow,
   onSaveProviderSheetRowsDirect,
   onDeleteRow,
+  onAddRowBelow,
   onPreviousMonth,
   onNextMonth,
   formatMonthYear,
@@ -64,6 +67,13 @@ export default function ProvidersTab({
   // Get rows for the first provider (or selected provider) to display in Handsontable
   const activeProvider = providersToShow.length > 0 ? providersToShow[0] : null
   const activeProviderRows = activeProvider ? filterRowsByMonth(providerSheetRows[activeProvider.id] || []) : []
+
+  // Ref for latest table data from change handler so we don't pass stale data when parent re-renders before state updates
+  const latestTableDataRef = useRef<any[][] | null>(null)
+
+  useEffect(() => {
+    latestTableDataRef.current = null
+  }, [activeProvider?.id, selectedMonth.getTime()])
 
   // Color mapping functions
   const getCPTColor = useCallback((code: string): { color: string; textColor: string } | null => {
@@ -94,49 +104,54 @@ export default function ProvidersTab({
     return null
   }, [statusColors])
 
-  // Convert rows to Handsontable data format
-  const getProviderRowsHandsontableData = useCallback(() => {
-    if (!activeProvider) return []
-    return activeProviderRows.map(row => {
-      // Find patient for dropdown display
+  // Map rows to Handsontable 2D array format (shared by getProviderRowsHandsontableData and change handler); never show "null"
+  const getTableDataFromRows = useCallback((rows: SheetRow[]) => {
+    return rows.map(row => {
       const patient = patients.find(p => p.patient_id === row.patient_id)
-      const patientDisplay = patient ? `${patient.patient_id}` : (row.patient_id || '')
+      const patientDisplay = patient ? toDisplayValue(patient.patient_id) : toDisplayValue(row.patient_id)
       if (isProviderView) {
         return [
           patientDisplay,
-          row.patient_first_name || '',
-          row.last_initial || '',
-          row.patient_insurance || '',
-          row.patient_copay !== null ? row.patient_copay : '',
-          row.patient_coinsurance !== null ? row.patient_coinsurance : '',
-          row.appointment_date || '',
-          row.cpt_code || '',
-          row.appointment_status || '',
+          toDisplayValue(row.patient_first_name),
+          toDisplayValue(row.last_initial),
+          toDisplayValue(row.patient_insurance),
+          toDisplayValue(row.patient_copay),
+          toDisplayValue(row.patient_coinsurance),
+          toDisplayValue(row.appointment_date),
+          toDisplayValue(row.cpt_code),
+          toDisplayValue(row.appointment_status),
         ]
       }
       return [
         patientDisplay,
-        row.patient_first_name || '',
-        row.last_initial || '',
-        row.patient_insurance || '',
-        row.patient_copay !== null ? row.patient_copay : '',
-        row.patient_coinsurance !== null ? row.patient_coinsurance : '',
-        row.appointment_date || '',
-        row.cpt_code || '',
-        row.appointment_status || '',
-        row.claim_status || '',
-        row.submit_date || '',
-        row.insurance_payment || '',
-        row.payment_date || '',
-        row.insurance_adjustment || '',
-        row.collected_from_patient || '',
-        row.patient_pay_status || '',
-        row.ar_date || '',
-        row.total || '',
-        row.notes || '',
+        toDisplayValue(row.patient_first_name),
+        toDisplayValue(row.last_initial),
+        toDisplayValue(row.patient_insurance),
+        toDisplayValue(row.patient_copay),
+        toDisplayValue(row.patient_coinsurance),
+        toDisplayValue(row.appointment_date),
+        toDisplayValue(row.cpt_code),
+        toDisplayValue(row.appointment_status),
+        toDisplayValue(row.claim_status),
+        toDisplayValue(row.submit_date),
+        toDisplayValue(row.insurance_payment),
+        toDisplayValue(row.payment_date),
+        toDisplayValue(row.insurance_adjustment),
+        toDisplayValue(row.collected_from_patient),
+        toDisplayValue(row.patient_pay_status),
+        toDisplayValue(row.ar_date),
+        toDisplayValue(row.total),
+        toDisplayValue(row.notes),
       ]
     })
-  }, [activeProvider, activeProviderRows, patients, isProviderView])
+  }, [patients, isProviderView])
+
+  // Convert rows to Handsontable data format; prefer latest from change handler to avoid stale data on re-render
+  const getProviderRowsHandsontableData = useCallback(() => {
+    if (!activeProvider) return []
+    if (latestTableDataRef.current != null) return latestTableDataRef.current
+    return getTableDataFromRows(activeProviderRows)
+  }, [activeProvider, activeProviderRows, getTableDataFromRows])
 
 
   // Column field names mapping to is_lock_providers table columns
@@ -347,8 +362,8 @@ export default function ProvidersTab({
         { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: !canEdit },
         { data: 2, title: 'Last Initial', type: 'text' as const, width: 80, readOnly: !canEdit },
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: !canEdit },
-        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, readOnly: !canEdit },
-        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, readOnly: !canEdit },
+        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: !canEdit },
+        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: !canEdit },
         { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: !canEdit },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: !canEdit },
         { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, editor: 'select', selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: !canEdit },
@@ -374,7 +389,7 @@ export default function ProvidersTab({
         data: 2, 
         title: 'Last Initial', 
         type: 'text' as const, 
-        width: 80,
+        width: 40,
         readOnly: !canEdit || getReadOnly('last_initial')
       },
       { 
@@ -389,6 +404,7 @@ export default function ProvidersTab({
         title: 'Co-pay', 
         type: 'numeric' as const, 
         width: 80,
+        renderer: currencyCellRenderer,
         readOnly: !canEdit || getReadOnly('copay')
       },
       { 
@@ -396,6 +412,7 @@ export default function ProvidersTab({
         title: 'Co-Ins', 
         type: 'numeric' as const, 
         width: 80,
+        renderer: percentCellRenderer,
         readOnly: !canEdit || getReadOnly('coinsurance')
       },
       { 
@@ -611,13 +628,13 @@ export default function ProvidersTab({
           }
           updatedRows[row] = merged as SheetRow
         } else if (field === 'patient_copay' || field === 'patient_coinsurance' || field === 'total') {
-          const numValue = newValue === '' || newValue === null ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
+          const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: numValue, updated_at: new Date().toISOString() } as SheetRow
         } else if (field === 'appointment_date') {
-          const value = newValue === '' ? null : String(newValue)
+          const value = (newValue === '' || newValue === 'null') ? null : String(newValue)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
         } else if (field) {
-          const value = String(newValue || '')
+          const value = (newValue === '' || newValue === 'null') ? null : String(newValue)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
         }
       }
@@ -677,6 +694,9 @@ export default function ProvidersTab({
       )
       updatedRows.push(...newEmptyRows)
     }
+
+    // Store latest table data so next render passes fresh data even if parent state hasn't updated yet
+    latestTableDataRef.current = getTableDataFromRows(updatedRows)
     
     // Apply all changes to parent state
     updatedRows.forEach((row, index) => {
@@ -737,23 +757,52 @@ export default function ProvidersTab({
         console.error('[handleProviderRowsHandsontableChange] Error in saveProviderSheetRowsDirect:', err)
       })
     }, 0)
-  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, patients])
+  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, patients, getTableDataFromRows])
 
   const handleDeleteProviderSheetRow = useCallback((providerId: string, rowId: string) => {
-    if (!confirm('Are you sure you want to delete this row?')) return
     if (onDeleteRow) onDeleteRow(providerId, rowId)
   }, [onDeleteRow])
 
-  const handleProviderRowsHandsontableContextMenu = useCallback((row: number) => {
-    if (isProviderView) return
-    const sheetRow = activeProviderRows[row]
-    if (sheetRow && activeProvider && canEdit) {
-      const providerId = activeProvider.id
-      const rowId = sheetRow.id
-      // Defer confirm so it runs after the contextmenu event; browsers often block modals opened directly from contextmenu
-        handleDeleteProviderSheetRow(providerId, rowId)
+  const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
+  const tableContextMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!tableContextMenu) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tableContextMenuRef.current && !tableContextMenuRef.current.contains(event.target as Node)) {
+        setTableContextMenu(null)
+      }
     }
-  }, [activeProvider, activeProviderRows, canEdit, handleDeleteProviderSheetRow, isProviderView])
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [tableContextMenu])
+
+  const handleProviderRowsHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
+    event.preventDefault()
+    if (isProviderView || !canEdit || !activeProvider) return
+    const sheetRow = activeProviderRows[row]
+    if (sheetRow) {
+      setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row })
+    }
+  }, [activeProvider, activeProviderRows, canEdit, isProviderView])
+
+  const handleContextMenuAddRow = useCallback(() => {
+    if (tableContextMenu == null || !activeProvider || !onAddRowBelow) return
+    const sheetRow = activeProviderRows[tableContextMenu.rowIndex]
+    if (sheetRow) {
+      onAddRowBelow(activeProvider.id, sheetRow.id)
+    }
+    setTableContextMenu(null)
+  }, [tableContextMenu, activeProvider, activeProviderRows, onAddRowBelow])
+
+  const handleContextMenuDeleteRow = useCallback(() => {
+    if (tableContextMenu == null || !activeProvider || !onDeleteRow) return
+    const sheetRow = activeProviderRows[tableContextMenu.rowIndex]
+    if (sheetRow) {
+      handleDeleteProviderSheetRow(activeProvider.id, sheetRow.id)
+    }
+    setTableContextMenu(null)
+  }, [tableContextMenu, activeProvider, activeProviderRows, onDeleteRow, handleDeleteProviderSheetRow])
 
   // Apply custom header colors after table renders
   const hotTableRef = useRef<any>(null)
@@ -795,9 +844,26 @@ export default function ProvidersTab({
     )
   }
 
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const [tableHeight, setTableHeight] = useState(isInSplitScreen ? 400 : 600)
+  useEffect(() => {
+    if (!isInSplitScreen) return
+    const el = tableContainerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      setTableHeight(el.clientHeight)
+    })
+    ro.observe(el)
+    setTableHeight(el.clientHeight)
+    return () => ro.disconnect()
+  }, [isInSplitScreen])
+
   return (
-    <div className="p-6" style={isInSplitScreen ? { width: '100%', overflow: 'hidden' } : {}}>
-      {providerId && currentProvider && (
+    <div 
+      className="p-6" 
+      style={isInSplitScreen ? { width: '100%', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
+    >
+      {providerId && currentProvider && !isInSplitScreen && (
         <div className="mb-4 pb-4 border-b border-white/20">
           <h2 className="text-xl font-semibold text-white">
             {currentProvider.first_name} {currentProvider.last_name}
@@ -807,48 +873,65 @@ export default function ProvidersTab({
           </h2>
         </div>
       )}
-      
-      <div className="mb-4 flex items-center justify-center gap-4 bg-slate-800/50 rounded-lg p-3 border border-slate-700">
-        <button
-          onClick={onPreviousMonth}
-          className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-white"
-          title="Previous month"
-        >
-          <ChevronLeft size={20} />
-        </button>
-        
-        <div className="text-lg font-semibold text-white min-w-[200px] text-center">
-          {formatMonthYear(selectedMonth)}
-        </div>
-        
-        <button
-          onClick={onNextMonth}
-          className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-white"
-          title="Next month"
-        >
-          <ChevronRight size={20} />
-        </button>
-      </div>
+      {/* month selector - background color from status_colors (month type), like Ins Pay Date column */}
+      {(() => {
+        const monthName = selectedMonth.toLocaleString('en-US', { month: 'long' })
+        const monthColor = getMonthColor(monthName)
+        const bgColor = monthColor?.color ?? 'rgba(30, 41, 59, 0.5)'
+        const textColor = monthColor?.textColor ?? '#fff'
+        return (
+          <div
+            className="mb-4 flex items-center justify-center gap-4 rounded-lg border border-slate-700 -mt-4"
+            style={{ backgroundColor: bgColor, color: textColor }}
+          >
+            <button
+              onClick={onPreviousMonth}
+              className="p-2 hover:opacity-80 rounded-lg transition-opacity"
+              style={{ color: textColor }}
+              title="Previous month"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <div className="text-lg font-semibold min-w-[200px] text-center">
+              {formatMonthYear(selectedMonth)}
+            </div>
+            <button
+              onClick={onNextMonth}
+              className="p-2 hover:opacity-80 rounded-lg transition-opacity"
+              style={{ color: textColor }}
+              title="Next month"
+            >
+              <ChevronRight size={20} />
+            </button>
+          </div>
+        )
+      })()}
 
-      <div className="table-container dark-theme" style={{ 
-        maxHeight: isInSplitScreen ? 'calc(100vh - 400px)' : '600px', 
-        overflowX: 'auto', 
-        overflowY: 'auto',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        borderRadius: '8px',
-        width: '100%',
-        maxWidth: '100%',
-        backgroundColor: '#d2dbe5'
-      }}>
+      <div 
+        ref={tableContainerRef}
+        className="table-container dark-theme" 
+        style={{ 
+          maxHeight: isInSplitScreen ? undefined : '600px',
+          flex: isInSplitScreen ? 1 : undefined,
+          minHeight: isInSplitScreen ? 0 : undefined,
+          overflowX: 'auto', 
+          overflowY: 'auto',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '8px',
+          width: '100%',
+          maxWidth: '100%',
+          backgroundColor: '#d2dbe5'
+        }}
+      >
         {activeProvider && (
           <HandsontableWrapper
-            key={`providers-${activeProviderRows.length}-${JSON.stringify(lockData)}`}
+            key={`providers-${activeProvider?.id ?? ''}-${selectedMonth.getTime()}`}
             data={getProviderRowsHandsontableData()}
             columns={providerColumnsWithLocks}
             colHeaders={columnTitles}
             rowHeaders={true}
             width="100%"
-            height={isInSplitScreen ? 400 : 600}
+            height={isInSplitScreen ? tableHeight : 600}
             afterChange={handleProviderRowsHandsontableChange}
             onContextMenu={handleProviderRowsHandsontableContextMenu}
             enableFormula={false}
@@ -858,6 +941,31 @@ export default function ProvidersTab({
           />
         )}
       </div>
+
+      {tableContextMenu != null && (
+        <div
+          ref={tableContextMenuRef}
+          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[160px]"
+          style={{ left: tableContextMenu.x, top: tableContextMenu.y }}
+        >
+          <button
+            type="button"
+            onClick={handleContextMenuAddRow}
+            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
+          >
+            <Plus size={16} />
+            Add row
+          </button>
+          <button
+            type="button"
+            onClick={handleContextMenuDeleteRow}
+            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
+          >
+            <Trash2 size={16} />
+            Delete row
+          </button>
+        </div>
+      )}
     </div>
   )
 }

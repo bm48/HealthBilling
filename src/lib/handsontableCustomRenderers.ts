@@ -1,6 +1,52 @@
 import Handsontable from 'handsontable'
 
 /**
+ * Renders a numeric value as currency ($10.00). Empty/null shows blank.
+ */
+export function currencyCellRenderer(
+  _instance: any,
+  td: HTMLElement,
+  _row: number,
+  _col: number,
+  _prop: string | number,
+  value: any,
+  cellProperties: any
+) {
+  const textRenderer = Handsontable.renderers.TextRenderer
+  let display = ''
+  if (value !== null && value !== undefined && value !== '' && value !== 'null') {
+    const num = typeof value === 'number' ? value : parseFloat(String(value))
+    if (!isNaN(num)) {
+      display = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num)
+    }
+  }
+  textRenderer(_instance, td as HTMLTableCellElement, _row, _col, _prop, display, cellProperties)
+}
+
+/**
+ * Renders a numeric value as percentage (10%). Empty/null shows blank.
+ */
+export function percentCellRenderer(
+  _instance: any,
+  td: HTMLElement,
+  _row: number,
+  _col: number,
+  _prop: string | number,
+  value: any,
+  cellProperties: any
+) {
+  const textRenderer = Handsontable.renderers.TextRenderer
+  let display = ''
+  if (value !== null && value !== undefined && value !== '' && value !== 'null') {
+    const num = typeof value === 'number' ? value : parseFloat(String(value))
+    if (!isNaN(num)) {
+      display = `${num}%`
+    }
+  }
+  textRenderer(_instance, td as HTMLTableCellElement, _row, _col, _prop, display, cellProperties)
+}
+
+/**
  * Custom renderer for dropdown cells with background colors (full cell fill)
  */
 export function createColoredDropdownRenderer(colorMap: (value: string) => { color: string; textColor: string } | null) {
@@ -54,35 +100,48 @@ export function createBubbleDropdownRenderer(colorMap: (value: string) => { colo
     td.style.padding = '2px 4px'
     td.style.textAlign = 'left'
     td.style.verticalAlign = 'middle'
+    td.style.position = 'relative'
     
     const displayValue = value ? String(value) : ''
     
     if (displayValue) {
       const colorConfig = colorMap(displayValue)
       
-      // Create bubble element
+      // Wrapper: flex row so bubble can shrink and icon always has space to its right
+      const wrapper = document.createElement('div')
+      wrapper.style.display = 'flex'
+      wrapper.style.alignItems = 'center'
+      wrapper.style.width = '100%'
+      wrapper.style.gap = '8px'
+      wrapper.style.minWidth = '0'
+      
+      // Create bubble element (flex: 1 so it shrinks; icon keeps reserved space)
       const bubble = document.createElement('span')
       bubble.className = 'handsontable-bubble-select'
       
-      // Create text span
       const textSpan = document.createElement('span')
       textSpan.textContent = displayValue
-      textSpan.style.marginRight = '6px'
+      textSpan.style.overflow = 'hidden'
+      textSpan.style.textOverflow = 'ellipsis'
+      textSpan.style.whiteSpace = 'nowrap'
       
-      // Create down arrow icon
+      // Down arrow icon – flex-shrink: 0 so it never overlaps the bubble
       const arrowIcon = document.createElement('span')
       arrowIcon.innerHTML = '▼'
       arrowIcon.style.fontSize = '10px'
       arrowIcon.style.opacity = '0.7'
       arrowIcon.style.verticalAlign = 'middle'
-      arrowIcon.style.marginLeft = '4px'
+      arrowIcon.style.flexShrink = '0'
       
       bubble.appendChild(textSpan)
-      bubble.appendChild(arrowIcon)
+      wrapper.appendChild(bubble)
+      wrapper.appendChild(arrowIcon)
       
-      // Apply bubble styles
+      // Bubble styles – flex: 1 minWidth: 0 so it can shrink and ellipsis when needed
       bubble.style.display = 'inline-flex'
       bubble.style.alignItems = 'center'
+      bubble.style.flex = '1'
+      bubble.style.minWidth = '0'
       bubble.style.padding = '4px 12px'
       bubble.style.borderRadius = '16px'
       bubble.style.fontSize = '13px'
@@ -91,7 +150,6 @@ export function createBubbleDropdownRenderer(colorMap: (value: string) => { colo
       bubble.style.whiteSpace = 'nowrap'
       bubble.style.overflow = 'hidden'
       bubble.style.textOverflow = 'ellipsis'
-      bubble.style.maxWidth = '100%'
       bubble.style.cursor = cellProperties.readOnly ? 'default' : 'pointer'
       
       // Apply colors from colorMap
@@ -105,7 +163,7 @@ export function createBubbleDropdownRenderer(colorMap: (value: string) => { colo
         arrowIcon.style.color = '#374151'
       }
       
-      td.appendChild(bubble)
+      td.appendChild(wrapper)
     } else {
       // Empty cell - just set empty content
       td.textContent = ''
@@ -389,6 +447,7 @@ export class MultiSelectCptEditor extends Handsontable.editors.BaseEditor {
   private options: string[] = []
   private filteredOptions: string[] = []
   private boundCloseOnClickOutside: (e: MouseEvent) => void = () => {}
+  private closeOnClickOutsideTimeoutId: ReturnType<typeof setTimeout> | null = null
 
   createElements() {
     // BaseEditor has no createElements; we build our own UI
@@ -456,13 +515,26 @@ export class MultiSelectCptEditor extends Handsontable.editors.BaseEditor {
     this.searchInput!.addEventListener('keydown', this.onSearchKeydown)
     this.boundCloseOnClickOutside = (e: MouseEvent) => {
       if (this.wrapper && !this.wrapper.contains(e.target as Node)) {
+        const hot = (this as any).hot
+        if (hot?.isDestroyed) {
+          document.removeEventListener('mousedown', this.boundCloseOnClickOutside)
+          return
+        }
         this.finishEditing()
       }
     }
-    setTimeout(() => document.addEventListener('mousedown', this.boundCloseOnClickOutside), 0)
+    if (this.closeOnClickOutsideTimeoutId != null) clearTimeout(this.closeOnClickOutsideTimeoutId)
+    this.closeOnClickOutsideTimeoutId = setTimeout(() => {
+      this.closeOnClickOutsideTimeoutId = null
+      document.addEventListener('mousedown', this.boundCloseOnClickOutside)
+    }, 0)
   }
 
   close() {
+    if (this.closeOnClickOutsideTimeoutId != null) {
+      clearTimeout(this.closeOnClickOutsideTimeoutId)
+      this.closeOnClickOutsideTimeoutId = null
+    }
     this.searchInput?.removeEventListener('input', this.onSearch)
     this.searchInput?.removeEventListener('keydown', this.onSearchKeydown)
     document.removeEventListener('mousedown', this.boundCloseOnClickOutside)
