@@ -156,7 +156,7 @@ export function createBubbleDropdownRenderer(colorMap: (value: string) => { colo
       if (colorConfig) {
         bubble.style.backgroundColor = colorConfig.color
         bubble.style.color = colorConfig.textColor
-        arrowIcon.style.color = colorConfig.textColor
+        arrowIcon.style.color = colorConfig.color
       } else {
         bubble.style.backgroundColor = '#e5e7eb'
         bubble.style.color = '#374151'
