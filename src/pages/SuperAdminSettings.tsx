@@ -21,6 +21,8 @@ export default function SuperAdminSettings() {
   const [showBillingCodeForm, setShowBillingCodeForm] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [editingBillingCode, setEditingBillingCode] = useState<BillingCode | null>(null)
+  const [showClinicForm, setShowClinicForm] = useState(false)
+  const [editingClinic, setEditingClinic] = useState<Clinic | null>(null)
 
   useEffect(() => {
     const tab = searchParams.get('tab') || 'users'
@@ -190,6 +192,40 @@ export default function SuperAdminSettings() {
     }
   }
 
+  const handleSaveClinic = async (clinicData: Partial<Clinic>) => {
+    try {
+      if (editingClinic) {
+        const { error } = await supabase
+          .from('clinics')
+          .update({
+            name: clinicData.name ?? editingClinic.name,
+            address: clinicData.address ?? editingClinic.address,
+            phone: clinicData.phone ?? editingClinic.phone,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingClinic.id)
+
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('clinics')
+          .insert({
+            name: clinicData.name ?? '',
+            address: clinicData.address ?? null,
+            phone: clinicData.phone ?? null,
+          })
+
+        if (error) throw error
+      }
+      await fetchClinics()
+      setShowClinicForm(false)
+      setEditingClinic(null)
+    } catch (error) {
+      console.error('Error saving clinic:', error)
+      alert('Failed to save clinic. Please try again.')
+    }
+  }
+
   const handleDeleteBillingCode = async (id: string) => {
     if (!confirm('Are you sure you want to delete this billing code?')) return
 
@@ -297,7 +333,7 @@ export default function SuperAdminSettings() {
                           <th>Name</th>
                           <th>Role</th>
                           <th>Clinics</th>
-                          <th>Highlight Color</th>
+                          {/* <th>Highlight Color</th> */}
                           <th style={{ width: '80px' }}>Actions</th>
                         </tr>
                       </thead>
@@ -316,7 +352,7 @@ export default function SuperAdminSettings() {
                                 ? user.clinic_ids.length + ' clinic(s)'
                                 : 'None'}
                             </td>
-                            <td>
+                            {/* <td>
                               {user.highlight_color && (
                                 <div
                                   style={{ 
@@ -328,7 +364,7 @@ export default function SuperAdminSettings() {
                                   }}
                                 />
                               )}
-                            </td>
+                            </td> */}
                             <td>
                               <button
                                 onClick={() => {
@@ -449,9 +485,8 @@ export default function SuperAdminSettings() {
                     <h2 className="text-xl font-semibold text-white">Clinic Management</h2>
                     <button
                       onClick={() => {
-                        setEditingUser(null)
-                        setShowUserForm(false)
-                        // Handle clinic creation
+                        setEditingClinic(null)
+                        setShowClinicForm(true)
                       }}
                       className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
                     >
@@ -503,7 +538,8 @@ export default function SuperAdminSettings() {
                               <td>
                                 <button
                                   onClick={() => {
-                                    // Handle clinic edit
+                                    setEditingClinic(clinic)
+                                    setShowClinicForm(true)
                                   }}
                                   className="text-primary-400 hover:text-primary-300"
                                   style={{ padding: '4px' }}
@@ -674,6 +710,17 @@ export default function SuperAdminSettings() {
           onSave={handleSaveBillingCode}
         />
       )}
+
+      {showClinicForm && (
+        <ClinicFormModal
+          clinic={editingClinic}
+          onClose={() => {
+            setShowClinicForm(false)
+            setEditingClinic(null)
+          }}
+          onSave={handleSaveClinic}
+        />
+      )}
     </div>
   )
 }
@@ -718,7 +765,7 @@ function UserFormModal({
               type="text"
               value={formData.full_name}
               onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
             />
           </div>
 
@@ -727,7 +774,7 @@ function UserFormModal({
             <select
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
             >
               <option value="super_admin">Super Admin</option>
               <option value="admin">Admin</option>
@@ -739,7 +786,7 @@ function UserFormModal({
             </select>
           </div>
 
-          <div>
+          {/* <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Highlight Color</label>
             <input
               type="color"
@@ -747,7 +794,7 @@ function UserFormModal({
               onChange={(e) => setFormData({ ...formData, highlight_color: e.target.value })}
               className="w-full h-10 border border-gray-300 rounded-lg"
             />
-          </div>
+          </div> */}
 
           <div className="flex justify-end gap-3 pt-4">
             <button
@@ -835,6 +882,97 @@ function BillingCodeFormModal({
               value={formData.color}
               onChange={(e) => setFormData({ ...formData, color: e.target.value })}
               className="w-full h-10 border border-gray-300 rounded-lg"
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function ClinicFormModal({
+  clinic,
+  onClose,
+  onSave,
+}: {
+  clinic: Clinic | null
+  onSave: (data: Partial<Clinic>) => Promise<void>
+  onClose: () => void
+}) {
+  const [formData, setFormData] = useState({
+    name: clinic?.name ?? '',
+    address: clinic?.address ?? '',
+    phone: clinic?.phone ?? '',
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.name.trim()) {
+      alert('Clinic name is required')
+      return
+    }
+    await onSave({
+      name: formData.name.trim(),
+      address: formData.address.trim() || null,
+      phone: formData.phone.trim() || null,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+        <div className="flex justify-between items-center p-6 border-b border-gray-200">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {clinic ? 'Edit Clinic' : 'Add Clinic'}
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={24} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+            <input
+              type="text"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+            <input
+              type="text"
+              value={formData.address}
+              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <input
+              type="text"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
             />
           </div>
 

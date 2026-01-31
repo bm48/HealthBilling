@@ -1986,7 +1986,7 @@ export default function ClinicDetail() {
             }`}
           >
             <FileText size={18} />
-            Providers
+            Billing
           </button>
           <button
             onClick={() => handleTabChange('accounts_receivable')}

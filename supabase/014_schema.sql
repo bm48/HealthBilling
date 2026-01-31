@@ -336,6 +336,9 @@ DROP POLICY IF EXISTS "Super admins can view all audit logs" ON audit_logs;
 CREATE POLICY "Super admins can view all clinics" ON clinics
   FOR SELECT USING (is_super_admin());
 
+CREATE POLICY "Super admins can manage clinics" ON clinics
+  FOR ALL USING (is_super_admin());
+  
 CREATE POLICY "Users can view their assigned clinics" ON clinics
   FOR SELECT USING (
     id = ANY(
