@@ -424,10 +424,10 @@
   box-sizing: border-box !important;
 }
 
+/* Push body content down so first row is not covered by fixed column headers */
 .handsontable-custom .ht_master .wtHider {
   padding-top: 0px !important;
   padding-bottom: 8px !important;
-  /* Ensure content starts at the top */
   margin-top: 0 !important;
 }
 
@@ -436,9 +436,9 @@
   box-sizing: border-box !important;
 } */
 
+/* Same top offset as master so row numbers align with data and are not covered by header */
 .handsontable-custom .ht_clone_left .wtHider {
-  padding-top: 1.15rem !important;
-  /* padding-bottom: 8px !important; */
+  padding-top: 28px !important;
   margin-top: 0 !important;
 }
 
@@ -464,6 +464,20 @@
 .handsontable-custom .ht_clone_top {
   position: relative;
   z-index: 10;
+}
+
+/* Stabilize column header position during scroll: promote to own layer to avoid subpixel shift */
+.handsontable-custom .ht_clone_top table.htCore thead tr th,
+.handsontable-custom .ht_clone_top .wtHider,
+.providers-handsontable .ht_clone_top table.htCore thead tr th,
+.providers-handsontable .ht_clone_top .wtHider {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+/* Keep header row in one piece so it stays aligned with body */
+.handsontable-custom .ht_clone_top table.htCore thead tr,
+.providers-handsontable .ht_clone_top table.htCore thead tr {
+  transform: translateZ(0);
 }
 
 .handsontable-custom .ht_master {
@@ -493,31 +507,26 @@
   color: #000000;
   padding: 0px;
   border: 1px solid #dee2e6 !important;
-  height: 24px !important;
   min-height: 24px !important;
-  max-height: 24px !important;
-  line-height: 24px !important;
   vertical-align: middle !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
 }
 
-/* Ensure row headers match data cell heights */
+/* Row header column: min-height only so it can grow with row when select/dropdown increases height */
 .handsontable-custom .ht_clone_left table.htCore tbody tr th,
 .handsontable-custom .ht_clone_left table.htCore thead tr th {
-  height: 24px !important;
   min-height: 24px !important;
-  max-height: 24px !important;
   padding: 0px !important;
-  line-height: 24px !important;
+  vertical-align: middle !important;
+  text-align: center !important;
+  box-sizing: border-box !important;
 }
 
-/* Match row heights between row headers and data cells */
+/* Allow tbody rows to grow when Handsontable sets larger height (e.g. dropdown/select); min-height only */
 .handsontable-custom table.htCore tbody tr {
-  height: 24px !important;
   min-height: 24px !important;
-  max-height: 24px !important;
 }
 
 /* Add spacing between header and first row to prevent overlap */
@@ -540,13 +549,13 @@
 .handsontable-custom table.htCore tbody tr:first-child td {
   padding-top: 2px !important;
   padding-bottom: 2px !important;
-  height: 24px !important;
+  min-height: 24px !important;
 }
 
 .handsontable-custom .ht_clone_left table.htCore tbody tr:first-child th {
   padding-top: 2px !important;
   padding-bottom: 2px !important;
-  height: 24px !important;
+  min-height: 24px !important;
 }
 
 /* Ensure header row has proper bottom border/spacing */
@@ -558,19 +567,71 @@
   border-bottom: 2px solid rgba(255, 255, 255, 0.3) !important;
 }
 
-.handsontable-custom table.htCore tbody tr td,
-.handsontable-custom table.htCore tbody tr th {
-  height: 24px !important;
-  min-height: 24px !important;
-  max-height: 24px !important;
+/* Column sort icon: always visible in headers, click to sort */
+.handsontable-custom table.htCore thead th span.colHeader,
+.handsontable-custom .ht_clone_top table.htCore thead th span.colHeader,
+.providers-handsontable table.htCore thead th span.colHeader,
+.providers-handsontable .ht_clone_top table.htCore thead th span.colHeader {
+  position: relative !important;
+  cursor: pointer;
+  padding-right: 18px !important;
+}
+.handsontable-custom table.htCore thead th span.colHeader:hover,
+.handsontable-custom .ht_clone_top table.htCore thead th span.colHeader:hover,
+.providers-handsontable table.htCore thead th span.colHeader:hover {
+  opacity: 0.95;
+}
+/* Sort icon ::before - use background-image (white SVG) so it's always visible on dark headers */
+.handsontable-custom table.htCore thead th span.colHeader::before,
+.handsontable-custom .ht_clone_top table.htCore thead th span.colHeader::before,
+.providers-handsontable table.htCore thead th span.colHeader::before,
+.providers-handsontable .ht_clone_top table.htCore thead th span.colHeader::before {
+  content: "" !important;
+  display: block !important;
+  position: absolute !important;
+  top: 50% !important;
+  right: 2px !important;
+  left: auto !important;
+  width: 12px !important;
+  height: 12px !important;
+  margin-top: -6px !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  background-size: contain !important;
+}
+/* Default + unsorted: up + down triangles (white on dark header) */
+.handsontable-custom table.htCore thead th span.colHeader:not(.ascending):not(.descending)::before,
+.handsontable-custom .ht_clone_top table.htCore thead th span.colHeader:not(.ascending):not(.descending)::before,
+.providers-handsontable table.htCore thead th span.colHeader:not(.ascending):not(.descending)::before,
+.providers-handsontable .ht_clone_top table.htCore thead th span.colHeader:not(.ascending):not(.descending)::before {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M6 2L8 5H4L6 2zM6 10L4 7h4L6 10z'/%3E%3C/svg%3E") !important;
+}
+/* Ascending: triangle up (white) */
+.handsontable-custom table.htCore thead th span.colHeader.ascending::before,
+.handsontable-custom .ht_clone_top table.htCore thead th span.colHeader.ascending::before,
+.providers-handsontable table.htCore thead th span.colHeader.ascending::before,
+.providers-handsontable .ht_clone_top table.htCore thead th span.colHeader.ascending::before {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M6 2l4 6H2L6 2z'/%3E%3C/svg%3E") !important;
+}
+/* Descending: triangle down (white) */
+.handsontable-custom table.htCore thead th span.colHeader.descending::before,
+.handsontable-custom .ht_clone_top table.htCore thead th span.colHeader.descending::before,
+.providers-handsontable table.htCore thead th span.colHeader.descending::before,
+.providers-handsontable .ht_clone_top table.htCore thead th span.colHeader.descending::before {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M6 10L2 4h8L6 10z'/%3E%3C/svg%3E") !important;
 }
 
-/* Ensure row header cells in tbody match data cell height exactly */
+/* Data cells: min-height so rows can grow when select/dropdown increases height; no max-height */
+.handsontable-custom table.htCore tbody tr td,
+.handsontable-custom table.htCore tbody tr th {
+  min-height: 24px !important;
+}
+
+/* Row number column cells: fill row height so they match data rows when row grows */
 .handsontable-custom .ht_clone_left table.htCore tbody tr th {
   padding: 0px !important;
-  height: 24px !important;
   min-height: 24px !important;
-  max-height: 24px !important;
+  height: 100% !important;
   vertical-align: middle !important;
   text-align: center !important;
 }
@@ -636,6 +697,14 @@
 
 .dark-theme .table-spreadsheet tbody tr.empty-row td {
   color: rgba(255, 255, 255, 0.5);
+}
+
+/* Lock icons in column headers: always visible */
+.handsontable-custom .billing-todo-lock-icon,
+.handsontable-custom .patient-lock-icon,
+.handsontable-custom .ar-lock-icon,
+.providers-handsontable .provider-lock-icon {
+  opacity: 1 !important;
 }
 
 /* Bubble Select Styles for Handsontable */

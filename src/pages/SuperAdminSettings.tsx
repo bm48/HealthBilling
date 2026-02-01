@@ -776,11 +776,11 @@ function UserFormModal({
               onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
             >
-              <option value="super_admin">Super Admin</option>
+              {/* <option value="super_admin">Super Admin</option> */}
               <option value="admin">Admin</option>
-              <option value="view_only_admin">View-Only Admin</option>
+              {/* <option value="view_only_admin">View-Only Admin</option> */}
               <option value="billing_staff">Billing Staff</option>
-              <option value="view_only_billing">View-Only Billing</option>
+              {/* <option value="view_only_billing">View-Only Billing</option> */}
               <option value="provider">Provider</option>
               <option value="office_staff">Office Staff</option>
             </select>

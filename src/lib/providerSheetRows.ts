@@ -160,7 +160,9 @@ export async function fetchSheetRows(supabase: SupabaseClient, sheetId: string):
 
 /**
  * Save rows to provider_sheet_rows. Rows with id matching existing UUID are updated;
- * rows with client ids (new-*, empty-*) are inserted. Returns saved rows with real ids in same order.
+ * rows with client ids (new-*, empty-*) are inserted. Any existing DB rows for this sheet
+ * that are not in the given list are deleted (so deletes persist to the database).
+ * Returns saved rows with real ids in same order.
  */
 export async function saveSheetRows(
   supabase: SupabaseClient,
@@ -195,6 +197,22 @@ export async function saveSheetRows(
       if (error) throw error
       saved.push(dbToSheetRow(data))
     }
+  }
+
+  // Delete any rows in the DB for this sheet that are no longer in our list (so deletes persist)
+  const idsToKeep = saved.map(r => r.id)
+  const { data: existing } = await supabase
+    .from('provider_sheet_rows')
+    .select('id')
+    .eq('sheet_id', sheetId)
+  const existingIds = (existing || []).map((r: { id: string }) => r.id)
+  const idsToDelete = existingIds.filter(id => !idsToKeep.includes(id))
+  if (idsToDelete.length > 0) {
+    const { error: deleteError } = await supabase
+      .from('provider_sheet_rows')
+      .delete()
+      .in('id', idsToDelete)
+    if (deleteError) throw deleteError
   }
 
   return saved

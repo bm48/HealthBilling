@@ -70,7 +70,7 @@ export default function TodoItemCard({ todo, users, onUpdate, onComplete, onDele
   const handleUpdateStatus = async () => {
     try {
       const { error } = await supabase
-        .from('todo_list')
+        .from('todo_lists')
         .update({ status: newStatus })
         .eq('id', todo.id)
 

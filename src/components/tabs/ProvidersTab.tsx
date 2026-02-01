@@ -4,6 +4,7 @@ import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor, currencyCellRenderer, percentCellRenderer } from '@/lib/handsontableCustomRenderers'
 import { useCallback, useMemo, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { toDisplayValue } from '@/lib/utils'
 
 interface ProvidersTabProps {
@@ -23,6 +24,7 @@ interface ProvidersTabProps {
   onSaveProviderSheetRowsDirect: (providerId: string, rows: SheetRow[]) => Promise<void>
   onDeleteRow?: (providerId: string, rowId: string) => void
   onAddRowBelow?: (providerId: string, afterRowId: string) => void
+  onAddRowAbove?: (providerId: string, beforeRowId: string) => void
   onPreviousMonth: () => void
   onNextMonth: () => void
   formatMonthYear: (date: Date) => string
@@ -30,6 +32,8 @@ interface ProvidersTabProps {
   isLockProviders?: IsLockProviders | null
   onLockProviderColumn?: (columnName: string) => void
   isProviderColumnLocked?: (columnName: keyof IsLockProviders) => boolean
+  /** Called when rows are reordered by drag. Parent should update providerSheetRows for the given provider. */
+  onReorderProviderRows?: (providerId: string, movedRows: number[], finalIndex: number) => void
 }
 
 export default function ProvidersTab({
@@ -48,6 +52,7 @@ export default function ProvidersTab({
   onSaveProviderSheetRowsDirect,
   onDeleteRow,
   onAddRowBelow,
+  onAddRowAbove,
   onPreviousMonth,
   onNextMonth,
   formatMonthYear,
@@ -55,6 +60,7 @@ export default function ProvidersTab({
   isLockProviders,
   onLockProviderColumn,
   isProviderColumnLocked,
+  onReorderProviderRows,
 }: ProvidersTabProps) {
   
   // Use isLockProviders from props directly - it will update when parent refreshes
@@ -67,6 +73,11 @@ export default function ProvidersTab({
   // Get rows for the first provider (or selected provider) to display in Handsontable
   const activeProvider = providersToShow.length > 0 ? providersToShow[0] : null
   const activeProviderRows = activeProvider ? filterRowsByMonth(providerSheetRows[activeProvider.id] || []) : []
+
+  const handleProviderRowMove = useCallback((movedRows: number[], finalIndex: number) => {
+    if (!activeProvider || !onReorderProviderRows) return
+    onReorderProviderRows(activeProvider.id, movedRows, finalIndex)
+  }, [activeProvider, onReorderProviderRows])
 
   // Ref for latest table data from change handler so we don't pass stale data when parent re-renders before state updates
   const latestTableDataRef = useRef<any[][] | null>(null)
@@ -221,23 +232,24 @@ export default function ProvidersTab({
         const columnName = columnFields[columnIndex]
         const isLocked = isProviderColumnLocked ? isProviderColumnLocked(columnName) : false
 
-        // Get existing text content (use the original cell text or fallback to column title)
-        let existingText = cellText || columnTitles[columnIndex] || `Column ${columnIndex + 1}`
-
-        // Create header wrapper
-        const wrapper = document.createElement('div')
-        wrapper.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; position: relative;'
-
-        const titleSpan = document.createElement('span')
-        titleSpan.textContent = existingText
-        titleSpan.style.flex = '1'
-        wrapper.appendChild(titleSpan)
-
-        // Create lock button
+        const relative = th.querySelector('.relative')
+        if (!relative) return
+        const existingLock = relative.querySelector('.provider-lock-icon')
+        if (existingLock) existingLock.remove()
+        const rel = relative as HTMLElement
+        rel.style.display = 'flex'
+        rel.style.alignItems = 'center'
+        rel.style.justifyContent = 'space-between'
+        rel.style.gap = '4px'
+        const colHeaderSpan = relative.querySelector('.colHeader')
+        if (colHeaderSpan) {
+          ;(colHeaderSpan as HTMLElement).style.flex = '1'
+          ;(colHeaderSpan as HTMLElement).style.minWidth = '0'
+        }
         const lockButton = document.createElement('button')
         lockButton.className = 'provider-lock-icon'
         lockButton.style.cssText = `
-          opacity: 0;
+          opacity: 1;
           transition: opacity 0.2s;
           padding: 2px;
           cursor: pointer;
@@ -246,35 +258,18 @@ export default function ProvidersTab({
           display: flex;
           align-items: center;
           color: currentColor;
+          flex-shrink: 0;
         `
         lockButton.title = isLocked ? 'Click to unlock column' : 'Click to lock column'
-
-        // Lock icon SVG
-        const lockIconSvg = isLocked
+        lockButton.innerHTML = isLocked
           ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V7a6 6 0 0 1 12 0v2"></path><rect x="3" y="9" width="18" height="12" rx="2"></rect></svg>'
           : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12V7a3 3 0 0 1 6 0v5"></path><path d="M3 12h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9z"></path></svg>'
-
-        lockButton.innerHTML = lockIconSvg
         lockButton.onclick = (e) => {
           e.stopPropagation()
           e.preventDefault()
-          if (onLockProviderColumn) {
-            onLockProviderColumn(columnName as string)
-          }
+          if (onLockProviderColumn) onLockProviderColumn(columnName as string)
         }
-
-        wrapper.appendChild(lockButton)
-        th.innerHTML = ''
-        th.appendChild(wrapper)
-        th.style.position = 'relative'
-
-        // Add hover effect
-        th.addEventListener('mouseenter', () => {
-          lockButton.style.opacity = '1'
-        })
-        th.addEventListener('mouseleave', () => {
-          lockButton.style.opacity = '0'
-        })
+        relative.appendChild(lockButton)
       })
     }
 
@@ -284,19 +279,7 @@ export default function ProvidersTab({
         timeoutId = null
       }
 
-      // Remove all existing lock icons first to refresh them
-      const allLockIcons = document.querySelectorAll('.provider-lock-icon')
-      allLockIcons.forEach(icon => {
-        const th = icon.closest('th')
-        if (th) {
-          const wrapper = th.querySelector('div')
-          if (wrapper) {
-            const titleSpan = wrapper.querySelector('span')
-            const originalText = titleSpan?.textContent || ''
-            th.innerHTML = originalText
-          }
-        }
-      })
+      document.querySelectorAll('.provider-lock-icon').forEach(icon => icon.remove())
 
       // Add to main table header
       const table = document.querySelector('.providers-handsontable table.htCore')
@@ -640,10 +623,8 @@ export default function ProvidersTab({
       }
     })
     
-    // Ensure we always have 200 rows after changes
-    if (updatedRows.length > 200) {
-      updatedRows.splice(200)
-    } else if (updatedRows.length < 200) {
+    // Only pad to 200 when under 200 (allow more than 200 rows)
+    if (updatedRows.length < 200) {
       const emptyRowsNeeded = 200 - updatedRows.length
       const existingEmptyCount = updatedRows.filter(r => r.id.startsWith('empty-')).length
       const createEmptyRow = (index: number): SheetRow => ({
@@ -765,6 +746,7 @@ export default function ProvidersTab({
 
   const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
   const tableContextMenuRef = useRef<HTMLDivElement>(null)
+  const [structureVersion, setStructureVersion] = useState(0)
 
   useEffect(() => {
     if (!tableContextMenu) return
@@ -786,20 +768,32 @@ export default function ProvidersTab({
     }
   }, [activeProvider, activeProviderRows, canEdit, isProviderView])
 
-  const handleContextMenuAddRow = useCallback(() => {
+  const handleContextMenuAddRowBelow = useCallback(() => {
     if (tableContextMenu == null || !activeProvider || !onAddRowBelow) return
     const sheetRow = activeProviderRows[tableContextMenu.rowIndex]
     if (sheetRow) {
       onAddRowBelow(activeProvider.id, sheetRow.id)
+      setStructureVersion(v => v + 1)
     }
     setTableContextMenu(null)
   }, [tableContextMenu, activeProvider, activeProviderRows, onAddRowBelow])
+
+  const handleContextMenuAddRowAbove = useCallback(() => {
+    if (tableContextMenu == null || !activeProvider || !onAddRowAbove) return
+    const sheetRow = activeProviderRows[tableContextMenu.rowIndex]
+    if (sheetRow) {
+      onAddRowAbove(activeProvider.id, sheetRow.id)
+      setStructureVersion(v => v + 1)
+    }
+    setTableContextMenu(null)
+  }, [tableContextMenu, activeProvider, activeProviderRows, onAddRowAbove])
 
   const handleContextMenuDeleteRow = useCallback(() => {
     if (tableContextMenu == null || !activeProvider || !onDeleteRow) return
     const sheetRow = activeProviderRows[tableContextMenu.rowIndex]
     if (sheetRow) {
       handleDeleteProviderSheetRow(activeProvider.id, sheetRow.id)
+      setStructureVersion(v => v + 1)
     }
     setTableContextMenu(null)
   }, [tableContextMenu, activeProvider, activeProviderRows, onDeleteRow, handleDeleteProviderSheetRow])
@@ -927,12 +921,14 @@ export default function ProvidersTab({
           <HandsontableWrapper
             key={`providers-${activeProvider?.id ?? ''}-${selectedMonth.getTime()}`}
             data={getProviderRowsHandsontableData()}
+            dataVersion={structureVersion}
             columns={providerColumnsWithLocks}
             colHeaders={columnTitles}
             rowHeaders={true}
             width="100%"
             height={isInSplitScreen ? tableHeight : 600}
             afterChange={handleProviderRowsHandsontableChange}
+            onAfterRowMove={handleProviderRowMove}
             onContextMenu={handleProviderRowsHandsontableContextMenu}
             enableFormula={false}
             readOnly={!canEdit}
@@ -942,7 +938,7 @@ export default function ProvidersTab({
         )}
       </div>
 
-      {tableContextMenu != null && (
+      {tableContextMenu != null && createPortal(
         <div
           ref={tableContextMenuRef}
           className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[160px]"
@@ -950,11 +946,19 @@ export default function ProvidersTab({
         >
           <button
             type="button"
-            onClick={handleContextMenuAddRow}
+            onClick={handleContextMenuAddRowAbove}
             className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
           >
             <Plus size={16} />
-            Add row
+            Add row above
+          </button>
+          <button
+            type="button"
+            onClick={handleContextMenuAddRowBelow}
+            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
+          >
+            <Plus size={16} />
+            Add row below
           </button>
           <button
             type="button"
@@ -964,7 +968,8 @@ export default function ProvidersTab({
             <Trash2 size={16} />
             Delete row
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

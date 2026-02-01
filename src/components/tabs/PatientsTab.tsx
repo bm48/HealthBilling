@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import { Patient, IsLockPatients } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
@@ -24,7 +25,11 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   const [loading, setLoading] = useState(true)
   const patientsRef = useRef<Patient[]>([])
   const tableContainerRef = useRef<HTMLDivElement>(null)
+  /** Stable temporary patient_id per row id so multiple cell edits on a new row upsert one record, not one per edit */
+  const pendingPatientIdByRowIdRef = useRef<Map<string, string>>(new Map())
+  const savePatientsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [tableHeight, setTableHeight] = useState(600)
+  const [structureVersion, setStructureVersion] = useState(0)
   const lockData = isLockPatients || null
 
   const createEmptyPatient = useCallback((index: number): Patient => ({
@@ -51,6 +56,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         .from('patients')
         .select('*')
         .eq('clinic_id', clinicId)
+        .order('created_at', { ascending: false })
         // No sorting - preserve exact order from database (typically creation order)
 
       if (error) throw error
@@ -86,12 +92,12 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         }))
         const updated = [...preservedOrder, ...newFetchedPatients]
 
-        // Cap at 200 rows: keep non-empty rows first, then empty rows; trim any excess
+        // Keep non-empty rows first, then empty rows (allow more than 200 rows)
         const nonEmpty = updated.filter(p => !p.id.startsWith('empty-'))
         const emptyOnes = updated.filter(p => p.id.startsWith('empty-'))
-        let result = [...nonEmpty, ...emptyOnes].slice(0, 200)
+        let result = [...nonEmpty, ...emptyOnes]
 
-        // When there are no more empty rows (or fewer than 200), add empty rows to reach 200
+        // When fewer than 200 rows, add empty rows to reach 200
         const totalRows = result.length
         const emptyRowsNeeded = Math.max(0, 200 - totalRows)
         const existingEmptyCount = result.filter(p => p.id.startsWith('empty-')).length
@@ -110,6 +116,12 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   useEffect(() => {
     patientsRef.current = patients
   }, [patients])
+
+  useEffect(() => {
+    return () => {
+      if (savePatientsTimeoutRef.current) clearTimeout(savePatientsTimeoutRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (clinicId) {
@@ -151,12 +163,18 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         const patient = patientsToProcess[i]
         const oldId = patient.id // Store the old ID to find it in state
 
-        // Generate patient_id if missing
+        // Generate patient_id if missing; reuse same temp id for this row so multiple cell edits upsert one record
         let finalPatientId = patient.patient_id || ''
         if (!finalPatientId) {
-          const timestamp = Date.now().toString().slice(-6)
-          const initials = `${(patient.first_name || '').charAt(0)}${(patient.last_name || '').charAt(0)}`.toUpperCase() || 'PT'
-          finalPatientId = `${initials}${timestamp}`
+          const existing = pendingPatientIdByRowIdRef.current.get(oldId)
+          if (existing) {
+            finalPatientId = existing
+          } else {
+            const timestamp = Date.now().toString().slice(-6)
+            const initials = `${(patient.first_name || '').charAt(0)}${(patient.last_name || '').charAt(0)}`.toUpperCase() || 'PT'
+            finalPatientId = `${initials}${timestamp}`
+            pendingPatientIdByRowIdRef.current.set(oldId, finalPatientId)
+          }
         }
 
         // Prepare patient data (never send string "null" to DB)
@@ -218,11 +236,13 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       }
 
       // Update patients in place without reordering - preserve exact row positions
+      // Clear pending ref only inside setState so we don't clear before state has updated (would cause next save to generate new patient_id and insert again)
       console.log('[savePatients] Updating saved patients in place without reordering...')
       setPatients(currentPatients => {
         return currentPatients.map(patient => {
           const savedPatient = savedPatientsMap.get(patient.id)
           if (savedPatient) {
+            pendingPatientIdByRowIdRef.current.delete(patient.id)
             // Normalize string "null" from DB so table never displays "null"
             return {
               ...savedPatient,
@@ -248,6 +268,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   const handleDeletePatient = useCallback(async (patientId: string) => {
     if (patientId.startsWith('new-')) {
       setPatients(prev => prev.filter(p => p.id !== patientId))
+      setStructureVersion(v => v + 1)
       return
     }
 
@@ -260,12 +281,38 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       if (error) throw error
       
       await fetchPatients()
+      setStructureVersion(v => v + 1)
       if (onDelete) onDelete(patientId)
     } catch (error) {
       console.error('Error deleting patient:', error)
       alert(`Failed to delete patient: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }, [fetchPatients, onDelete])
+
+  // Reorder patients when user drags a row; persist order via created_at so reload preserves it
+  const handlePatientsRowMove = useCallback((movedRows: number[], finalIndex: number) => {
+    setPatients(prev => {
+      const arr = [...prev]
+      const toMove = movedRows.map(i => arr[i])
+      movedRows.sort((a, b) => b - a).forEach(i => arr.splice(i, 1))
+      const insertAt = Math.min(finalIndex, arr.length)
+      toMove.forEach((item, i) => arr.splice(insertAt + i, 0, item))
+      const next = arr
+      const realPatients = next.filter(p => !p.id.startsWith('empty-') && !p.id.startsWith('new-'))
+      if (realPatients.length > 0) {
+        const baseTime = Date.now()
+        Promise.all(
+          realPatients.map((patient, i) =>
+            supabase
+              .from('patients')
+              .update({ created_at: new Date(baseTime - i * 1000).toISOString() })
+              .eq('id', patient.id)
+          )
+        ).catch(err => console.error('Failed to persist patient order', err))
+      }
+      return next
+    })
+  }, [])
 
   const getPatientsHandsontableData = useCallback(() => {
     return patients.map(patient => [
@@ -303,16 +350,23 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         if (columnIndex === -1 || columnIndex >= columnFields.length) return
         const columnName = columnFields[columnIndex]
         const isLocked = isColumnLocked(columnName)
-        let existingText = cellText || columnTitles[columnIndex] || `Column ${columnIndex + 1}`
-        const wrapper = document.createElement('div')
-        wrapper.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; position: relative;'
-        const titleSpan = document.createElement('span')
-        titleSpan.textContent = existingText
-        titleSpan.style.flex = '1'
-        wrapper.appendChild(titleSpan)
+        const relative = th.querySelector('.relative')
+        if (!relative) return
+        const existingLock = relative.querySelector('.patient-lock-icon')
+        if (existingLock) existingLock.remove()
+        const rel = relative as HTMLElement
+        rel.style.display = 'flex'
+        rel.style.alignItems = 'center'
+        rel.style.justifyContent = 'space-between'
+        rel.style.gap = '4px'
+        const colHeaderSpan = relative.querySelector('.colHeader')
+        if (colHeaderSpan) {
+          (colHeaderSpan as HTMLElement).style.flex = '1'
+          ;(colHeaderSpan as HTMLElement).style.minWidth = '0'
+        }
         const lockButton = document.createElement('button')
         lockButton.className = 'patient-lock-icon'
-        lockButton.style.cssText = 'opacity: 0; transition: opacity 0.2s; padding: 2px; cursor: pointer; background: transparent; border: none; display: flex; align-items: center; color: currentColor;'
+        lockButton.style.cssText = 'opacity: 1; transition: opacity 0.2s; padding: 2px; cursor: pointer; background: transparent; border: none; display: flex; align-items: center; color: currentColor; flex-shrink: 0;'
         lockButton.title = isLocked ? 'Click to unlock column' : 'Click to lock column'
         lockButton.innerHTML = isLocked
           ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V7a6 6 0 0 1 12 0v2"></path><rect x="3" y="9" width="18" height="12" rx="2"></rect></svg>'
@@ -322,12 +376,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           e.preventDefault()
           onLockColumn(columnName as string)
         }
-        wrapper.appendChild(lockButton)
-        th.innerHTML = ''
-        th.appendChild(wrapper)
-        th.style.position = 'relative'
-        th.addEventListener('mouseenter', () => { lockButton.style.opacity = '1' })
-        th.addEventListener('mouseleave', () => { lockButton.style.opacity = '0' })
+        relative.appendChild(lockButton)
       })
     }
 
@@ -336,16 +385,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         clearTimeout(timeoutId)
         timeoutId = null
       }
-      document.querySelectorAll('.patient-lock-icon').forEach(icon => {
-        const th = icon.closest('th')
-        if (th) {
-          const wrapper = th.querySelector('div')
-          if (wrapper) {
-            const titleSpan = wrapper.querySelector('span')
-            th.innerHTML = titleSpan?.textContent || ''
-          }
-        }
-      })
+      document.querySelectorAll('.patient-lock-icon').forEach(icon => icon.remove())
       const table = document.querySelector('.handsontable-custom table.htCore')
       if (table) {
         const headerRow = table.querySelector('thead tr')
@@ -413,9 +453,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       }
     })
 
-    if (updatedPatients.length > 200) {
-      updatedPatients.splice(200)
-    } else if (updatedPatients.length < 200) {
+    if (updatedPatients.length < 200) {
       const emptyRowsNeeded = 200 - updatedPatients.length
       const existingEmptyCount = updatedPatients.filter(p => p.id.startsWith('empty-')).length
       updatedPatients.push(...Array.from({ length: emptyRowsNeeded }, (_, i) => createEmptyPatient(existingEmptyCount + i)))
@@ -423,11 +461,15 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
 
     patientsRef.current = updatedPatients
     setPatients(updatedPatients)
-    setTimeout(() => {
-      savePatients(updatedPatients).catch(err => {
+
+    // Debounce save so typing multiple cells on a new row upserts one record, not one per cell
+    if (savePatientsTimeoutRef.current) clearTimeout(savePatientsTimeoutRef.current)
+    savePatientsTimeoutRef.current = setTimeout(() => {
+      savePatientsTimeoutRef.current = null
+      savePatients(patientsRef.current).catch(err => {
         console.error('[handlePatientsHandsontableChange] Error in savePatients:', err)
       })
-    }, 0)
+    }, 500)
   }, [patients, savePatients, createEmptyPatient])
 
   const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
@@ -453,18 +495,34 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
     }
   }, [patients, canEdit])
 
-  const handleContextMenuAddRow = useCallback(() => {
+  const handleContextMenuAddRowBelow = useCallback(() => {
     if (tableContextMenu == null) return
     const { rowIndex } = tableContextMenu
     const existingEmptyCount = patients.filter(p => p.id.startsWith('empty-')).length
     const newRow = createEmptyPatient(existingEmptyCount)
     const updated = [...patients.slice(0, rowIndex + 1), newRow, ...patients.slice(rowIndex + 1)]
-    const capped = updated.length > 200 ? updated.slice(0, 200) : updated
-    const toSave = capped.length < 200
-      ? [...capped, ...Array.from({ length: 200 - capped.length }, (_, i) => createEmptyPatient(existingEmptyCount + 1 + i))]
-      : capped
+    const toSave = updated.length < 200
+      ? [...updated, ...Array.from({ length: 200 - updated.length }, (_, i) => createEmptyPatient(existingEmptyCount + 1 + i))]
+      : updated
     patientsRef.current = toSave
     setPatients(toSave)
+    setStructureVersion(v => v + 1)
+    savePatients(toSave).catch(err => console.error('savePatients after add row', err))
+    setTableContextMenu(null)
+  }, [tableContextMenu, patients, createEmptyPatient, savePatients])
+
+  const handleContextMenuAddRowAbove = useCallback(() => {
+    if (tableContextMenu == null) return
+    const { rowIndex } = tableContextMenu
+    const existingEmptyCount = patients.filter(p => p.id.startsWith('empty-')).length
+    const newRow = createEmptyPatient(existingEmptyCount)
+    const updated = [...patients.slice(0, rowIndex), newRow, ...patients.slice(rowIndex)]
+    const toSave = updated.length < 200
+      ? [...updated, ...Array.from({ length: 200 - updated.length }, (_, i) => createEmptyPatient(existingEmptyCount + 1 + i))]
+      : updated
+    patientsRef.current = toSave
+    setPatients(toSave)
+    setStructureVersion(v => v + 1)
     savePatients(toSave).catch(err => console.error('savePatients after add row', err))
     setTableContextMenu(null)
   }, [tableContextMenu, patients, createEmptyPatient, savePatients])
@@ -482,9 +540,10 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       const existingEmpty = updated.filter(p => p.id.startsWith('empty-')).length
       const toSave = emptyNeeded > existingEmpty
         ? [...updated, ...Array.from({ length: emptyNeeded - existingEmpty }, (_, i) => createEmptyPatient(existingEmpty + i))]
-        : updated.slice(0, 200)
+        : updated
       patientsRef.current = toSave
       setPatients(toSave)
+      setStructureVersion(v => v + 1)
       savePatients(toSave).catch(err => console.error('savePatients after delete row', err))
     } else {
       handleDeletePatient(patient.id)
@@ -535,12 +594,14 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         <HandsontableWrapper
           key={`patients-${clinicId}`}
           data={getPatientsHandsontableData()}
+          dataVersion={structureVersion}
           columns={patientsColumns}
           colHeaders={columnTitles}
           rowHeaders={true}
           width="100%"
           height={isInSplitScreen ? tableHeight : 600}
           afterChange={handlePatientsHandsontableChange}
+          onAfterRowMove={handlePatientsRowMove}
           onContextMenu={handlePatientsHandsontableContextMenu}
           enableFormula={true}
           readOnly={!canEdit}
@@ -549,7 +610,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         />
       </div>
 
-      {tableContextMenu != null && (
+      {tableContextMenu != null && createPortal(
         <div
           ref={tableContextMenuRef}
           className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[160px]"
@@ -557,11 +618,19 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         >
           <button
             type="button"
-            onClick={handleContextMenuAddRow}
+            onClick={handleContextMenuAddRowAbove}
             className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
           >
             <Plus size={16} />
-            Add row
+            Add row above
+          </button>
+          <button
+            type="button"
+            onClick={handleContextMenuAddRowBelow}
+            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
+          >
+            <Plus size={16} />
+            Add row below
           </button>
           <button
             type="button"
@@ -571,7 +640,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
             <Trash2 size={16} />
             Delete row
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

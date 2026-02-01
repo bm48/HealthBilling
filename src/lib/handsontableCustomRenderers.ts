@@ -103,71 +103,65 @@ export function createBubbleDropdownRenderer(colorMap: (value: string) => { colo
     td.style.position = 'relative'
     
     const displayValue = value ? String(value) : ''
-    
-    if (displayValue) {
-      const colorConfig = colorMap(displayValue)
-      
-      // Wrapper: flex row so bubble can shrink and icon always has space to its right
-      const wrapper = document.createElement('div')
-      wrapper.style.display = 'flex'
-      wrapper.style.alignItems = 'center'
-      wrapper.style.width = '100%'
-      wrapper.style.gap = '8px'
-      wrapper.style.minWidth = '0'
-      
-      // Create bubble element (flex: 1 so it shrinks; icon keeps reserved space)
-      const bubble = document.createElement('span')
-      bubble.className = 'handsontable-bubble-select'
-      
-      const textSpan = document.createElement('span')
-      textSpan.textContent = displayValue
-      textSpan.style.overflow = 'hidden'
-      textSpan.style.textOverflow = 'ellipsis'
-      textSpan.style.whiteSpace = 'nowrap'
-      
-      // Down arrow icon – flex-shrink: 0 so it never overlaps the bubble
-      const arrowIcon = document.createElement('span')
-      arrowIcon.innerHTML = '▼'
-      arrowIcon.style.fontSize = '10px'
-      arrowIcon.style.opacity = '0.7'
-      arrowIcon.style.verticalAlign = 'middle'
-      arrowIcon.style.flexShrink = '0'
-      
-      bubble.appendChild(textSpan)
-      wrapper.appendChild(bubble)
-      wrapper.appendChild(arrowIcon)
-      
-      // Bubble styles – flex: 1 minWidth: 0 so it can shrink and ellipsis when needed
-      bubble.style.display = 'inline-flex'
-      bubble.style.alignItems = 'center'
-      bubble.style.flex = '1'
-      bubble.style.minWidth = '0'
-      bubble.style.padding = '4px 12px'
-      bubble.style.borderRadius = '16px'
-      bubble.style.fontSize = '13px'
-      bubble.style.fontWeight = '500'
-      bubble.style.lineHeight = '1.4'
-      bubble.style.whiteSpace = 'nowrap'
-      bubble.style.overflow = 'hidden'
-      bubble.style.textOverflow = 'ellipsis'
-      bubble.style.cursor = cellProperties.readOnly ? 'default' : 'pointer'
-      
-      // Apply colors from colorMap
-      if (colorConfig) {
-        bubble.style.backgroundColor = colorConfig.color
-        bubble.style.color = colorConfig.textColor
-        arrowIcon.style.color = colorConfig.color
-      } else {
-        bubble.style.backgroundColor = '#e5e7eb'
-        bubble.style.color = '#374151'
-        arrowIcon.style.color = '#374151'
-      }
-      
-      td.appendChild(wrapper)
+    const colorConfig = displayValue ? colorMap(displayValue) : null
+
+    // Wrapper: flex row so bubble can shrink and icon always has space to its right
+    const wrapper = document.createElement('div')
+    wrapper.style.display = 'flex'
+    wrapper.style.alignItems = 'center'
+    wrapper.style.width = '100%'
+    wrapper.style.gap = '8px'
+    wrapper.style.minWidth = '0'
+
+    // Create bubble element (flex: 1 so it shrinks; icon keeps reserved space)
+    const bubble = document.createElement('span')
+    bubble.className = 'handsontable-bubble-select'
+
+    const textSpan = document.createElement('span')
+    textSpan.textContent = displayValue
+    textSpan.style.overflow = 'hidden'
+    textSpan.style.textOverflow = 'ellipsis'
+    textSpan.style.whiteSpace = 'nowrap'
+
+    // Down arrow icon – always show so user knows it's a select column (even when empty)
+    const arrowIcon = document.createElement('span')
+    arrowIcon.innerHTML = '▼'
+    arrowIcon.style.fontSize = '10px'
+    arrowIcon.style.opacity = '0.7'
+    arrowIcon.style.verticalAlign = 'middle'
+    arrowIcon.style.flexShrink = '0'
+
+    bubble.appendChild(textSpan)
+    wrapper.appendChild(bubble)
+    wrapper.appendChild(arrowIcon)
+
+    // Bubble styles – flex: 1 minWidth: 0 so it can shrink and ellipsis when needed
+    bubble.style.display = 'inline-flex'
+    bubble.style.alignItems = 'center'
+    bubble.style.flex = '1'
+    bubble.style.minWidth = '0'
+    bubble.style.padding = '4px 12px'
+    bubble.style.borderRadius = '16px'
+    bubble.style.fontSize = '13px'
+    bubble.style.fontWeight = '500'
+    bubble.style.lineHeight = '1.4'
+    bubble.style.whiteSpace = 'nowrap'
+    bubble.style.overflow = 'hidden'
+    bubble.style.textOverflow = 'ellipsis'
+    bubble.style.cursor = cellProperties.readOnly ? 'default' : 'pointer'
+
+    // Apply colors from colorMap (empty uses default gray)
+    if (colorConfig) {
+      bubble.style.backgroundColor = colorConfig.color
+      bubble.style.color = colorConfig.textColor
+      arrowIcon.style.color = colorConfig.color
     } else {
-      // Empty cell - just set empty content
-      td.textContent = ''
+      bubble.style.backgroundColor = 'white'
+      bubble.style.color = '#374151'
+      arrowIcon.style.color = '#374151'
     }
+
+    td.appendChild(wrapper)
   }
 }
 
@@ -198,17 +192,17 @@ export function createMultiBubbleDropdownRenderer(colorMap: (value: string) => {
     const raw = value ? String(value) : ''
     const parts = raw ? raw.split(',').map((s: string) => s.trim()).filter(Boolean) : []
 
-    if (parts.length > 0) {
-      const wrapper = document.createElement('div')
-      wrapper.style.display = 'flex'
-      wrapper.style.flexWrap = 'nowrap'
-      wrapper.style.overflow = 'hidden'
+    const wrapper = document.createElement('div')
+    wrapper.style.display = 'flex'
+    wrapper.style.flexWrap = 'nowrap'
+    wrapper.style.overflow = 'hidden'
+    wrapper.style.gap = '6px'
+    wrapper.style.alignItems = 'center'
+    wrapper.style.minHeight = '100%'
+    wrapper.style.position = 'relative'
+    wrapper.style.marginRight = '15px'
 
-      wrapper.style.gap = '6px'
-      wrapper.style.alignItems = 'center'
-      wrapper.style.minHeight = '100%'
-      wrapper.style.position = 'relative'
-      wrapper.style.marginRight = '15px'
+    if (parts.length > 0) {
       parts.forEach((code: string) => {
         const colorConfig = colorMap(code)
         const bubble = document.createElement('span')
@@ -238,21 +232,21 @@ export function createMultiBubbleDropdownRenderer(colorMap: (value: string) => {
         }
         wrapper.appendChild(bubble)
       })
-      const arrow = document.createElement('span')
-      arrow.innerHTML = '▼'
-      arrow.style.fontSize = '10px'
-      arrow.style.opacity = '0.7'
-      arrow.style.marginLeft = '2px'
-      arrow.style.position = 'absolute'
-      arrow.style.right = '4px'
-      arrow.style.top = '50%'
-      arrow.style.zIndex = '1001'
-      arrow.style.transform = 'translateY(-50%)'
-      td.appendChild(arrow)
-      td.appendChild(wrapper)
-    } else {
-      td.textContent = ''
     }
+
+    // Arrow icon – always show so user knows it's a select column (even when empty)
+    const arrow = document.createElement('span')
+    arrow.innerHTML = '▼'
+    arrow.style.fontSize = '10px'
+    arrow.style.opacity = '0.7'
+    arrow.style.marginLeft = '2px'
+    arrow.style.position = 'absolute'
+    arrow.style.right = '4px'
+    arrow.style.top = '50%'
+    arrow.style.zIndex = '1001'
+    arrow.style.transform = 'translateY(-50%)'
+    td.appendChild(arrow)
+    td.appendChild(wrapper)
   }
 }
 

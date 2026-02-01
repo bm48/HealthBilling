@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
@@ -1657,6 +1658,59 @@ export default function ClinicDetail() {
     await saveProviderSheetRows(providerId, rowsAfterDelete)
   }, [saveProviderSheetRows])
 
+  const handleAddProviderRowAbove = useCallback((providerId: string, beforeRowId: string) => {
+    const rows = providerSheetRows[providerId] || []
+    const idx = rows.findIndex(r => r.id === beforeRowId)
+    if (idx < 0) return
+    const createEmptyRow = (): SheetRow => ({
+      id: `empty-${providerId}-${Date.now()}`,
+      patient_id: null,
+      patient_first_name: null,
+      patient_last_name: null,
+      patient_insurance: null,
+      patient_copay: null,
+      patient_coinsurance: null,
+      appointment_date: null,
+      appointment_time: null,
+      visit_type: null,
+      notes: null,
+      billing_code: null,
+      billing_code_color: null,
+      appointment_status: null,
+      appointment_status_color: null,
+      claim_status: null,
+      claim_status_color: null,
+      submit_date: null,
+      insurance_payment: null,
+      insurance_adjustment: null,
+      invoice_amount: null,
+      collected_from_patient: null,
+      patient_pay_status: null,
+      patient_pay_status_color: null,
+      payment_date: null,
+      payment_date_color: null,
+      ar_type: null,
+      ar_amount: null,
+      ar_date: null,
+      ar_date_color: null,
+      ar_notes: null,
+      provider_payment_amount: null,
+      provider_payment_date: null,
+      provider_payment_notes: null,
+      highlight_color: null,
+      total: null,
+      last_initial: null,
+      cpt_code: null,
+      cpt_code_color: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    const newRow = createEmptyRow()
+    const newRows = [...rows.slice(0, idx), newRow, ...rows.slice(idx)]
+    setProviderSheetRows(prev => ({ ...prev, [providerId]: newRows }))
+    saveProviderSheetRows(providerId, newRows).catch(err => console.error('Failed to save after add row', err))
+  }, [providerSheetRows, saveProviderSheetRows])
+
   const handleAddProviderRowBelow = useCallback((providerId: string, afterRowId: string) => {
     const rows = providerSheetRows[providerId] || []
     const idx = rows.findIndex(r => r.id === afterRowId)
@@ -1714,6 +1768,19 @@ export default function ClinicDetail() {
   const saveProviderSheetRowsDirect = useCallback(async (providerId: string, rowsToSave: SheetRow[]) => {
     await saveProviderSheetRows(providerId, rowsToSave)
   }, [saveProviderSheetRows])
+
+  const handleReorderProviderRows = useCallback((providerId: string, movedRows: number[], finalIndex: number) => {
+    const rows = providerSheetRows[providerId] || []
+    const arr = [...rows]
+    const toMove = movedRows.map(i => arr[i])
+    const sorted = [...movedRows].sort((a, b) => b - a)
+    sorted.forEach(i => arr.splice(i, 1))
+    const insertAt = Math.min(finalIndex, arr.length)
+    toMove.forEach((item, i) => arr.splice(insertAt + i, 0, item))
+    const newRows = arr
+    setProviderSheetRows(prev => ({ ...prev, [providerId]: newRows }))
+    saveProviderSheetRows(providerId, newRows).catch(err => console.error('Failed to persist provider row order', err))
+  }, [providerSheetRows, saveProviderSheetRows])
 
   const handleTabChange = (tab: TabType) => {
     if (splitScreen) {
@@ -1807,6 +1874,7 @@ export default function ClinicDetail() {
             onSaveProviderSheetRowsDirect={saveProviderSheetRowsDirect}
             onDeleteRow={handleDeleteProviderSheetRow}
             onAddRowBelow={handleAddProviderRowBelow}
+            onAddRowAbove={handleAddProviderRowAbove}
             onPreviousMonth={handlePreviousMonth}
             onNextMonth={handleNextMonth}
             formatMonthYear={formatMonthYear}
@@ -1822,6 +1890,7 @@ export default function ClinicDetail() {
               setShowLockDialog(true)
             }}
             isProviderColumnLocked={isProviderColumnLocked}
+            onReorderProviderRows={handleReorderProviderRows}
           />
         )
       default:
@@ -1853,20 +1922,22 @@ export default function ClinicDetail() {
     }
   }, [contextMenu, tabContextMenu])
   
-  // Handle tab context menu
+  // Handle tab context menu (Patients tab does not support split screen)
   const handleTabContextMenu = (e: React.MouseEvent, tab: TabType) => {
-    // Allow split screen for all tabs
+    if (tab === 'patients') return // No split screen for Patients tab
     e.preventDefault()
     e.stopPropagation()
     setTabContextMenu({ x: e.clientX, y: e.clientY, tab })
   }
   
-  // Tab order for cycling in split screen (left/right Switch)
-  const TAB_ORDER: TabType[] = ['patients', 'todo', 'providers', 'accounts_receivable']
+  // Tab order for cycling in split screen (left/right Switch) — exclude patients so Switch never changes the Patients pane
+  const SPLIT_SCREEN_TAB_ORDER: TabType[] = ['todo', 'providers', 'accounts_receivable']
   const getNextTab = (current: TabType, skip?: TabType): TabType => {
-    const i = TAB_ORDER.indexOf(current)
-    let next = TAB_ORDER[(i + 1) % TAB_ORDER.length]
-    if (skip && next === skip) next = TAB_ORDER[(i + 2) % TAB_ORDER.length]
+    if (current === 'patients') return 'patients' // Never switch away from Patients when clicking Switch
+    const i = SPLIT_SCREEN_TAB_ORDER.indexOf(current)
+    if (i === -1) return current
+    let next = SPLIT_SCREEN_TAB_ORDER[(i + 1) % SPLIT_SCREEN_TAB_ORDER.length]
+    if (skip && next === skip) next = SPLIT_SCREEN_TAB_ORDER[(i + 2) % SPLIT_SCREEN_TAB_ORDER.length]
     return next
   }
   const getTabLabel = (tab: TabType) =>
@@ -2161,12 +2232,12 @@ export default function ClinicDetail() {
         )}
       </div>
 
-      {/* Tab Context Menu */}
-      {tabContextMenu && (
+      {/* Tab Context Menu - portaled to body so position:fixed uses viewport coordinates */}
+      {tabContextMenu && createPortal(
         <div
           ref={tabContextMenuRef}
           className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[150px]"
-                                style={{ 
+          style={{
             left: `${tabContextMenu.x}px`,
             top: `${tabContextMenu.y}px`,
           }}
@@ -2178,28 +2249,30 @@ export default function ClinicDetail() {
             <FileText size={16} />
             To Split Screen
           </button>
-                                </div>
+        </div>,
+        document.body
       )}
 
-      {/* Context Menu */}
-      {contextMenu && (
+      {/* Context Menu - portaled to body so position:fixed uses viewport coordinates */}
+      {contextMenu && createPortal(
         <div
           ref={contextMenuRef}
           className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[150px]"
-                              style={{ 
+          style={{
             left: `${contextMenu.x}px`,
             top: `${contextMenu.y}px`,
           }}
         >
-                              <button
+          <button
             onClick={handleContextMenuDelete}
             className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
-                              >
-                                <Trash2 size={16} />
+          >
+            <Trash2 size={16} />
             Delete Row
-                              </button>
-          </div>
-        )}
+          </button>
+        </div>,
+        document.body
+      )}
 
       {/* Column Lock Dialog */}
       {showLockDialog && selectedLockColumn && (

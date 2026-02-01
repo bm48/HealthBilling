@@ -79,7 +79,7 @@ export default function BillingTodo() {
     fetchingRef.current = true
     try {
       let query = supabase
-        .from('todo_list')
+        .from('todo_lists')
         .select('*')
         .is('completed_at', null)
         .order('created_at', { ascending: false })
@@ -183,7 +183,7 @@ export default function BillingTodo() {
       // Create new todos
       for (const todo of newTodosToCreate) {
         const { error } = await supabase
-          .from('todo_list')
+          .from('todo_lists')
           .insert({
             clinic_id: todo.clinic_id,
             issue: todo.issue,
@@ -202,7 +202,7 @@ export default function BillingTodo() {
       // Update existing todos that have changed
       for (const todo of todosToUpdate) {
         const { error } = await supabase
-          .from('todo_list')
+          .from('todo_lists')
           .update({
             issue: todo.issue,
             status: todo.status,
@@ -406,7 +406,7 @@ export default function BillingTodo() {
 
     try {
       const { error } = await supabase
-        .from('todo_list')
+        .from('todo_lists')
         .delete()
         .eq('id', todoId)
 

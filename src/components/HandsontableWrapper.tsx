@@ -5,6 +5,29 @@ import { HyperFormula } from 'hyperformula'
 import { DateEditor } from '@/lib/handsontableCustomRenderers'
 import 'handsontable/dist/handsontable.full.css'
 
+/** Copy row heights from main table to row header clone so the row number column matches data row heights. */
+function syncRowHeaderHeightsToClone(hot: Handsontable) {
+  const root = hot?.rootElement
+  if (!root) return
+  const mainTbody = root.querySelector('.ht_master .wtHolder .wtHider table.htCore tbody') as HTMLElement | null
+  const cloneTbody =
+    (root.querySelector('.ht_clone_left .wtHolder .wtHider table.htCore tbody') as HTMLElement | null) ||
+    (root.querySelector('.ht_clone_left table.htCore tbody') as HTMLElement | null)
+  if (!mainTbody || !cloneTbody) return
+  const mainRows = mainTbody.querySelectorAll('tr')
+  const cloneRows = cloneTbody.querySelectorAll('tr')
+  const count = Math.min(mainRows.length, cloneRows.length)
+  for (let i = 0; i < count; i++) {
+    const mainTr = mainRows[i] as HTMLTableRowElement
+    const cloneTr = cloneRows[i] as HTMLTableRowElement
+    const h = mainTr.offsetHeight
+    if (h > 0) {
+      cloneTr.style.height = `${h}px`
+      cloneTr.style.minHeight = `${h}px`
+    }
+  }
+}
+
 interface HandsontableWrapperProps {
   data: any[][]
   columns: Array<{
@@ -41,6 +64,12 @@ interface HandsontableWrapperProps {
   enableFormula?: boolean
   onContextMenu?: (row: number, col: number, event: MouseEvent) => void
   readOnly?: boolean
+  /** Bump when rows are added/removed so the grid refreshes (e.g. context-menu add/delete) */
+  dataVersion?: number
+  /** Called when rows are reordered by drag (manualRowMove). movedRows = source indexes, finalIndex = index of first moved row after drop */
+  onAfterRowMove?: (movedRows: number[], finalIndex: number) => void
+  /** When set to a row index (0-based), the grid will scroll to that row after the next data/version update, then clear the ref */
+  scrollToRowAfterUpdateRef?: React.MutableRefObject<number | null>
 }
 
 export default function HandsontableWrapper({
@@ -59,6 +88,9 @@ export default function HandsontableWrapper({
   enableFormula = false,
   onContextMenu,
   readOnly = false,
+  dataVersion = 0,
+  onAfterRowMove,
+  scrollToRowAfterUpdateRef,
 }: HandsontableWrapperProps) {
   const hotTableRef = useRef<any>(null)
   const hyperformulaInstanceRef = useRef<HyperFormula | null>(null)
@@ -66,6 +98,7 @@ export default function HandsontableWrapper({
   const dataRef = useRef(data)
   dataRef.current = data
   const prevDataLengthRef = useRef(data.length)
+  const prevDataVersionRef = useRef(dataVersion)
   // Stable ref for settings.data so HotTable doesn't overwrite grid on every re-render (avoids stale data wiping typed input)
   const dataForSettingsRef = useRef(data)
 
@@ -94,18 +127,34 @@ export default function HandsontableWrapper({
   useEffect(() => {
     if (dataRef.current.length > 0 && hotTableRef.current?.hotInstance) {
       const hotInstance = hotTableRef.current.hotInstance
-      // Only push data when row count changes (e.g. new rows); avoid overwriting during typing
-      if (prevDataLengthRef.current !== dataRef.current.length) {
+      // Push data when row count or dataVersion changes (e.g. add/delete row); avoid overwriting during typing otherwise
+      const lengthChanged = prevDataLengthRef.current !== dataRef.current.length
+      const versionChanged = prevDataVersionRef.current !== dataVersion
+      if (lengthChanged || versionChanged) {
         prevDataLengthRef.current = dataRef.current.length
+        prevDataVersionRef.current = dataVersion
         hotInstance.updateSettings({
           data: dataRef.current
         })
         dataForSettingsRef.current = dataRef.current
+        // Scroll to requested row (e.g. after "Add row" so the new row is visible)
+        const rowToScroll = scrollToRowAfterUpdateRef?.current
+        if (typeof rowToScroll === 'number' && rowToScroll >= 0 && rowToScroll < dataRef.current.length) {
+          if (scrollToRowAfterUpdateRef) scrollToRowAfterUpdateRef.current = null
+          requestAnimationFrame(() => {
+            try {
+              hotInstance.selectCell(rowToScroll, 0, rowToScroll, 0, true)
+            } catch {
+              // ignore if instance or row no longer valid
+            }
+          })
+        }
       }
     } else {
       prevDataLengthRef.current = dataRef.current.length
+      prevDataVersionRef.current = dataVersion
     }
-  }, [data.length])
+  }, [data.length, dataVersion, scrollToRowAfterUpdateRef])
   
   // Process columns to handle numeric type and custom renderers/editors
   const processedColumns = useMemo(() => columns.map(col => {
@@ -208,8 +257,8 @@ export default function HandsontableWrapper({
     renderAllRows: false,
     // Ensure Handsontable recognizes all rows for virtual scrolling
     minSpareRows: 0,
-    // Set fixed row height to prevent auto-resizing
-    rowHeights: undefined, // Let CSS control it, but we'll set a fixed height in CSS
+    // Default row height; can still grow when Handsontable sets larger height (e.g. dropdown/select)
+    rowHeights: 24,
     outsideClickDeselects: true,
     
     // Keyboard shortcuts configuration
@@ -256,8 +305,11 @@ export default function HandsontableWrapper({
     manualColumnResize: true,
     manualRowResize: true,
     
-    // Column sorting
-    columnSorting: true,
+    // Column sorting: show sort icon in headers, click header to sort
+    columnSorting: {
+      indicator: true,
+      headerAction: true,
+    },
     
     // Auto column width
     autoColumnSize: {
@@ -303,6 +355,11 @@ export default function HandsontableWrapper({
       direction: 'vertical',
       autoInsertRow: true,
     },
+    // Drag row by row header to reorder
+    manualRowMove: true,
+    afterRowMove: (movedRows, finalIndex) => {
+      if (onAfterRowMove) onAfterRowMove(movedRows, finalIndex)
+    },
     
     // Custom keyboard shortcuts
     customBorders: true,
@@ -315,6 +372,14 @@ export default function HandsontableWrapper({
     
     // Enable comments
     comments: false,
+
+    // Sync row heights from main table to row header clone so they always match (e.g. when select/dropdown expands a row)
+    afterRender: function (this: Handsontable) {
+      syncRowHeaderHeightsToClone(this)
+    },
+    afterScrollVertically: function (this: Handsontable) {
+      syncRowHeaderHeightsToClone(this)
+    },
   }
   
   // Add Ctrl+D (or Cmd+D on Mac) keyboard shortcut for fill down
@@ -405,85 +470,79 @@ export default function HandsontableWrapper({
     }
   }, [afterChange])
 
-  // Enable single-click editing for dropdown cells
+  // Single-click to open dropdown: on mousedown select cell and open editor immediately
   useEffect(() => {
     if (!hotTableRef.current?.hotInstance) return
-    
+
     const hotInstance = hotTableRef.current.hotInstance
-    
+
     const handleCellMouseDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement
       const cell = target.closest('td')
       if (!cell) return
-      
-      // Skip if clicking on header cells or other non-data cells
-      if (cell.closest('thead') || cell.closest('.ht_clone_top') || cell.closest('.ht_clone_left')) {
-        return
-      }
-      
-      // Get cell coordinates using getCoords with proper error handling
+
+      if (cell.closest('thead') || cell.closest('.ht_clone_top') || cell.closest('.ht_clone_left')) return
+
       let row: number | null = null
       let col: number | null = null
-      
       try {
         const coords = hotInstance.getCoords(cell)
-        // Check if coords is a valid array-like object
         if (coords && Array.isArray(coords) && coords.length >= 2) {
           row = coords[0]
           col = coords[1]
         }
-      } catch (error) {
-        // If getCoords fails, try alternative method using row/col indices
+      } catch {
         try {
           const rowElement = cell.closest('tr')
-          if (rowElement && rowElement.parentElement) {
+          if (rowElement?.parentElement) {
             const tbody = rowElement.parentElement
             const rowIndex = Array.from(tbody.children).indexOf(rowElement)
             const cellIndex = Array.from(rowElement.cells).indexOf(cell as HTMLTableCellElement)
-            
             if (rowIndex >= 0 && cellIndex >= 0) {
-              // Adjust for row headers if present
               const hasRowHeaders = hotInstance.getSettings().rowHeaders
               row = hasRowHeaders ? rowIndex : rowIndex
               col = hasRowHeaders ? cellIndex - 1 : cellIndex
             }
           }
-        } catch (e) {
+        } catch {
           return
         }
       }
-      
-      // Validate coordinates
+
       if (row === null || col === null || row < 0 || col < 0) return
-      
-      // Check if the cell has a dropdown editor
+
       try {
         const cellProperties = hotInstance.getCellMeta(row, col)
-        if (cellProperties && (cellProperties.type === 'dropdown' || cellProperties.editor === 'select')) {
-          // Only trigger if clicking on the bubble or cell, not if already editing
-          if (!hotInstance.isEditing()) {
-            event.preventDefault()
-            event.stopPropagation()
-            
-            // Select the cell and open editor
-            hotInstance.selectCell(row, col)
-            setTimeout(() => {
-              const editor = hotInstance.getActiveEditor()
-              if (editor) {
-                editor.beginEditing()
+        const isDropdown =
+          cellProperties &&
+          (cellProperties.type === 'dropdown' || cellProperties.editor === 'select' || (cellProperties as any).selectOptions)
+        if (isDropdown && !hotInstance.isEditing()) {
+          event.preventDefault()
+          event.stopPropagation()
+          hotInstance.selectCell(row, col)
+          // Open editor on next tick so Handsontable has created the editor for the selected cell
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              try {
+                if ((hotInstance as any).isDestroyed) return
+                const editor = hotInstance.getActiveEditor()
+                if (editor && typeof editor.beginEditing === 'function') {
+                  editor.beginEditing()
+                }
+              } catch {
+                // ignore
               }
-            }, 10)
-          }
+            })
+          })
         }
-      } catch (error) {
-        // Silently fail if cell meta cannot be retrieved
-        return
+      } catch {
+        // ignore
       }
     }
-    
+
     const rootElement = hotInstance.rootElement
     rootElement.addEventListener('mousedown', handleCellMouseDown, true)
-    
+
     return () => {
       rootElement.removeEventListener('mousedown', handleCellMouseDown, true)
     }
@@ -513,6 +572,43 @@ export default function HandsontableWrapper({
       }
     }
   }, [onContextMenu])
+
+  // Round horizontal scroll to whole pixels so column header clone stays aligned with body (no text shift)
+  useEffect(() => {
+    if (!hotTableRef.current?.hotInstance) return
+    const hotInstance = hotTableRef.current.hotInstance
+    const holder = hotInstance.rootElement?.querySelector('.ht_master .wtHolder') as HTMLElement | null
+    if (!holder) return
+    let rafId = 0
+    const onScroll = () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        const left = holder.scrollLeft
+        const rounded = Math.round(left)
+        if (rounded !== left) holder.scrollLeft = rounded
+      })
+    }
+    holder.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      holder.removeEventListener('scroll', onScroll)
+      if (rafId) cancelAnimationFrame(rafId)
+    }
+  }, [])
+
+  // Sync row header column heights to match data rows (after render and when data changes)
+  useEffect(() => {
+    const hot = hotTableRef.current?.hotInstance
+    if (!hot?.rootElement) return
+    const run = () => syncRowHeaderHeightsToClone(hot)
+    run()
+    const t1 = requestAnimationFrame(run)
+    const t2 = setTimeout(run, 100)
+    return () => {
+      cancelAnimationFrame(t1)
+      clearTimeout(t2)
+    }
+  }, [data.length, dataVersion])
 
   return (
     <div style={style} className={className}>

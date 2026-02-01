@@ -63,7 +63,7 @@ export default function Dashboard() {
         supabase.from('clinics').select('id', { count: 'exact', head: true }),
         supabase.from('patients').select('id', { count: 'exact', head: true }),
         supabase.from('users').select('id', { count: 'exact', head: true }),
-        supabase.from('todo_list').select('id, completed_at', { count: 'exact' }),
+        supabase.from('todo_lists').select('id, completed_at', { count: 'exact' }),
         supabase.from('provider_sheets').select('id', { count: 'exact', head: true }),
       ])
 
