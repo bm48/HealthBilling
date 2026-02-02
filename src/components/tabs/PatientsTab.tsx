@@ -312,6 +312,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       }
       return next
     })
+    setStructureVersion(v => v + 1)
   }, [])
 
   const getPatientsHandsontableData = useCallback(() => {

@@ -30,6 +30,7 @@ export default function ClinicDetail() {
   const [providers, setProviders] = useState<Provider[]>([])
   const [providerSheets, setProviderSheets] = useState<Record<string, ProviderSheet>>({})
   const [providerSheetRows, setProviderSheetRows] = useState<Record<string, SheetRow[]>>({})
+  const [providerRowsVersion, setProviderRowsVersion] = useState(0)
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])
   const [statusColors, setStatusColors] = useState<StatusColor[]>([])
   const [columnLocks, setColumnLocks] = useState<ColumnLock[]>([])
@@ -1779,6 +1780,7 @@ export default function ClinicDetail() {
     toMove.forEach((item, i) => arr.splice(insertAt + i, 0, item))
     const newRows = arr
     setProviderSheetRows(prev => ({ ...prev, [providerId]: newRows }))
+    setProviderRowsVersion(v => v + 1)
     saveProviderSheetRows(providerId, newRows).catch(err => console.error('Failed to persist provider row order', err))
   }, [providerSheetRows, saveProviderSheetRows])
 
@@ -1862,6 +1864,7 @@ export default function ClinicDetail() {
           <ProvidersTab
             providers={providers}
             providerSheetRows={providerSheetRows}
+            providerRowsVersion={providerRowsVersion}
             billingCodes={billingCodes}
             statusColors={statusColors}
             patients={patients}

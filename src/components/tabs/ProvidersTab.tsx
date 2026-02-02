@@ -10,6 +10,8 @@ import { toDisplayValue } from '@/lib/utils'
 interface ProvidersTabProps {
   providers: Provider[]
   providerSheetRows: Record<string, SheetRow[]>
+  /** Bumped by parent on row reorder so grid refreshes with new order */
+  providerRowsVersion?: number
   billingCodes: BillingCode[]
   statusColors: StatusColor[]
   patients: Patient[]
@@ -39,6 +41,7 @@ interface ProvidersTabProps {
 export default function ProvidersTab({
   providers,
   providerSheetRows,
+  providerRowsVersion,
   billingCodes,
   statusColors,
   patients,
@@ -921,7 +924,7 @@ export default function ProvidersTab({
           <HandsontableWrapper
             key={`providers-${activeProvider?.id ?? ''}-${selectedMonth.getTime()}`}
             data={getProviderRowsHandsontableData()}
-            dataVersion={structureVersion}
+            dataVersion={(providerRowsVersion ?? 0) + structureVersion}
             columns={providerColumnsWithLocks}
             colHeaders={columnTitles}
             rowHeaders={true}
