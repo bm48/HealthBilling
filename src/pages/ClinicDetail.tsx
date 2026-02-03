@@ -2061,7 +2061,7 @@ export default function ClinicDetail() {
         {clinic?.address && <p className="text-white/70">{clinic.address}</p>}
       </div>
 
-      {!providerId && (
+      {(!providerId || userProfile?.role !== 'office_staff') && (
       <div className="flex gap-2 mb-6 border-b border-white/20 justify-between items-center">
         <div className="flex gap-2">
           {showPatientTab && (

@@ -143,8 +143,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) throw error
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+    } catch (err) {
+      // Session may already be missing/expired (403, AuthSessionMissingError). Still clear local state
+      // so the UI shows logged out and the user can sign in again.
+      setSession(null)
+      setUser(null)
+      setUserProfile(null)
+      setLoading(false)
+    }
   }
 
   const signUp = async (email: string, password: string, fullName: string, role: string) => {
