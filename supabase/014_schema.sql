@@ -675,6 +675,49 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+
+-- Allow admins to see and manage all users that belong to their clinic(s).
+-- Without this, admins only see their own profile (RLS "Users can view their own profile").
+--
+-- IMPORTANT: We must NOT query the users table inside a policy ON users (causes infinite
+-- recursion). Use SECURITY DEFINER functions that read users without going through RLS.
+
+-- Drop policies if they exist (e.g. from a previous run that caused recursion)
+DROP POLICY IF EXISTS "Admins can view users in their clinics" ON users;
+DROP POLICY IF EXISTS "Admins can update users in their clinics" ON users;
+
+-- Returns the current user's clinic_ids. SECURITY DEFINER bypasses RLS so no recursion.
+CREATE OR REPLACE FUNCTION current_user_clinic_ids()
+RETURNS UUID[] AS $$
+  SELECT COALESCE(clinic_ids, '{}') FROM users WHERE id = auth.uid() LIMIT 1;
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Returns true if the current user is admin or super_admin. SECURITY DEFINER bypasses RLS.
+CREATE OR REPLACE FUNCTION current_user_is_admin_or_super()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM users WHERE id = auth.uid() AND role IN ('admin', 'super_admin')
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+GRANT EXECUTE ON FUNCTION current_user_clinic_ids() TO authenticated;
+GRANT EXECUTE ON FUNCTION current_user_is_admin_or_super() TO authenticated;
+
+-- Admins can view users whose clinic_ids overlap with their own (all users "of the clinic").
+CREATE POLICY "Admins can view users in their clinics" ON users
+  FOR SELECT USING (
+    current_user_is_admin_or_super()
+    AND (current_user_clinic_ids() && COALESCE(users.clinic_ids, '{}'))
+  );
+
+-- Admins can update users in their clinics (e.g. assign clinics, edit user).
+CREATE POLICY "Admins can update users in their clinics" ON users
+  FOR UPDATE USING (
+    current_user_is_admin_or_super()
+    AND (current_user_clinic_ids() && COALESCE(users.clinic_ids, '{}'))
+  );
+
+
 -- Instructions for creating Super Admin user:
 -- 
 -- OPTION 1: Via Supabase Dashboard (Recommended)

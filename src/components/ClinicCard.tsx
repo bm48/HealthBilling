@@ -14,6 +14,8 @@ interface ClinicCardProps {
   stats: ClinicCardStats | null
   /** When true, link to clinic dashboard (/clinic/:id) instead of patients tab */
   dashboardHref?: boolean
+  /** When set, use this URL for the card link (e.g. provider sheet page) */
+  customTo?: string
 }
 
 function formatCurrency(value: number | null): string {
@@ -21,13 +23,15 @@ function formatCurrency(value: number | null): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 }
 
-export default function ClinicCard({ clinic, providers, stats, dashboardHref }: ClinicCardProps) {
+export default function ClinicCard({ clinic, providers, stats, dashboardHref, customTo }: ClinicCardProps) {
   const addressLine1 = clinic.address ?? ''
   const addressLine2 = clinic.address_line_2 ?? ''
 
+  const to = customTo ?? (dashboardHref ? `/clinic/${clinic.id}` : `/clinic/${clinic.id}/patients`)
+
   return (
     <Link
-      to={dashboardHref ? `/clinic/${clinic.id}` : `/clinic/${clinic.id}/patients`}
+      to={to}
       className="block rounded-lg border border-white/20 bg-white/5 p-4 text-white hover:border-primary-400/50 transition-colors cursor-pointer"
     >
       {/* Top: Clinic info – two columns */}

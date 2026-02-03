@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { Clinic, Provider } from '@/types'
-import { LayoutDashboard, Building2, FileText, Calendar, Users, UserCircle, MapPin, Phone } from 'lucide-react'
+import { LayoutDashboard, Building2, FileText, Calendar, Users } from 'lucide-react'
+import ClinicCard, { ClinicCardStats } from '@/components/ClinicCard'
 
 export default function ProviderDashboardPage() {
   const { user, userProfile, loading: authLoading } = useAuth()
@@ -12,8 +13,10 @@ export default function ProviderDashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [provider, setProvider] = useState<Provider | null>(null)
   const [clinics, setClinics] = useState<Clinic[]>([])
+  const [clinicStats, setClinicStats] = useState<Record<string, ClinicCardStats>>({})
+  const [providersByClinic, setProvidersByClinic] = useState<Record<string, Provider[]>>({})
   const [patientCountByClinic, setPatientCountByClinic] = useState<Record<string, number>>({})
-  const [providerCountByClinic, setProviderCountByClinic] = useState<Record<string, number>>({})
+  // const [providerCountByClinic, setProviderCountByClinic] = useState<Record<string, number>>({})
   const [upcomingCount, setUpcomingCount] = useState(0)
   const [sheetsThisMonthCount, setSheetsThisMonthCount] = useState(0)
 
@@ -49,7 +52,7 @@ export default function ProviderDashboardPage() {
           setProvider(null)
           setClinics([])
           setPatientCountByClinic({})
-          setProviderCountByClinic({})
+          // setProviderCountByClinic({})
           setUpcomingCount(0)
           setSheetsThisMonthCount(0)
           setLoading(false)
@@ -59,8 +62,10 @@ export default function ProviderDashboardPage() {
         const ids = (providerData as Provider).clinic_ids || []
         if (ids.length === 0) {
           setClinics([])
+          setClinicStats({})
+          setProvidersByClinic({})
           setPatientCountByClinic({})
-          setProviderCountByClinic({})
+          // setProviderCountByClinic({})
           setUpcomingCount(0)
           setSheetsThisMonthCount(0)
           setLoading(false)
@@ -75,10 +80,25 @@ export default function ProviderDashboardPage() {
         setClinics(clinicsData || [])
 
         if (ids.length > 0) {
-          const [patientsRes, providersRes] = await Promise.all([
+          const now = new Date()
+          const y = now.getFullYear()
+          const m = now.getMonth() + 1
+          const currentMonthStart = `${y}-${String(m).padStart(2, '0')}-01`
+          const nextMonth = m === 12 ? [y + 1, 1] : [y, m + 1]
+          const nextMonthStart = `${nextMonth[0]}-${String(nextMonth[1]).padStart(2, '0')}-01`
+
+          const [patientsRes, providersRes, todosRes, arRes] = await Promise.all([
             supabase.from('patients').select('id, clinic_id').in('clinic_id', ids),
-            supabase.from('providers').select('id, clinic_ids').overlaps('clinic_ids', ids),
+            supabase.from('providers').select('*').overlaps('clinic_ids', ids),
+            supabase.from('todo_lists').select('id, clinic_id').in('clinic_id', ids),
+            supabase
+              .from('accounts_receivables')
+              .select('amount, clinic_id')
+              .in('clinic_id', ids)
+              .gte('date_recorded', currentMonthStart)
+              .lt('date_recorded', nextMonthStart),
           ])
+
           const patientCount: Record<string, number> = {}
           ids.forEach((id) => { patientCount[id] = 0 })
           ;(patientsRes.data || []).forEach((p: { clinic_id: string }) => {
@@ -87,13 +107,45 @@ export default function ProviderDashboardPage() {
           setPatientCountByClinic(patientCount)
 
           const providerCount: Record<string, number> = {}
-          ids.forEach((id) => { providerCount[id] = 0 })
-          ;(providersRes.data || []).forEach((p: { clinic_ids: string[] }) => {
+          const grouped: Record<string, Provider[]> = {}
+          ids.forEach((id) => {
+            providerCount[id] = 0
+            grouped[id] = []
+          })
+          ;(providersRes.data || []).forEach((p: Provider) => {
             (p.clinic_ids || []).forEach((cid: string) => {
               if (providerCount[cid] != null) providerCount[cid] += 1
+              if (grouped[cid]) grouped[cid].push(p)
             })
           })
-          setProviderCountByClinic(providerCount)
+          // setProviderCountByClinic(providerCount)
+          setProvidersByClinic(grouped)
+
+          const todoCount: Record<string, number> = {}
+          ids.forEach((id) => { todoCount[id] = 0 })
+          ;(todosRes.data || []).forEach((t: { clinic_id: string }) => {
+            todoCount[t.clinic_id] = (todoCount[t.clinic_id] || 0) + 1
+          })
+
+          const currentMonthByClinic: Record<string, number> = {}
+          ids.forEach((id) => { currentMonthByClinic[id] = 0 })
+          ;(arRes.data || []).forEach((row: { amount: number | null; clinic_id: string }) => {
+            const cid = row.clinic_id
+            if (cid && currentMonthByClinic[cid] != null) {
+              currentMonthByClinic[cid] += Number(row.amount ?? 0)
+            }
+          })
+
+          const statsMap: Record<string, ClinicCardStats> = {}
+          ids.forEach((id) => {
+            statsMap[id] = {
+              patientCount: patientCount[id] ?? 0,
+              providerCount: providerCount[id] ?? 0,
+              todoCount: todoCount[id] ?? 0,
+              currentMonthTotal: currentMonthByClinic[id] ?? 0,
+            }
+          })
+          setClinicStats(statsMap)
         }
 
         const providerId = (providerData as Provider).id
@@ -126,8 +178,10 @@ export default function ProviderDashboardPage() {
         setError('Failed to load your clinics.')
         setProvider(null)
         setClinics([])
+        setClinicStats({})
+        setProvidersByClinic({})
         setPatientCountByClinic({})
-        setProviderCountByClinic({})
+        // setProviderCountByClinic({})
         setUpcomingCount(0)
         setSheetsThisMonthCount(0)
       } finally {
@@ -204,62 +258,36 @@ export default function ProviderDashboardPage() {
         </div>
       </div>
 
-      <h2 className="text-lg font-semibold text-white mb-4">My Clinics</h2>
-      {clinics.length === 0 ? (
-        <p className="text-white/60">You are not assigned to any clinic yet.</p>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-          {clinics.map((clinic) => (
-            <Link
-              to={`/providers/clinics/${clinic.id}/sheet`}
-              key={clinic.id}
-              className="cursor-pointer rounded-xl border border-white/10 bg-slate-800/40 p-5 hover:bg-slate-800/60 transition-colors flex flex-col"
-            >
-              <div className="flex items-center gap-3 mb-3">
-                <Building2 size={24} className="text-primary-400 shrink-0" />
-                <h3 className="text-xl font-semibold text-white">{clinic.name}</h3>
-              </div>
-              <div className="space-y-2 mb-4 text-sm text-white/80">
-                <div className="flex items-center gap-2">
-                  <Users size={16} className="text-primary-400 shrink-0" />
-                  <span>{patientCountByClinic[clinic.id] ?? 0} patients</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <UserCircle size={16} className="text-primary-400 shrink-0" />
-                  <span>{providerCountByClinic[clinic.id] ?? 0} providers</span>
-                </div>
-                {clinic.address && (
-                  <div className="flex items-start gap-2">
-                    <MapPin size={16} className="text-primary-400 shrink-0 mt-0.5" />
-                    <span>{clinic.address}</span>
-                  </div>
-                )}
-                {clinic.phone && (
-                  <div className="flex items-center gap-2">
-                    <Phone size={16} className="text-primary-400 shrink-0" />
-                    <span>{clinic.phone}</span>
-                  </div>
-                )}
-              </div>
-              {/* <div className="flex flex-wrap gap-3 mt-auto pt-3 border-t border-white/10">
-                <Link
-                  to={`/providers/clinics/${clinic.id}/sheet`}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition-colors"
-                >
-                  <FileText size={18} />
-                  Sheet
-                </Link>
-                <Link
-                  to={`/providers/clinics/${clinic.id}/schedule`}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-600 hover:bg-slate-500 text-white transition-colors"
-                >
-                  <Calendar size={18} />
-                  Schedule
-                </Link>
-              </div> */}
-            </Link>
-          ))}
+      {/* Clinic cards – same layout as super admin dashboard */}
+      {clinics.length > 0 && (
+        <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
+          <h2 className="text-xl font-semibold text-white mb-4 italic">My Clinics</h2>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {clinics.map((clinic) => {
+              const s = clinicStats[clinic.id]
+              const cardStats: ClinicCardStats | null = s
+                ? {
+                    patientCount: s.patientCount,
+                    providerCount: s.providerCount,
+                    todoCount: s.todoCount,
+                    currentMonthTotal: s.currentMonthTotal,
+                  }
+                : null
+              return (
+                <ClinicCard
+                  key={clinic.id}
+                  clinic={clinic}
+                  providers={providersByClinic[clinic.id] || []}
+                  stats={cardStats}
+                  customTo={`/providers/clinics/${clinic.id}/sheet`}
+                />
+              )
+            })}
+          </div>
         </div>
+      )}
+      {clinics.length === 0 && !loading && (
+        <p className="text-white/60">You are not assigned to any clinic yet.</p>
       )}
     </div>
   )

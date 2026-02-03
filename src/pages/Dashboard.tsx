@@ -267,20 +267,6 @@ export default function Dashboard() {
     }
   }
 
-  // const getQuickActions = () => {
-  //   if (!userProfile) return []
-
-  //   const actions = [
-  //     { path: '/patients', label: 'Patient Database', icon: Users, roles: ['office_staff', 'billing_staff', 'admin', 'super_admin'] },
-  //     { path: '/todo', label: 'Billing To-Do', icon: CheckSquare, roles: ['billing_staff', 'admin', 'super_admin'] },
-  //     { path: '/timecards', label: 'Timecards', icon: Clock, roles: ['billing_staff', 'admin', 'super_admin', 'office_staff'] },
-  //     { path: '/reports', label: 'Reports', icon: BarChart3, roles: ['admin', 'view_only_admin', 'super_admin'] },
-  //   ]
-
-  //   return actions.filter(action => 
-  //     action.roles.includes(userProfile.role) || userProfile.role === 'super_admin'
-  //   )
-  // }
 
   if (loading) {
     return (
