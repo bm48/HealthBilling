@@ -76,16 +76,40 @@ export default function ClinicDetail() {
   const [currentSheet, setCurrentSheet] = useState<ProviderSheet | null>(null)
   const providerRowsRef = useRef<Array<{ id: string; cpt_code: string; appointment_status: string; sheetId: string; rowId: string }>>([])
 
+  // Billing staff and official staff may only access clinics permitted by super admin / admin
+  const isBillingStaff = userProfile?.role === 'billing_staff'
+  const isOfficialStaff = userProfile?.role === 'official_staff'
+  const isOfficeStaff = userProfile?.role === 'office_staff'
+  useEffect(() => {
+    if (!clinicId || !userProfile || (!isBillingStaff && !isOfficialStaff)) return
+    const allowed = userProfile.clinic_ids?.length ? userProfile.clinic_ids.includes(clinicId) : false
+    if (!allowed) {
+      navigate('/dashboard', { replace: true })
+    }
+  }, [clinicId, userProfile, isBillingStaff, isOfficialStaff, navigate])
+
   // Sync activeTab with URL parameter
   useEffect(() => {
     if (providerId) {
       setActiveTab('providers')
     } else if (tab && ['patients', 'todo', 'providers', 'accounts_receivable'].includes(tab)) {
-      setActiveTab(tab as TabType)
+      if (isOfficialStaff && tab !== 'todo' && tab !== 'providers') {
+        navigate(`/clinic/${clinicId}/todo`, { replace: true })
+      } else if (tab === 'todo' && userProfile?.role === 'admin') {
+        navigate(`/clinic/${clinicId}/patients`, { replace: true })
+      } else if (isBillingStaff && tab === 'accounts_receivable') {
+        navigate(`/clinic/${clinicId}/todo`, { replace: true })
+      } else {
+        setActiveTab(tab as TabType)
+      }
     } else if (!tab && clinicId) {
-      navigate(`/clinic/${clinicId}/patients`, { replace: true })
+      if (isBillingStaff || isOfficialStaff) {
+        navigate(`/clinic/${clinicId}/todo`, { replace: true })
+      } else {
+        navigate(`/clinic/${clinicId}/patients`, { replace: true })
+      }
     }
-  }, [tab, clinicId, navigate, providerId])
+  }, [tab, clinicId, navigate, providerId, userProfile?.role, isBillingStaff, isOfficialStaff])
 
   useEffect(() => {
     patientsRef.current = patients
@@ -1808,19 +1832,19 @@ export default function ClinicDetail() {
             canEdit={canEdit}
             isInSplitScreen={!!splitScreen}
             isLockPatients={isLockPatients}
-            onLockColumn={(columnName: string) => {
-              // Get existing comment if column is already locked
+            onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockPatients && isPatientColumnLocked(columnName as keyof IsLockPatients)
                 ? (isLockPatients[`${columnName}_comment` as keyof IsLockPatients] as string | null) || ''
                 : ''
               setSelectedLockColumn({ columnName, providerId: null, isPatientColumn: true })
               setLockComment(existingComment)
               setShowLockDialog(true)
-            }}
+            } : undefined}
             isColumnLocked={isPatientColumnLocked}
           />
         )
       case 'todo':
+        if (!showBillingTodoTab) return null
         return (
           <BillingTodoTab
             clinicId={clinicId!}
@@ -1828,15 +1852,14 @@ export default function ClinicDetail() {
             isLockBillingTodo={isLockBillingTodo}
             isInSplitScreen={!!splitScreen}
             exportRef={billingTodoExportRef}
-            onLockColumn={(columnName: string) => {
-              // Get existing comment if column is already locked
+            onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockBillingTodo && isBillingTodoColumnLocked(columnName as keyof IsLockBillingTodo)
                 ? (isLockBillingTodo[`${columnName}_comment` as keyof IsLockBillingTodo] as string | null) || ''
                 : ''
               setSelectedLockColumn({ columnName, providerId: null, isBillingTodoColumn: true })
               setLockComment(existingComment)
               setShowLockDialog(true)
-            }}
+            } : undefined}
             isColumnLocked={isBillingTodoColumnLocked}
           />
         )
@@ -1847,15 +1870,14 @@ export default function ClinicDetail() {
             canEdit={canEdit}
             isInSplitScreen={!!splitScreen}
             isLockAccountsReceivable={isLockAccountsReceivable}
-            onLockColumn={(columnName: string) => {
-              // Get existing comment if column is already locked
+            onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockAccountsReceivable && isARColumnLocked(columnName as keyof IsLockAccountsReceivable)
                 ? (isLockAccountsReceivable[`${columnName}_comment` as keyof IsLockAccountsReceivable] as string | null) || ''
                 : ''
               setSelectedLockColumn({ columnName, providerId: null, isARColumn: true })
               setLockComment(existingComment)
               setShowLockDialog(true)
-            }}
+            } : undefined}
             isColumnLocked={isARColumnLocked}
           />
         )
@@ -1883,17 +1905,17 @@ export default function ClinicDetail() {
             formatMonthYear={formatMonthYear}
             filterRowsByMonth={filterRowsByMonth}
             isLockProviders={isLockProviders}
-            onLockProviderColumn={(columnName: string) => {
-              // Get existing comment if column is already locked
+            onLockProviderColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockProviders && isProviderColumnLocked(columnName as keyof IsLockProviders)
                 ? (isLockProviders[`${columnName}_comment` as keyof IsLockProviders] as string | null) || ''
                 : ''
               setSelectedLockColumn({ columnName, providerId: null, isProviderColumn: true })
               setLockComment(existingComment)
               setShowLockDialog(true)
-            }}
+            } : undefined}
             isProviderColumnLocked={isProviderColumnLocked}
             onReorderProviderRows={handleReorderProviderRows}
+            restrictEditToSchedulingColumns={restrictProviderSheetEditToScheduling}
           />
         )
       default:
@@ -1903,7 +1925,15 @@ export default function ClinicDetail() {
   
 
 
-  const canEdit = userProfile?.role === 'super_admin'
+  const canEdit = userProfile?.role === 'super_admin' || userProfile?.role === 'admin' || userProfile?.role === 'billing_staff' || userProfile?.role === 'official_staff' || userProfile?.role === 'office_staff'
+  const canUnlock = userProfile?.role === 'super_admin'
+  const showBillingTodoTab = userProfile?.role !== 'admin'
+  const canLockColumns = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
+  const showPatientTab = !isOfficialStaff
+  const showProvidersTab = true
+  const showAccountsReceivableTab = !isBillingStaff && !isOfficialStaff
+  /** Official staff and office staff can edit only patient_id through date_of_service on the provider sheet; other columns read-only */
+  const restrictProviderSheetEditToScheduling = isOfficialStaff || isOfficeStaff
 
 
   // Close context menu when clicking outside
@@ -1933,8 +1963,10 @@ export default function ClinicDetail() {
     setTabContextMenu({ x: e.clientX, y: e.clientY, tab })
   }
   
-  // Tab order for cycling in split screen (left/right Switch) — exclude patients so Switch never changes the Patients pane
-  const SPLIT_SCREEN_TAB_ORDER: TabType[] = ['todo', 'providers', 'accounts_receivable']
+  // Tab order for cycling in split screen (left/right Switch) — exclude patients so Switch never changes the Patients pane; admin has no Billing To-Do
+  const SPLIT_SCREEN_TAB_ORDER: TabType[] = showBillingTodoTab
+    ? ['todo', 'providers', 'accounts_receivable']
+    : ['providers', 'accounts_receivable']
   const getNextTab = (current: TabType, skip?: TabType): TabType => {
     if (current === 'patients') return 'patients' // Never switch away from Patients when clicking Switch
     const i = SPLIT_SCREEN_TAB_ORDER.indexOf(current)
@@ -1960,8 +1992,13 @@ export default function ClinicDetail() {
   // Exit split screen
   const handleExitSplitScreen = () => {
     setSplitScreen(null)
-    setActiveTab('patients')
-    navigate(`/clinic/${clinicId}/patients`, { replace: true })
+    if (isBillingStaff) {
+      setActiveTab('todo')
+      navigate(`/clinic/${clinicId}/todo`, { replace: true })
+    } else {
+      setActiveTab('patients')
+      navigate(`/clinic/${clinicId}/patients`, { replace: true })
+    }
   }
   
   // Handle split screen resizing
@@ -2024,8 +2061,10 @@ export default function ClinicDetail() {
         {clinic?.address && <p className="text-white/70">{clinic.address}</p>}
       </div>
 
+      {!providerId && (
       <div className="flex gap-2 mb-6 border-b border-white/20 justify-between items-center">
         <div className="flex gap-2">
+          {showPatientTab && (
           <button
             onClick={() => handleTabChange('patients')}
             onContextMenu={(e) => handleTabContextMenu(e, 'patients')}
@@ -2038,18 +2077,22 @@ export default function ClinicDetail() {
             <Users size={18} />
             Patient Info
           </button>
-          <button
-            onClick={() => handleTabChange('todo')}
-            onContextMenu={(e) => handleTabContextMenu(e, 'todo')}
-            className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
-              activeTab === 'todo' || splitScreen?.right === 'todo' || splitScreen?.left === 'todo'
-                ? 'text-primary-400 border-b-2 border-primary-400'
-                : 'text-white/70 hover:text-white'
-            }`}
-          >
-            <CheckSquare size={18} />
-            Billing To-Do
-          </button>
+          )}
+          {showBillingTodoTab && (
+            <button
+              onClick={() => handleTabChange('todo')}
+              onContextMenu={(e) => handleTabContextMenu(e, 'todo')}
+              className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
+                activeTab === 'todo' || splitScreen?.right === 'todo' || splitScreen?.left === 'todo'
+                  ? 'text-primary-400 border-b-2 border-primary-400'
+                  : 'text-white/70 hover:text-white'
+              }`}
+            >
+              <CheckSquare size={18} />
+              Billing To-Do
+            </button>
+          )}
+          {showProvidersTab && (
           <button
             onClick={() => handleTabChange('providers')}
             onContextMenu={(e) => handleTabContextMenu(e, 'providers')}
@@ -2062,6 +2105,8 @@ export default function ClinicDetail() {
             <FileText size={18} />
             Billing
           </button>
+          )}
+          {showAccountsReceivableTab && (
           <button
             onClick={() => handleTabChange('accounts_receivable')}
             onContextMenu={(e) => handleTabContextMenu(e, 'accounts_receivable')}
@@ -2074,6 +2119,7 @@ export default function ClinicDetail() {
             <FileText size={18} />
             Accounts Receivable
           </button>
+          )}
         </div>
         {activeTab === 'todo' && !splitScreen && (
           <button
@@ -2086,6 +2132,7 @@ export default function ClinicDetail() {
           </button>
         )}
       </div>
+      )}
 
       <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20">
         {splitScreen ? (
@@ -2352,7 +2399,7 @@ export default function ClinicDetail() {
               
               {selectedLockColumn.isPatientColumn ? (
                 <>
-                  {isPatientColumnLocked(selectedLockColumn.columnName as keyof IsLockPatients) && (
+                  {isPatientColumnLocked(selectedLockColumn.columnName as keyof IsLockPatients) && canUnlock && (
                     <button
                       onClick={() => handleTogglePatientColumnLock(selectedLockColumn.columnName as keyof IsLockPatients, false, lockComment)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors flex items-center gap-2"
@@ -2373,7 +2420,7 @@ export default function ClinicDetail() {
                 </>
               ) : selectedLockColumn.isBillingTodoColumn ? (
                 <>
-                  {isBillingTodoColumnLocked(selectedLockColumn.columnName as keyof IsLockBillingTodo) && (
+                  {isBillingTodoColumnLocked(selectedLockColumn.columnName as keyof IsLockBillingTodo) && canUnlock && (
                     <button
                       onClick={() => handleToggleBillingTodoColumnLock(selectedLockColumn.columnName as keyof IsLockBillingTodo, false, lockComment)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors flex items-center gap-2"
@@ -2394,7 +2441,7 @@ export default function ClinicDetail() {
                 </>
               ) : selectedLockColumn.isProviderColumn ? (
                 <>
-                  {isProviderColumnLocked(selectedLockColumn.columnName as keyof IsLockProviders) && (
+                  {isProviderColumnLocked(selectedLockColumn.columnName as keyof IsLockProviders) && canUnlock && (
                     <button
                       onClick={() => handleToggleProviderColumnLock(selectedLockColumn.columnName as keyof IsLockProviders, false, lockComment)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors flex items-center gap-2"
@@ -2415,7 +2462,7 @@ export default function ClinicDetail() {
                 </>
               ) : selectedLockColumn.isARColumn ? (
                 <>
-                  {isARColumnLocked(selectedLockColumn.columnName as keyof IsLockAccountsReceivable) && (
+                  {isARColumnLocked(selectedLockColumn.columnName as keyof IsLockAccountsReceivable) && canUnlock && (
                     <button
                       onClick={() => handleToggleARColumnLock(selectedLockColumn.columnName as keyof IsLockAccountsReceivable, false, lockComment)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors flex items-center gap-2"
@@ -2436,7 +2483,7 @@ export default function ClinicDetail() {
                 </>
               ) : (
                 <>
-                  {isColumnLocked(selectedLockColumn.columnName, selectedLockColumn.providerId) && (
+                  {isColumnLocked(selectedLockColumn.columnName, selectedLockColumn.providerId) && canUnlock && (
                     <button
                       onClick={() => handleToggleColumnLock(selectedLockColumn.columnName, selectedLockColumn.providerId, false)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors flex items-center gap-2"
@@ -2445,14 +2492,15 @@ export default function ClinicDetail() {
                       Unlock
                     </button>
                   )}
-                  
-                  <button
-                    onClick={() => handleToggleColumnLock(selectedLockColumn.columnName, selectedLockColumn.providerId, true, lockComment)}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors flex items-center gap-2"
-                  >
-                    <Lock size={16} />
-                    Lock
-                  </button>
+                  {!isColumnLocked(selectedLockColumn.columnName, selectedLockColumn.providerId) && (
+                    <button
+                      onClick={() => handleToggleColumnLock(selectedLockColumn.columnName, selectedLockColumn.providerId, true, lockComment)}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors flex items-center gap-2"
+                    >
+                      <Lock size={16} />
+                      Lock
+                    </button>
+                  )}
                 </>
               )}
             </div>

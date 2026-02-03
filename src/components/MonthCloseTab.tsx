@@ -6,7 +6,7 @@ import { ProviderSheet, Clinic } from '@/types'
 import { Lock, Unlock, Calculator, Calendar } from 'lucide-react'
 import MonthCloseDialog from '@/components/MonthCloseDialog'
 
-export default function AdminSettings() {
+export default function MonthCloseTab() {
   const { userProfile } = useAuth()
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [sheets, setSheets] = useState<ProviderSheet[]>([])
@@ -33,7 +33,7 @@ export default function AdminSettings() {
 
     try {
       let query = supabase.from('clinics').select('*')
-      
+
       if (userProfile.role !== 'super_admin' && userProfile.clinic_ids.length > 0) {
         query = query.in('id', userProfile.clinic_ids)
       }
@@ -45,7 +45,7 @@ export default function AdminSettings() {
         setSelectedClinic(data[0].id)
       }
     } catch (error) {
-      // Error fetching clinics
+      console.error('Error fetching clinics:', error)
     }
   }
 
@@ -63,7 +63,7 @@ export default function AdminSettings() {
       if (error) throw error
       setSheets(data || [])
     } catch (error) {
-      // Error fetching sheets
+      console.error('Error fetching sheets:', error)
     }
   }
 
@@ -86,6 +86,8 @@ export default function AdminSettings() {
       throw error
     }
   }
+
+  const canUnlock = userProfile?.role === 'super_admin'
 
   const handleUnlockSheet = async (sheetId: string) => {
     if (!confirm('Are you sure you want to unlock this sheet? Only Super Admin can unlock.')) {
@@ -146,19 +148,15 @@ export default function AdminSettings() {
     }
   }
 
-  const canUnlock = userProfile?.role === 'super_admin'
-
   return (
     <div>
-      <h1 className="text-3xl font-bold text-white mb-6">Admin Settings</h1>
-
       <div className="grid md:grid-cols-2 gap-6 mb-6">
         <div className="bg-white/10 rounded-lg shadow-md p-6">
           <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <Calendar size={20} />
             Month Close & Locking
           </h2>
-          
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-white/90 mb-2">Clinic</label>
@@ -206,20 +204,20 @@ export default function AdminSettings() {
 
             {sheets.length > 0 && (
               <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-700">Provider Sheets:</p>
+                <p className="text-sm font-medium text-white/90">Provider Sheets:</p>
                 {sheets.map(sheet => (
-                  <div key={sheet.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <span className="text-sm text-gray-700">
+                  <div key={sheet.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
+                    <span className="text-sm text-white/90">
                       Sheet {new Date(sheet.year, sheet.month - 1).toLocaleString('default', { month: 'short' })} {sheet.year}
                     </span>
                     <div className="flex items-center gap-2">
                       {sheet.locked ? (
                         <>
-                          <span className="text-xs text-orange-600 font-medium">Locked</span>
+                          <span className="text-xs text-orange-400 font-medium">Locked</span>
                           {canUnlock && (
                             <button
                               onClick={() => handleUnlockSheet(sheet.id)}
-                              className="text-primary-600 hover:text-primary-700"
+                              className="text-primary-400 hover:text-primary-300"
                               title="Unlock sheet"
                             >
                               <Unlock size={16} />
@@ -251,7 +249,7 @@ export default function AdminSettings() {
             <Calculator size={20} />
             Provider Payment Calculation
           </h2>
-          
+
           <p className="text-sm text-white/90 mb-4">
             Calculate provider payments based on insurance payments, patient payments, and AR for the selected month.
           </p>

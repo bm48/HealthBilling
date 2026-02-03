@@ -548,19 +548,22 @@ export default function HandsontableWrapper({
     }
   }, [])
 
-  // Handle context menu
+  // Handle context menu: only when right-clicking on the row header (number row), not on the sheet (data cells)
   useEffect(() => {
     if (hotTableRef.current && onContextMenu) {
       const hotInstance = hotTableRef.current.hotInstance
       if (hotInstance) {
         const handleContextMenu = (event: MouseEvent) => {
+          const target = event.target as HTMLElement
+          const rowHeaderCell = target.closest('.ht_clone_left th')
+          if (!rowHeaderCell) return
+          const tr = rowHeaderCell.closest('tr')
+          if (!tr?.parentElement) return
+          const tbody = tr.parentElement
+          const rowIndex = Array.from(tbody.children).indexOf(tr as Element)
+          if (rowIndex < 0) return
           event.preventDefault()
-          const td = (event.target as HTMLElement).closest('td')
-          if (!td) return
-          const coords = hotInstance.getCoords(td as any)
-          if (coords && coords.row >= 0 && coords.col >= 0) {
-            onContextMenu(coords.row, coords.col, event)
-          }
+          onContextMenu(rowIndex, 0, event)
         }
         
         const element = hotInstance.rootElement

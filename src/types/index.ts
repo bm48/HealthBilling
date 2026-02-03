@@ -6,6 +6,7 @@ export type UserRole =
   | 'view_only_billing'
   | 'provider'
   | 'office_staff'
+  | 'official_staff'
 
 export type AppointmentStatus = 
   | 'Complete'
@@ -52,7 +53,11 @@ export interface Clinic {
   id: string
   name: string
   address: string | null
+  address_line_2?: string | null
   phone: string | null
+  fax?: string | null
+  npi?: string | null
+  ein?: string | null
   created_at: string
   updated_at: string
 }

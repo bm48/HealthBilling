@@ -352,6 +352,8 @@ CREATE POLICY "Users can view their own profile" ON users
 
 CREATE POLICY "Super admins can view all users" ON users
   FOR SELECT USING (is_super_admin());
+CREATE POLICY "Super admins can manage users" ON users
+  FOR ALL USING (is_super_admin());
 
 -- RLS Policies for patients
 CREATE POLICY "Users can view patients in their clinics" ON patients

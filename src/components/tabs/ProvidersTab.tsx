@@ -36,6 +36,8 @@ interface ProvidersTabProps {
   isProviderColumnLocked?: (columnName: keyof IsLockProviders) => boolean
   /** Called when rows are reordered by drag. Parent should update providerSheetRows for the given provider. */
   onReorderProviderRows?: (providerId: string, movedRows: number[], finalIndex: number) => void
+  /** When true (e.g. official_staff), only columns Patient ID through Date of Service are editable; rest read-only */
+  restrictEditToSchedulingColumns?: boolean
 }
 
 export default function ProvidersTab({
@@ -64,6 +66,7 @@ export default function ProvidersTab({
   onLockProviderColumn,
   isProviderColumnLocked,
   onReorderProviderRows,
+  restrictEditToSchedulingColumns = false,
 }: ProvidersTabProps) {
   
   // Use isLockProviders from props directly - it will update when parent refreshes
@@ -191,6 +194,11 @@ export default function ProvidersTab({
     if (!lockData) return false
     return Boolean(lockData[columnName])
   }
+
+  /** For official_staff: only columns 0-6 (Patient ID through Date of Service) are editable */
+  const isSchedulingColumn = (dataIndex: number) => dataIndex <= 6
+  const getReadOnlyForColumn = (dataIndex: number, baseReadOnly: boolean) =>
+    baseReadOnly || (restrictEditToSchedulingColumns && !isSchedulingColumn(dataIndex))
 
   // Add lock icons to headers after table renders
   useEffect(() => {
@@ -344,15 +352,15 @@ export default function ProvidersTab({
     
     if (isProviderView) {
       return [
-        { data: 0, title: 'Patient ID', type: 'text' as const, width: 180, readOnly: !canEdit },
-        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: !canEdit },
-        { data: 2, title: 'Last Initial', type: 'text' as const, width: 80, readOnly: !canEdit },
-        { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: !canEdit },
-        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: !canEdit },
-        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: !canEdit },
-        { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: !canEdit },
-        { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: !canEdit },
-        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, editor: 'select', selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: !canEdit },
+        { data: 0, title: 'Patient ID', type: 'text' as const, width: 180, readOnly: getReadOnlyForColumn(0, !canEdit) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(1, !canEdit) },
+        { data: 2, title: 'Last Initial', type: 'text' as const, width: 80, readOnly: getReadOnlyForColumn(2, !canEdit) },
+        { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(3, !canEdit) },
+        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit) },
+        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit) },
+        { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyForColumn(6, !canEdit) },
+        { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyForColumn(7, !canEdit) },
+        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, editor: 'select', selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyForColumn(8, !canEdit) },
       ]
     }
     
@@ -362,28 +370,28 @@ export default function ProvidersTab({
         title: 'Patient ID', 
         type: 'text' as const, 
         width: 100,
-        readOnly: !canEdit || getReadOnly('patient_id')
+        readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id'))
       },
       { 
         data: 1, 
         title: 'First Name', 
         type: 'text' as const, 
         width: 120,
-        readOnly: !canEdit || getReadOnly('first_name')
+        readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name'))
       },
       { 
         data: 2, 
         title: 'Last Initial', 
         type: 'text' as const, 
         width: 40,
-        readOnly: !canEdit || getReadOnly('last_initial')
+        readOnly: getReadOnlyForColumn(2, !canEdit || getReadOnly('last_initial'))
       },
       { 
         data: 3, 
         title: 'Insurance', 
         type: 'text' as const, 
         width: 120,
-        readOnly: !canEdit || getReadOnly('insurance')
+        readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance'))
       },
       { 
         data: 4, 
@@ -391,7 +399,7 @@ export default function ProvidersTab({
         type: 'numeric' as const, 
         width: 80,
         renderer: currencyCellRenderer,
-        readOnly: !canEdit || getReadOnly('copay')
+        readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay'))
       },
       { 
         data: 5, 
@@ -399,7 +407,7 @@ export default function ProvidersTab({
         type: 'numeric' as const, 
         width: 80,
         renderer: percentCellRenderer,
-        readOnly: !canEdit || getReadOnly('coinsurance')
+        readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance'))
       },
       { 
         data: 6, 
@@ -407,7 +415,7 @@ export default function ProvidersTab({
         type: 'date' as const, 
         width: 120, 
         format: 'YYYY-MM-DD',
-        readOnly: !canEdit || getReadOnly('date_of_service')
+        readOnly: getReadOnlyForColumn(6, !canEdit || getReadOnly('date_of_service'))
       },
       { 
         data: 7, 
@@ -417,7 +425,7 @@ export default function ProvidersTab({
         editor: MultiSelectCptEditor,
         selectOptions: billingCodes.map(c => c.code),
         renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any,
-        readOnly: !canEdit || getReadOnly('cpt_code')
+        readOnly: getReadOnlyForColumn(7, !canEdit || getReadOnly('cpt_code'))
       },
       { 
         data: 8, 
@@ -427,7 +435,7 @@ export default function ProvidersTab({
         editor: 'select',
         selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'],
         renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any,
-        readOnly: !canEdit || getReadOnly('appointment_note_status')
+        readOnly: getReadOnlyForColumn(8, !canEdit || getReadOnly('appointment_note_status'))
       },
       { 
         data: 9, 
@@ -437,21 +445,21 @@ export default function ProvidersTab({
         editor: 'select',
         selectOptions: ['Claim Sent', 'RS', 'IP', 'Pending Pay', 'Paid', 'Deductible', 'N/A', 'PP', 'Denial', 'Rejected', 'No Coverage'],
         renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'claim')) as any,
-        readOnly: !canEdit || getReadOnly('claim_status')
+        readOnly: getReadOnlyForColumn(9, !canEdit || getReadOnly('claim_status'))
       },
       { 
         data: 10, 
         title: 'Most Recent Submit Date', 
         type: 'text' as const, 
         width: 120,
-        readOnly: !canEdit || getReadOnly('most_recent_submit_date')
+        readOnly: getReadOnlyForColumn(10, !canEdit || getReadOnly('most_recent_submit_date'))
       },
       { 
         data: 11, 
         title: 'Ins Pay', 
         type: 'text' as const, 
         width: 100,
-        readOnly: !canEdit || getReadOnly('ins_pay')
+        readOnly: getReadOnlyForColumn(11, !canEdit || getReadOnly('ins_pay'))
       },
       { 
         data: 12, 
@@ -461,21 +469,21 @@ export default function ProvidersTab({
         editor: 'select',
         selectOptions: months,
         renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any,
-        readOnly: !canEdit || getReadOnly('ins_pay_date')
+        readOnly: getReadOnlyForColumn(12, !canEdit || getReadOnly('ins_pay_date'))
       },
       { 
         data: 13, 
         title: 'PT RES', 
         type: 'text' as const, 
         width: 100,
-        readOnly: !canEdit || getReadOnly('pt_res')
+        readOnly: getReadOnlyForColumn(13, !canEdit || getReadOnly('pt_res'))
       },
       { 
         data: 14, 
         title: 'Collected from PT', 
         type: 'text' as const, 
         width: 120,
-        readOnly: !canEdit || getReadOnly('collected_from_pt')
+        readOnly: getReadOnlyForColumn(14, !canEdit || getReadOnly('collected_from_pt'))
       },
       { 
         data: 15, 
@@ -485,7 +493,7 @@ export default function ProvidersTab({
         editor: 'select',
         selectOptions: ['Paid', 'CC declined', 'Secondary', 'Refunded', 'Payment Plan', 'Waiting on Claim', 'Collections'],
         renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'patient_pay')) as any,
-        readOnly: !canEdit || getReadOnly('pt_pay_status')
+        readOnly: getReadOnlyForColumn(15, !canEdit || getReadOnly('pt_pay_status'))
       },
       { 
         data: 16, 
@@ -495,24 +503,24 @@ export default function ProvidersTab({
         editor: 'select',
         selectOptions: months,
         renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any,
-        readOnly: !canEdit || getReadOnly('pt_payment_ar_ref_date')
+        readOnly: getReadOnlyForColumn(16, !canEdit || getReadOnly('pt_payment_ar_ref_date'))
       },
       { 
         data: 17, 
         title: 'Total', 
         type: 'text' as const, 
         width: 100,
-        readOnly: !canEdit || getReadOnly('total')
+        readOnly: getReadOnlyForColumn(17, !canEdit || getReadOnly('total'))
       },
       { 
         data: 18, 
         title: 'Notes', 
         type: 'text' as const, 
         width: 150,
-        readOnly: !canEdit || getReadOnly('notes')
+        readOnly: getReadOnlyForColumn(18, !canEdit || getReadOnly('notes'))
       },
     ]
-  }, [activeProvider, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView])
+  }, [activeProvider, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView, restrictEditToSchedulingColumns])
 
   const handleProviderRowsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData' || !activeProvider) return

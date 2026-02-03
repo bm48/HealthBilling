@@ -1,14 +1,45 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 import { User, BillingCode, Clinic, ProviderSheet, AuditLog, Provider } from '@/types'
-import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download } from 'lucide-react'
+import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Calendar, Link2 } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
+import MonthCloseTab from '@/components/MonthCloseTab'
+
+type SettingsTabId = 'users' | 'billing-codes' | 'audit-logs' | 'unlock' | 'clinics' | 'export' | 'month-close'
+type Variant = 'super_admin' | 'admin'
 
 export default function SuperAdminSettings() {
+  const { userProfile } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab') || 'users'
-  const [activeTab, setActiveTab] = useState<'users' | 'billing-codes' | 'audit-logs' | 'unlock' | 'clinics' | 'export'>((tabParam as any) || 'users')
+  const [activeTab, setActiveTab] = useState<SettingsTabId>((tabParam as SettingsTabId) || 'users')
+
+  const isSuperAdminPath = location.pathname.startsWith('/super-admin-settings')
+  const isAdminPath = location.pathname.startsWith('/admin-settings')
+  const variant: Variant | null =
+    isSuperAdminPath && userProfile?.role === 'super_admin'
+      ? 'super_admin'
+      : (isAdminPath && (userProfile?.role === 'admin' || userProfile?.role === 'super_admin'))
+        ? 'admin'
+        : null
+
+  useEffect(() => {
+    if (!userProfile) return
+    if (isSuperAdminPath && userProfile.role !== 'super_admin') {
+      navigate('/dashboard', { replace: true })
+      return
+    }
+    if (isAdminPath && userProfile.role !== 'admin' && userProfile.role !== 'super_admin') {
+      navigate('/dashboard', { replace: true })
+      return
+    }
+  }, [userProfile, isSuperAdminPath, isAdminPath, navigate])
+
+  const pageTitle = variant === 'super_admin' ? 'Super Admin Settings' : 'Admin Settings'
   const [users, setUsers] = useState<User[]>([])
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])
   const [clinics, setClinics] = useState<Clinic[]>([])
@@ -23,19 +54,34 @@ export default function SuperAdminSettings() {
   const [editingBillingCode, setEditingBillingCode] = useState<BillingCode | null>(null)
   const [showClinicForm, setShowClinicForm] = useState(false)
   const [editingClinic, setEditingClinic] = useState<Clinic | null>(null)
+  const [assignClinicUser, setAssignClinicUser] = useState<User | null>(null)
+  const [showAssignClinicModal, setShowAssignClinicModal] = useState(false)
 
   useEffect(() => {
-    const tab = searchParams.get('tab') || 'users'
-    if (tab !== activeTab) {
-      setActiveTab(tab as any)
+    const tab = (searchParams.get('tab') || 'users') as SettingsTabId
+    const validForVariant: SettingsTabId[] =
+      variant === 'super_admin'
+        ? ['users', 'billing-codes', 'clinics', 'export', 'audit-logs', 'unlock']
+        : variant === 'admin'
+          ? ['users', 'billing-codes', 'clinics', 'export', 'audit-logs', 'month-close']
+          : ['users', 'billing-codes', 'clinics', 'export', 'audit-logs']
+    if (validForVariant.includes(tab) && tab !== activeTab) {
+      setActiveTab(tab)
+    } else if (variant === 'admin' && tab === 'unlock') {
+      setActiveTab('users')
+      setSearchParams({ tab: 'users' })
+    } else if (variant === 'super_admin' && tab === 'month-close') {
+      setActiveTab('users')
+      setSearchParams({ tab: 'users' })
     }
-  }, [searchParams])
+  }, [searchParams, variant])
 
   useEffect(() => {
-    fetchData()
-  }, [activeTab])
+    if (variant) fetchData()
+  }, [activeTab, variant])
 
   const fetchData = async () => {
+    if (!variant) return
     setLoading(true)
     try {
       await Promise.all([
@@ -46,7 +92,7 @@ export default function SuperAdminSettings() {
 
       if (activeTab === 'audit-logs') {
         await fetchAuditLogs()
-      } else if (activeTab === 'unlock') {
+      } else if (activeTab === 'unlock' && variant === 'super_admin') {
         await fetchLockedSheets()
       } else if (activeTab === 'clinics') {
         await fetchClinics()
@@ -59,8 +105,16 @@ export default function SuperAdminSettings() {
   const fetchUsers = async () => {
     try {
       const { data, error } = await supabase.from('users').select('*').order('email')
+      console.log('data', data)
       if (error) throw error
-      setUsers(data || [])
+      let list = data || []
+      console.log('list', list)
+      if (variant === 'admin' && userProfile?.clinic_ids?.length) {
+        list = list.filter((u: User) =>
+          (u.clinic_ids || []).some((cid: string) => userProfile.clinic_ids.includes(cid))
+        )
+      }
+      setUsers(list)
     } catch (error) {
       console.error('Error fetching users:', error)
     }
@@ -78,11 +132,14 @@ export default function SuperAdminSettings() {
 
   const fetchClinics = async () => {
     try {
-      const { data, error } = await supabase.from('clinics').select('*').order('name')
+      let query = supabase.from('clinics').select('*').order('name')
+      if (variant === 'admin' && userProfile?.clinic_ids?.length) {
+        query = query.in('id', userProfile.clinic_ids)
+      }
+      const { data, error } = await query
       if (error) throw error
       setClinics(data || [])
-      
-      // Fetch providers for all clinics
+
       if (data && data.length > 0) {
         await fetchProvidersForClinics(data.map(c => c.id))
       }
@@ -167,6 +224,26 @@ export default function SuperAdminSettings() {
     }
   }
 
+  const handleSaveAssignClinics = async (userId: string, clinicIds: string[]) => {
+    console.log('handleSaveAssignClinics', userId, clinicIds)
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .update({ clinic_ids: clinicIds })
+        .eq('id', userId)
+
+        console.log('data', data)
+        console.log('error', error)
+      if (error) throw error
+      await fetchUsers()
+      setShowAssignClinicModal(false)
+      setAssignClinicUser(null)
+    } catch (error) {
+      console.error('Error assigning clinics:', error)
+      alert('Failed to assign clinics. Please try again.')
+    }
+  }
+
   const handleSaveBillingCode = async (codeData: Partial<BillingCode>) => {
     try {
       if (editingBillingCode) {
@@ -200,7 +277,11 @@ export default function SuperAdminSettings() {
           .update({
             name: clinicData.name ?? editingClinic.name,
             address: clinicData.address ?? editingClinic.address,
+            address_line_2: clinicData.address_line_2 ?? editingClinic.address_line_2 ?? null,
             phone: clinicData.phone ?? editingClinic.phone,
+            fax: clinicData.fax ?? editingClinic.fax ?? null,
+            npi: clinicData.npi ?? editingClinic.npi ?? null,
+            ein: clinicData.ein ?? editingClinic.ein ?? null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingClinic.id)
@@ -212,7 +293,11 @@ export default function SuperAdminSettings() {
           .insert({
             name: clinicData.name ?? '',
             address: clinicData.address ?? null,
+            address_line_2: clinicData.address_line_2 ?? null,
             phone: clinicData.phone ?? null,
+            fax: clinicData.fax ?? null,
+            npi: clinicData.npi ?? null,
+            ein: clinicData.ein ?? null,
           })
 
         if (error) throw error
@@ -264,22 +349,36 @@ export default function SuperAdminSettings() {
     }
   }
 
-  const tabs = [
-    { id: 'users', label: 'User Management', icon: Users },
-    { id: 'billing-codes', label: 'Billing Codes', icon: Palette },
-    { id: 'clinics', label: 'Clinic Management', icon: Building2 },
-    { id: 'export', label: 'Export Data', icon: Download },
-    { id: 'audit-logs', label: 'Audit Logs', icon: FileText },
+  const baseTabs = [
+    { id: 'users' as const, label: 'User Management', icon: Users },
+    { id: 'billing-codes' as const, label: 'Billing Codes', icon: Palette },
+    { id: 'clinics' as const, label: 'Clinic Management', icon: Building2 },
+    { id: 'export' as const, label: 'Export Data', icon: Download },
+    { id: 'audit-logs' as const, label: 'Audit Logs', icon: FileText },
   ]
+  const tabs =
+    variant === 'super_admin'
+      ? [...baseTabs, { id: 'unlock' as const, label: 'Locked Sheets', icon: Unlock }]
+      : variant === 'admin'
+        ? [...baseTabs, { id: 'month-close' as const, label: 'Month Close', icon: Calendar }]
+        : baseTabs
 
   const handleTabChange = (tabId: string) => {
-    setActiveTab(tabId as any)
+    setActiveTab(tabId as SettingsTabId)
     setSearchParams({ tab: tabId })
+  }
+
+  if (variant === null) {
+    return (
+      <div className="flex items-center justify-center min-h-[200px]">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-400"></div>
+      </div>
+    )
   }
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-white mb-6">Super Admin Settings</h1>
+      <h1 className="text-3xl font-bold text-white mb-6">{pageTitle}</h1>
 
       <div className="bg-white/10 rounded-lg shadow-md">
         <div className="border-b border-gray-200">
@@ -333,7 +432,7 @@ export default function SuperAdminSettings() {
                           <th>Name</th>
                           <th>Role</th>
                           <th>Clinics</th>
-                          {/* <th>Highlight Color</th> */}
+                          <th>Assign Clinics</th>
                           <th style={{ width: '80px' }}>Actions</th>
                         </tr>
                       </thead>
@@ -352,19 +451,23 @@ export default function SuperAdminSettings() {
                                 ? user.clinic_ids.length + ' clinic(s)'
                                 : 'None'}
                             </td>
-                            {/* <td>
-                              {user.highlight_color && (
-                                <div
-                                  style={{ 
-                                    width: '32px', 
-                                    height: '32px', 
-                                    borderRadius: '4px', 
-                                    border: '1px solid rgba(255,255,255,0.2)',
-                                    backgroundColor: user.highlight_color 
+                            <td>
+                              {(user.role === 'provider' || user.role === 'admin' || user.role === 'billing_staff' || user.role === 'office_staff') ? (
+                                <button
+                                  onClick={() => {
+                                    setAssignClinicUser(user)
+                                    setShowAssignClinicModal(true)
                                   }}
-                                />
+                                  className="text-primary-400 hover:text-primary-300 inline-flex items-center gap-1"
+                                  style={{ padding: '4px' }}
+                                  title="Assign clinics"
+                                >
+                                  <Link2 size={16} />
+                                </button>
+                              ) : (
+                                <span className="text-white/50">—</span>
                               )}
-                            </td> */}
+                            </td>
                             <td>
                               <button
                                 onClick={() => {
@@ -649,23 +752,23 @@ export default function SuperAdminSettings() {
                 </div>
               )}
 
-              {activeTab === 'unlock' && (
+              {activeTab === 'unlock' && variant === 'super_admin' && (
                 <div>
                   <h2 className="text-xl font-semibold text-white mb-4">Locked Sheets</h2>
                   <div className="space-y-4">
                     {lockedSheets.map((sheet) => (
                       <div
                         key={sheet.id}
-                        className="border border-gray-200 rounded-lg p-4 flex justify-between items-center"
+                        className="border border-white/20 rounded-lg p-4 flex justify-between items-center bg-white/5"
                       >
                         <div>
-                          <p className="font-medium text-gray-900">
+                          <p className="font-medium text-white">
                             Sheet for Month {sheet.month}/{sheet.year}
                           </p>
-                          <p className="text-sm text-gray-600">
+                          <p className="text-sm text-white/80">
                             Locked columns: {sheet.locked_columns.join(', ') || 'None'}
                           </p>
-                          <p className="text-xs text-gray-500 mt-1">
+                          <p className="text-xs text-white/60 mt-1">
                             Locked: {formatDateTime(sheet.updated_at)}
                           </p>
                         </div>
@@ -679,9 +782,16 @@ export default function SuperAdminSettings() {
                       </div>
                     ))}
                     {lockedSheets.length === 0 && (
-                      <p className="text-center text-gray-500 py-8">No locked sheets</p>
+                      <p className="text-center text-white/60 py-8">No locked sheets</p>
                     )}
                   </div>
+                </div>
+              )}
+
+              {activeTab === 'month-close' && variant === 'admin' && (
+                <div>
+                  <h2 className="text-xl font-semibold text-white mb-4">Month Close & Locking</h2>
+                  <MonthCloseTab />
                 </div>
               )}
             </>
@@ -719,6 +829,18 @@ export default function SuperAdminSettings() {
             setEditingClinic(null)
           }}
           onSave={handleSaveClinic}
+        />
+      )}
+
+      {showAssignClinicModal && assignClinicUser && (
+        <AssignClinicsModal
+          user={assignClinicUser}
+          clinics={clinics}
+          onClose={() => {
+            setShowAssignClinicModal(false)
+            setAssignClinicUser(null)
+          }}
+          onSave={(clinicIds) => handleSaveAssignClinics(assignClinicUser.id, clinicIds)}
         />
       )}
     </div>
@@ -781,6 +903,7 @@ function UserFormModal({
               {/* <option value="view_only_admin">View-Only Admin</option> */}
               <option value="billing_staff">Billing Staff</option>
               {/* <option value="view_only_billing">View-Only Billing</option> */}
+              <option value="official_staff">Official Staff</option>
               <option value="provider">Provider</option>
               <option value="office_staff">Office Staff</option>
             </select>
@@ -861,7 +984,7 @@ function BillingCodeFormModal({
               required
               value={formData.code}
               onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
             />
           </div>
 
@@ -871,7 +994,7 @@ function BillingCodeFormModal({
               type="text"
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
             />
           </div>
 
@@ -918,7 +1041,11 @@ function ClinicFormModal({
   const [formData, setFormData] = useState({
     name: clinic?.name ?? '',
     address: clinic?.address ?? '',
+    address_line_2: clinic?.address_line_2 ?? '',
     phone: clinic?.phone ?? '',
+    fax: clinic?.fax ?? '',
+    npi: clinic?.npi ?? '',
+    ein: clinic?.ein ?? '',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -930,7 +1057,11 @@ function ClinicFormModal({
     await onSave({
       name: formData.name.trim(),
       address: formData.address.trim() || null,
+      address_line_2: formData.address_line_2.trim() || null,
       phone: formData.phone.trim() || null,
+      fax: formData.fax.trim() || null,
+      npi: formData.npi.trim() || null,
+      ein: formData.ein.trim() || null,
     })
   }
 
@@ -967,6 +1098,15 @@ function ClinicFormModal({
             />
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 2</label>
+            <input
+              type="text"
+              value={formData.address_line_2}
+              onChange={(e) => setFormData({ ...formData, address_line_2: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+            />
+          </div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
             <input
               type="text"
@@ -975,8 +1115,146 @@ function ClinicFormModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Fax</label>
+            <input
+              type="text"
+              value={formData.fax}
+              onChange={(e) => setFormData({ ...formData, fax: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">NPI</label>
+            <input
+              type="text"
+              value={formData.npi}
+              onChange={(e) => setFormData({ ...formData, npi: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              placeholder="National Provider Identifier"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">EIN</label>
+            <input
+              type="text"
+              value={formData.ein}
+              onChange={(e) => setFormData({ ...formData, ein: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              placeholder="Employer Identification Number"
+            />
+          </div>
 
           <div className="flex justify-end gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function AssignClinicsModal({
+  user,
+  clinics,
+  onClose,
+  onSave,
+}: {
+  user: User
+  clinics: Clinic[]
+  onClose: () => void
+  onSave: (clinicIds: string[]) => Promise<void>
+}) {
+  const [selectedClinicIds, setSelectedClinicIds] = useState<Set<string>>(
+    () => new Set(user.clinic_ids || [])
+  )
+
+  const isOfficeStaff = user.role === 'office_staff'
+
+  const toggleClinic = (clinicId: string) => {
+    setSelectedClinicIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(clinicId)) {
+        next.delete(clinicId)
+        return next
+      }
+      if (isOfficeStaff && next.size >= 1) {
+        alert('Office staff can be assigned only one clinic. Please remove the current selection first if you want to change it.')
+        return prev
+      }
+      next.add(clinicId)
+      return next
+    })
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (isOfficeStaff && selectedClinicIds.size > 1) {
+      alert('Office staff can be assigned only one clinic. Please select only one clinic.')
+      return
+    }
+    await onSave(Array.from(selectedClinicIds))
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[80vh] flex flex-col">
+        <div className="flex justify-between items-center p-6 border-b border-gray-200">
+          <h2 className="text-xl font-semibold text-gray-900">
+            Assign Clinics — {user.full_name || user.email}
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={24} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="p-6 overflow-y-auto flex-1">
+            <p className="text-sm text-gray-600 mb-4">
+              Select clinics to assign to this user. Provider, admin, and billing staff may have multiple clinics. Office staff can be assigned only one clinic.
+            </p>
+            {isOfficeStaff && (
+              <p className="text-sm text-amber-600 font-medium mb-4 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Office staff: only one clinic can be assigned. Selecting another clinic will show a warning.
+              </p>
+            )}
+            <div className="space-y-2">
+              {clinics.map((clinic) => (
+                <label
+                  key={clinic.id}
+                  className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedClinicIds.has(clinic.id)}
+                    onChange={() => toggleClinic(clinic.id)}
+                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="font-medium text-gray-900">{clinic.name}</span>
+                  {clinic.address && (
+                    <span className="text-sm text-gray-500 truncate flex-1">{clinic.address}</span>
+                  )}
+                </label>
+              ))}
+            </div>
+            {clinics.length === 0 && (
+              <p className="text-sm text-gray-500">No clinics available.</p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 p-6 border-t border-gray-200">
             <button
               type="button"
               onClick={onClose}

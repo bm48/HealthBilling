@@ -17,7 +17,8 @@ import {
   Database,
   Palette,
   Menu,
-  ArrowLeft
+  ArrowLeft,
+  Lock
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -37,6 +38,7 @@ export default function Layout({ children }: LayoutProps) {
   const [clinicProviders, setClinicProviders] = useState<Record<string, Provider[]>>({})
   const [expandedSettings, setExpandedSettings] = useState(false)
   const [expandedClinicsSection, setExpandedClinicsSection] = useState(false)
+  const [expandedProviderSheetSection, setExpandedProviderSheetSection] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   // Provider sidebar: clinics the logged-in provider belongs to
   const [providerClinics, setProviderClinics] = useState<Clinic[]>([])
@@ -53,9 +55,9 @@ export default function Layout({ children }: LayoutProps) {
     }
   }
 
-  // Fetch clinics for super admin
+  // Fetch clinics for super admin, admin, billing_staff, official_staff, and office_staff
   useEffect(() => {
-    if (userProfile?.role === 'super_admin') {
+    if (userProfile?.role === 'super_admin' || userProfile?.role === 'admin' || userProfile?.role === 'billing_staff' || userProfile?.role === 'official_staff' || userProfile?.role === 'office_staff') {
       fetchClinics()
     }
   }, [userProfile])
@@ -102,14 +104,17 @@ export default function Layout({ children }: LayoutProps) {
     fetchProviderClinics()
   }, [user?.email, userProfile?.role, userProfile?.clinic_ids])
 
-  // Auto-expand clinic if on a clinic detail page (super admin)
+  // Auto-expand clinic if on a clinic detail page (super admin, admin, billing_staff, official_staff, office_staff)
   useEffect(() => {
-    if (userProfile?.role === 'super_admin' && location.pathname.startsWith('/clinic/')) {
+    if ((userProfile?.role === 'super_admin' || userProfile?.role === 'admin' || userProfile?.role === 'billing_staff' || userProfile?.role === 'official_staff' || userProfile?.role === 'office_staff') && location.pathname.startsWith('/clinic/')) {
       setExpandedClinicsSection(true)
       const clinicIdMatch = location.pathname.match(/^\/clinic\/([^/]+)/)
       if (clinicIdMatch && clinicIdMatch[1]) {
         const clinicId = clinicIdMatch[1]
         setExpandedClinics(prev => (prev.has(clinicId) ? prev : new Set([...prev, clinicId])))
+      }
+      if (location.pathname.match(/^\/clinic\/[^/]+\/providers\/[^/]+$/) && userProfile?.role === 'office_staff') {
+        setExpandedProviderSheetSection(true)
       }
     }
   }, [location.pathname, userProfile])
@@ -126,13 +131,14 @@ export default function Layout({ children }: LayoutProps) {
   }, [location.pathname, userProfile])
 
   const fetchClinics = async () => {
+    if (!userProfile) return
     setLoadingClinics(true)
     try {
-      const { data, error } = await supabase
-        .from('clinics')
-        .select('*')
-        .order('name')
-      
+      let query = supabase.from('clinics').select('*').order('name')
+      if ((userProfile.role === 'admin' || userProfile.role === 'billing_staff' || userProfile.role === 'official_staff' || userProfile.role === 'office_staff') && userProfile.clinic_ids?.length) {
+        query = query.in('id', userProfile.clinic_ids)
+      }
+      const { data, error } = await query
       if (error) throw error
       setClinics(data || [])
       
@@ -208,7 +214,7 @@ export default function Layout({ children }: LayoutProps) {
 
   // Fetch providers when clinic is expanded (fallback)
   useEffect(() => {
-    if (userProfile?.role === 'super_admin') {
+    if (userProfile?.role === 'super_admin' || userProfile?.role === 'admin' || userProfile?.role === 'billing_staff' || userProfile?.role === 'official_staff') {
       expandedClinics.forEach(clinicId => {
         if (!clinicProviders[clinicId] || clinicProviders[clinicId].length === 0) {
           fetchProvidersForClinic(clinicId)
@@ -241,8 +247,9 @@ export default function Layout({ children }: LayoutProps) {
 
   // Auto-expand settings if on a settings page
   useEffect(() => {
-    if (userProfile?.role === 'super_admin' && (
+    if ((userProfile?.role === 'super_admin' || userProfile?.role === 'admin') && (
       location.pathname.startsWith('/super-admin-settings') ||
+      location.pathname.startsWith('/admin-settings') ||
       location.pathname.includes('/settings/')
     )) {
       setExpandedSettings(true)
@@ -253,7 +260,6 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['*'] },
     { name: 'Patient Database', href: '/patients', icon: Users, roles: ['office_staff', 'billing_staff', 'admin', 'super_admin'] },
     { name: 'Billing To-Do', href: '/todo', icon: CheckSquare, roles: ['billing_staff', 'admin', 'super_admin'] },
-    { name: 'Provider Sheet', href: '/provider-sheet', icon: FileText, roles: ['*'] },
     { name: 'Timecards', href: '/timecards', icon: Clock, roles: ['billing_staff', 'admin', 'super_admin'] },
     { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['admin', 'view_only_admin', 'super_admin'] },
   ]
@@ -276,6 +282,13 @@ export default function Layout({ children }: LayoutProps) {
   const filteredNavigation = navigation.filter(item => canAccess(item.roles))
 
   const isActive = (href: string) => location.pathname === href
+
+  const isSuperAdmin = userProfile?.role === 'super_admin'
+  const settingsPath = isSuperAdmin ? '/super-admin-settings' : '/admin-settings'
+  const showBillingTodoInClinic = isSuperAdmin
+  const isBillingStaff = userProfile?.role === 'billing_staff'
+  const isOfficialStaff = userProfile?.role === 'official_staff'
+  const isOfficeStaff = userProfile?.role === 'office_staff'
 
   return (
     <div className="min-h-screen">
@@ -400,9 +413,9 @@ export default function Layout({ children }: LayoutProps) {
                   </div>
                 )}
               </>
-            ) : userProfile?.role === 'super_admin' ? (
+            ) : (userProfile?.role === 'super_admin' || userProfile?.role === 'admin') ? (
               <>
-                {/* Dashboard for Super Admin */}
+                {/* Dashboard for Super Admin / Admin */}
                 <Link
                   to="/dashboard"
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
@@ -416,7 +429,7 @@ export default function Layout({ children }: LayoutProps) {
                   {!sidebarCollapsed && <span>Dashboard</span>}
                 </Link>
 
-                {/* Clinics as collapsible menu item */}
+                {/* Clinics as collapsible menu item (full: Patient Info, Billing To-Do, Providers) */}
                 {!sidebarCollapsed && (
                 <div className="mb-1">
                   <button
@@ -448,30 +461,54 @@ export default function Layout({ children }: LayoutProps) {
                           
                           return (
                             <div key={clinic.id} className="mb-1">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-0">
+                                <Link
+                                  to={clinicPath}
+                                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-left flex-1 min-w-0 ${
+                                    location.pathname === clinicPath
+                                      ? 'bg-primary-600 text-white font-medium'
+                                      : isClinicActive
+                                        ? 'bg-primary-600/50 text-white font-medium'
+                                        : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                  }`}
+                                >
+                                  <Building2 size={16} />
+                                  <span className="flex-1 truncate">{clinic.name}</span>
+                                </Link>
                                 <button
                                   onClick={(e) => {
+                                    e.preventDefault()
                                     e.stopPropagation()
                                     toggleClinic(clinic.id)
                                   }}
-                                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-left flex-1 ${
+                                  className={`p-2 rounded-lg transition-colors ${
                                     isClinicActive
-                                      ? 'bg-primary-600/50 text-white font-medium'
+                                      ? 'text-white hover:bg-white/10'
                                       : 'text-white/60 hover:bg-white/10 hover:text-white'
                                   }`}
+                                  title={isExpanded ? 'Collapse' : 'Expand'}
                                 >
                                   {isExpanded ? (
                                     <ChevronDown size={16} />
                                   ) : (
                                     <ChevronRight size={16} />
                                   )}
-                                  <Building2 size={16} />
-                                  <span className="flex-1 truncate">{clinic.name}</span>
                                 </button>
                               </div>
                               
                               {isExpanded && (
                                 <div className="ml-6 mt-1 space-y-1">
+                                  <Link
+                                    to={clinicPath}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                      location.pathname === clinicPath
+                                        ? 'bg-primary-600 text-white font-medium'
+                                        : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                    }`}
+                                  >
+                                    <LayoutDashboard size={16} />
+                                    <span>Dashboard</span>
+                                  </Link>
                                   <Link
                                     to={`${clinicPath}/patients`}
                                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
@@ -483,17 +520,19 @@ export default function Layout({ children }: LayoutProps) {
                                     <Users size={16} />
                                     <span>Patient Info</span>
                                   </Link>
-                                  <Link
-                                    to={`${clinicPath}/todo`}
-                                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
-                                      location.pathname === `${clinicPath}/todo`
-                                        ? 'bg-primary-600 text-white font-medium'
-                                        : 'text-white/60 hover:bg-white/10 hover:text-white'
-                                    }`}
-                                  >
-                                    <CheckSquare size={16} />
-                                    <span>Billing To-Do</span>
-                                  </Link>
+                                  {showBillingTodoInClinic && (
+                                    <Link
+                                      to={`${clinicPath}/todo`}
+                                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                        location.pathname === `${clinicPath}/todo`
+                                          ? 'bg-primary-600 text-white font-medium'
+                                          : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                      }`}
+                                    >
+                                      <CheckSquare size={16} />
+                                      <span>Billing To-Do</span>
+                                    </Link>
+                                  )}
                                   <div className="mb-2">
                                     <div className="px-4 py-1 text-xs font-semibold text-white/40 uppercase tracking-wider">
                                       Providers
@@ -585,7 +624,7 @@ export default function Layout({ children }: LayoutProps) {
                     <button
                       onClick={toggleSettings}
                       className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-left ${
-                        location.pathname.startsWith('/super-admin-settings') || location.pathname.includes('/settings/')
+                        location.pathname.startsWith(settingsPath) || location.pathname.includes('/settings/')
                           ? 'bg-primary-600/50 text-white font-medium'
                           : 'text-white/70 hover:bg-white/10 hover:text-white'
                       }`}
@@ -603,9 +642,9 @@ export default function Layout({ children }: LayoutProps) {
                     {expandedSettings && (
                       <div className="ml-6 mt-1 space-y-1">
                         <Link
-                          to="/super-admin-settings?tab=users"
+                          to={`${settingsPath}?tab=users`}
                           className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
-                            location.pathname === '/super-admin-settings' && location.search.includes('tab=users')
+                            location.pathname === settingsPath && location.search.includes('tab=users')
                               ? 'bg-primary-600 text-white font-medium'
                               : 'text-white/60 hover:bg-white/10 hover:text-white'
                           }`}
@@ -614,9 +653,9 @@ export default function Layout({ children }: LayoutProps) {
                           <span>User Management</span>
                         </Link>
                         <Link
-                          to="/super-admin-settings?tab=billing-codes"
+                          to={`${settingsPath}?tab=billing-codes`}
                           className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
-                            location.pathname === '/super-admin-settings' && location.search.includes('tab=billing-codes')
+                            location.pathname === settingsPath && location.search.includes('tab=billing-codes')
                               ? 'bg-primary-600 text-white font-medium'
                               : 'text-white/60 hover:bg-white/10 hover:text-white'
                           }`}
@@ -625,9 +664,9 @@ export default function Layout({ children }: LayoutProps) {
                           <span>Billing Codes</span>
                         </Link>
                         <Link
-                          to="/super-admin-settings?tab=clinics"
+                          to={`${settingsPath}?tab=clinics`}
                           className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
-                            location.pathname === '/super-admin-settings' && location.search.includes('tab=clinics')
+                            location.pathname === settingsPath && location.search.includes('tab=clinics')
                               ? 'bg-primary-600 text-white font-medium'
                               : 'text-white/60 hover:bg-white/10 hover:text-white'
                           }`}
@@ -636,9 +675,9 @@ export default function Layout({ children }: LayoutProps) {
                           <span>Clinic Management</span>
                         </Link>
                         <Link
-                          to="/super-admin-settings?tab=export"
+                          to={`${settingsPath}?tab=export`}
                           className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
-                            location.pathname === '/super-admin-settings' && location.search.includes('tab=export')
+                            location.pathname === settingsPath && location.search.includes('tab=export')
                               ? 'bg-primary-600 text-white font-medium'
                               : 'text-white/60 hover:bg-white/10 hover:text-white'
                           }`}
@@ -647,9 +686,9 @@ export default function Layout({ children }: LayoutProps) {
                           <span>Export Data</span>
                         </Link>
                         <Link
-                          to="/super-admin-settings?tab=audit-logs"
+                          to={`${settingsPath}?tab=audit-logs`}
                           className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
-                            location.pathname === '/super-admin-settings' && location.search.includes('tab=audit-logs')
+                            location.pathname === settingsPath && location.search.includes('tab=audit-logs')
                               ? 'bg-primary-600 text-white font-medium'
                               : 'text-white/60 hover:bg-white/10 hover:text-white'
                           }`}
@@ -657,14 +696,40 @@ export default function Layout({ children }: LayoutProps) {
                           <Database size={16} />
                           <span>Audit logs</span>
                         </Link>
+                        {isSuperAdmin && (
+                          <Link
+                            to={`${settingsPath}?tab=unlock`}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                              location.pathname === settingsPath && location.search.includes('tab=unlock')
+                                ? 'bg-primary-600 text-white font-medium'
+                                : 'text-white/60 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <Database size={16} />
+                            <span>Locked Sheets</span>
+                          </Link>
+                        )}
+                        {userProfile?.role === 'admin' && (
+                          <Link
+                            to={`${settingsPath}?tab=month-close`}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                              location.pathname === settingsPath && location.search.includes('tab=month-close')
+                                ? 'bg-primary-600 text-white font-medium'
+                                : 'text-white/60 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <Lock size={16} />
+                            <span>Month Close</span>
+                          </Link>
+                        )}
                       </div>
                     )}
                   </div>
                   ) : (
                     <Link
-                      to="/super-admin-settings"
+                      to={settingsPath}
                       className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 justify-center ${
-                        location.pathname.startsWith('/super-admin-settings')
+                        location.pathname.startsWith(settingsPath)
                           ? 'bg-primary-600 text-white font-medium shadow-lg'
                           : 'text-white/70 hover:bg-white/10 hover:text-white'
                       }`}
@@ -674,6 +739,320 @@ export default function Layout({ children }: LayoutProps) {
                     </Link>
                   )}
                 </div>
+              </>
+            ) : isOfficialStaff ? (
+              <>
+                {/* Official Staff: Dashboard + single clinic Billing To-Do only */}
+                <Link
+                  to="/dashboard"
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                    isActive('/dashboard')
+                      ? 'bg-primary-600 text-white font-medium shadow-lg'
+                      : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  } ${sidebarCollapsed ? 'justify-center' : ''}`}
+                  title="Dashboard"
+                >
+                  <LayoutDashboard size={20} />
+                  {!sidebarCollapsed && <span>Dashboard</span>}
+                </Link>
+
+                {!sidebarCollapsed && (
+                  <div className="mb-1">
+                    {loadingClinics ? (
+                      <div className="px-4 py-2 text-xs text-white/50">Loading...</div>
+                    ) : clinics.length === 0 ? (
+                      <div className="px-4 py-2 text-xs text-white/50">No clinic assigned</div>
+                    ) : (
+                      <Link
+                        to={`/clinic/${clinics[0].id}/todo`}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                          location.pathname.startsWith(`/clinic/${clinics[0].id}`)
+                            ? 'bg-primary-600 text-white font-medium'
+                            : 'text-white/70 hover:bg-white/10 hover:text-white'
+                        }`}
+                        title="Billing To-Do"
+                      >
+                        <CheckSquare size={20} />
+                        <span className="flex-1 truncate">{clinics[0].name} – Billing</span>
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : isBillingStaff ? (
+              <>
+                {/* Dashboard for Billing Staff */}
+                <Link
+                  to="/dashboard"
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                    isActive('/dashboard')
+                      ? 'bg-primary-600 text-white font-medium shadow-lg'
+                      : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  } ${sidebarCollapsed ? 'justify-center' : ''}`}
+                  title="Dashboard"
+                >
+                  <LayoutDashboard size={20} />
+                  {!sidebarCollapsed && <span>Dashboard</span>}
+                </Link>
+
+                {/* Clinics: Billing To-Do and Billing only (no Patient Info, no lock) */}
+                {!sidebarCollapsed && (
+                  <div className="mb-1">
+                    <button
+                      onClick={toggleClinicsSection}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-left ${
+                        location.pathname.startsWith('/clinic/')
+                          ? 'bg-primary-600/50 text-white font-medium'
+                          : 'text-white/70 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {expandedClinicsSection ? (
+                        <ChevronDown size={16} />
+                      ) : (
+                        <ChevronRight size={16} />
+                      )}
+                      <Building2 size={20} />
+                      <span>Clinics</span>
+                    </button>
+
+                    {expandedClinicsSection && (
+                      <div className="ml-6 mt-1 space-y-1">
+                        {loadingClinics ? (
+                          <div className="px-4 py-2 text-xs text-white/50">Loading clinics...</div>
+                        ) : (
+                          clinics.map((clinic) => {
+                            const isExpanded = isClinicExpanded(clinic.id)
+                            const clinicPath = `/clinic/${clinic.id}`
+                            const isClinicActive = location.pathname.startsWith(clinicPath)
+
+                            return (
+                              <div key={clinic.id} className="mb-1">
+                                <div className="flex items-center gap-0">
+                                  <Link
+                                    to={clinicPath}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-left flex-1 min-w-0 ${
+                                      location.pathname === clinicPath
+                                        ? 'bg-primary-600 text-white font-medium'
+                                        : isClinicActive
+                                          ? 'bg-primary-600/50 text-white font-medium'
+                                          : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                    }`}
+                                  >
+                                    <Building2 size={16} />
+                                    <span className="flex-1 truncate">{clinic.name}</span>
+                                  </Link>
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      toggleClinic(clinic.id)
+                                    }}
+                                    className={`p-2 rounded-lg transition-colors ${
+                                      isClinicActive
+                                        ? 'text-white hover:bg-white/10'
+                                        : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                    }`}
+                                    title={isExpanded ? 'Collapse' : 'Expand'}
+                                  >
+                                    {isExpanded ? (
+                                      <ChevronDown size={16} />
+                                    ) : (
+                                      <ChevronRight size={16} />
+                                    )}
+                                  </button>
+                                </div>
+
+                                {isExpanded && (
+                                  <div className="ml-6 mt-1 space-y-1">
+                                    <Link
+                                      to={clinicPath}
+                                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                        location.pathname === clinicPath
+                                          ? 'bg-primary-600 text-white font-medium'
+                                          : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                      }`}
+                                    >
+                                      <LayoutDashboard size={16} />
+                                      <span>Dashboard</span>
+                                    </Link>
+                                    <Link
+                                      to={`${clinicPath}/patients`}
+                                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                        location.pathname === `${clinicPath}/patients`
+                                          ? 'bg-primary-600 text-white font-medium'
+                                          : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                      }`}
+                                    >
+                                      <Users size={16} />
+                                      <span>Patient Info</span>
+                                    </Link>
+                                    <Link
+                                      to={`${clinicPath}/todo`}
+                                      className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                        location.pathname === `${clinicPath}/todo`
+                                          ? 'bg-primary-600 text-white font-medium'
+                                          : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                      }`}
+                                    >
+                                      <CheckSquare size={16} />
+                                      <span>Billing To-Do</span>
+                                    </Link>
+                                    <div className="mb-2">
+                                      <div className="px-4 py-1 text-xs font-semibold text-white/40 uppercase tracking-wider">
+                                        Billing
+                                      </div>
+                                      {(() => {
+                                        const providers = clinicProviders[clinic.id]
+                                        if (providers && providers.length > 0) {
+                                          return providers.map((provider) => (
+                                            <Link
+                                              key={provider.id}
+                                              to={`${clinicPath}/providers/${provider.id}`}
+                                              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ml-2 ${
+                                                location.pathname === `${clinicPath}/providers/${provider.id}`
+                                                  ? 'bg-primary-600 text-white font-medium'
+                                                  : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                              }`}
+                                            >
+                                              <FileText size={14} />
+                                              <span>{provider.first_name} {provider.last_name}</span>
+                                              {provider.specialty && (
+                                                <span className="text-xs text-white/40">({provider.specialty})</span>
+                                              )}
+                                            </Link>
+                                          ))
+                                        } else {
+                                          return (
+                                            <div className="px-4 py-1 text-xs text-white/40 ml-2">
+                                              {providers === undefined ? 'Loading...' : 'No providers'}
+                                            </div>
+                                          )
+                                        }
+                                      })()}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Timecards only (no Patient Database, Billing To-Do, or Provider Sheet under clinics) */}
+                <div className="mt-1">
+                  <Link
+                    to="/timecards"
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
+                      isActive('/timecards')
+                        ? 'bg-primary-600 text-white font-medium shadow-lg'
+                        : 'text-white/70 hover:bg-white/10 hover:text-white'
+                    } ${sidebarCollapsed ? 'justify-center' : ''}`}
+                    title="Timecards"
+                  >
+                    <Clock size={20} />
+                    {!sidebarCollapsed && <span>Timecards</span>}
+                  </Link>
+                </div>
+              </>
+            ) : isOfficeStaff ? (
+              <>
+                {/* Office Staff: Dashboard, Patient Database, Provider Sheet (expandable) */}
+                <Link
+                  to="/dashboard"
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                    isActive('/dashboard')
+                      ? 'bg-primary-600 text-white font-medium shadow-lg'
+                      : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  } ${sidebarCollapsed ? 'justify-center' : ''}`}
+                  title="Dashboard"
+                >
+                  <LayoutDashboard size={20} />
+                  {!sidebarCollapsed && <span>Dashboard</span>}
+                </Link>
+
+                {/* <Link
+                  to="/patients"
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
+                    isActive('/patients')
+                      ? 'bg-primary-600 text-white font-medium shadow-lg'
+                      : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  } ${sidebarCollapsed ? 'justify-center' : ''}`}
+                  title="Patient Database"
+                >
+                  <Users size={20} />
+                  {!sidebarCollapsed && <span>Patient Database</span>}
+                </Link> */}
+
+                {/* Provider Sheet: expandable list of providers; click header = expand + go to first provider (office_staff only) */}
+                {!sidebarCollapsed && (
+                  <div className="mb-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExpandedProviderSheetSection(prev => !prev)
+                        if (!expandedProviderSheetSection) {
+                          const firstClinic = clinics[0]
+                          const firstProvider = firstClinic && clinicProviders[firstClinic.id]?.[0]
+                          if (firstClinic && firstProvider) {
+                            navigate(`/clinic/${firstClinic.id}/providers/${firstProvider.id}`)
+                          }
+                        }
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-left ${
+                        location.pathname.match(/^\/clinic\/[^/]+\/providers\/[^/]+$/)
+                          ? 'bg-primary-600/50 text-white font-medium'
+                          : 'text-white/70 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {expandedProviderSheetSection ? (
+                        <ChevronDown size={16} />
+                      ) : (
+                        <ChevronRight size={16} />
+                      )}
+                      <FileText size={20} />
+                      <span>Provider Sheet</span>
+                    </button>
+                    {expandedProviderSheetSection && (
+                      <div className="ml-6 mt-1 space-y-1">
+                        {loadingClinics ? (
+                          <div className="px-4 py-2 text-xs text-white/50">Loading...</div>
+                        ) : (
+                          clinics.map((clinic) => {
+                            const providers = clinicProviders[clinic.id]
+                            if (!providers || providers.length === 0) return null
+                            return (
+                              <div key={clinic.id} className="mb-2">
+                                <div className="px-4 py-1 text-xs font-semibold text-white/40 uppercase tracking-wider">
+                                  {clinic.name}
+                                </div>
+                                {providers.map((provider) => (
+                                  <Link
+                                    key={provider.id}
+                                    to={`/clinic/${clinic.id}/providers/${provider.id}`}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ml-2 block ${
+                                      location.pathname === `/clinic/${clinic.id}/providers/${provider.id}`
+                                        ? 'bg-primary-600 text-white font-medium'
+                                        : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                    }`}
+                                  >
+                                    <FileText size={14} />
+                                    <span>{provider.first_name} {provider.last_name}</span>
+                                    {provider.specialty && (
+                                      <span className="text-xs text-white/40">({provider.specialty})</span>
+                                    )}
+                                  </Link>
+                                ))}
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               filteredNavigation.map((item) => {

@@ -6,9 +6,9 @@ import PatientDatabase from '@/pages/PatientDatabase'
 import ProviderSheet from '@/pages/ProviderSheet'
 import Reports from '@/pages/Reports'
 import Timecards from '@/pages/Timecards'
-import AdminSettings from '@/pages/AdminSettings'
 import SuperAdminSettings from '@/pages/SuperAdminSettings'
 import ClinicDetail from '@/pages/ClinicDetail'
+import ClinicDashboard from '@/pages/ClinicDashboard'
 import Invoices from '@/pages/Invoices'
 import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
@@ -139,7 +139,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Layout>
-              <AdminSettings />
+              <SuperAdminSettings />
             </Layout>
           </ProtectedRoute>
         }
@@ -150,6 +150,16 @@ function AppRoutes() {
           <ProtectedRoute>
             <Layout>
               <SuperAdminSettings />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/clinic/:clinicId"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ClinicDashboard />
             </Layout>
           </ProtectedRoute>
         }
