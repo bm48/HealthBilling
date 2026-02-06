@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { Users, Stethoscope, ClipboardList } from 'lucide-react'
 import { Clinic, Provider } from '@/types'
 
 export interface ClinicCardStats {
@@ -68,10 +69,16 @@ export default function ClinicCard({ clinic, providers, stats, dashboardHref, cu
 
       {/* Bottom: Pt #, Provider #, Total To Do #, Current month total $ */}
       <div className="border-t border-white/20 pt-3 space-y-1">
-        <div className="flex flex-wrap gap-x-4 gap-y-0 text-md text-white/90">
-          <span className='text-red-500'>Pt : {stats?.patientCount ?? '—'}</span>
-          <span className='text-blue-500'>Provider : {stats?.providerCount ?? '—'}</span>
-          <span className='text-green-500'>Total To Do : {stats?.todoCount ?? '—'}</span>
+        <div className="grid grid-cols-3 text-md text-white/90 items-center">
+          <span className="flex items-center gap-1.5 text-red-500" title="Patients">
+            <Users size={18} /> {stats?.patientCount ?? '—'}
+          </span>
+          <span className="flex items-center gap-1.5 text-blue-500" title="Providers">
+            <Stethoscope size={18} /> {stats?.providerCount ?? '—'}
+          </span>
+          <span className="flex items-center gap-1.5 text-green-500" title="Total To Do">
+            <ClipboardList size={18} /> {stats?.todoCount ?? '—'}
+          </span>
         </div>
         <div className="text-sm text-white/90">
           Current month total : {formatCurrency(stats?.currentMonthTotal ?? null)}
