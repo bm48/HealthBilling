@@ -36,7 +36,7 @@ export type PatientPayStatus =
   | 'Payment Plan'
   | 'Waiting on Claims'
 
-export type ARType = 'Insurance' | 'Patient' | 'Clinic' | 'Collections' | 'MindRx Group' | null
+export type ARType = 'Insurance' | 'Patient' | 'Admin' | null
 
 export interface User {
   id: string

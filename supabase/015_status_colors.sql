@@ -94,6 +94,5 @@ INSERT INTO status_colors (status, color, text_color, type)
 VALUES 
   ('Patient', '#e3f2fd', '#000000', 'ar_type'),
   ('Insurance', '#fff9c4', '#000000', 'ar_type'),
-  ('Collections', '#ffccbc', '#000000', 'ar_type'),
-  ('MindRx Group', '#e1bee7', '#000000', 'ar_type')
+  ('Admin', '#e1bee7', '#000000', 'ar_type')
 ON CONFLICT (status, type) DO NOTHING;

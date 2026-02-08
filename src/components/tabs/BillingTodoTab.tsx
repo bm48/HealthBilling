@@ -30,6 +30,7 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0) // Bump on add/delete row so grid refreshes immediately
+  const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
 
   // Use isLockBillingTodo from props directly - it will update when parent refreshes
   const lockData = isLockBillingTodo || null
@@ -494,6 +495,30 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
   const columnFields: Array<keyof IsLockBillingTodo> = ['id_column', 'status', 'issue', 'notes', 'followup_notes']
   const columnTitles = ['ID', 'Status', 'Issue', 'Notes', 'F/u notes']
 
+  const todosCellsCallback = useCallback(
+    (row: number, col: number) => {
+      const todo = todos[row]
+      const colKey = columnFields[col]
+      if (!colKey) return {}
+      const key = `${todo?.id ?? `row-${row}`}:${colKey}`
+      return highlightedCells.has(key) ? { className: 'cell-highlight-yellow' } : {}
+    },
+    [todos, columnFields, highlightedCells]
+  )
+
+  const handleCellHighlight = useCallback((row: number, col: number) => {
+    const todo = todos[row]
+    const colKey = columnFields[col]
+    if (!colKey) return
+    const key = `${todo?.id ?? `row-${row}`}:${colKey}`
+    setHighlightedCells((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [todos, columnFields])
+
   // Add lock icons to headers after table renders
   useEffect(() => {
     // Only run if lock functionality is enabled
@@ -652,7 +677,6 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       title: 'Status', 
       type: 'dropdown' as const, 
       width: 120,
-      editor: 'select',
       selectOptions: ['New', 'Waiting', 'In Progress', 'Complete', 'Updated'],
       allowEmpty: false,
       renderer: createBubbleDropdownRenderer(getStatusColor) as any,
@@ -881,6 +905,8 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
           afterChange={handleTodosHandsontableChange}
           onAfterRowMove={handleTodosRowMove}
           onContextMenu={handleTodosHandsontableContextMenu}
+          onCellHighlight={handleCellHighlight}
+          cells={todosCellsCallback}
           enableFormula={false}
           readOnly={!canEdit}
           style={{ backgroundColor: '#d2dbe5' }}

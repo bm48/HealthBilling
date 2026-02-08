@@ -82,7 +82,7 @@ const PATIENT_PAY_STATUSES: PatientPayStatus[] = [
   'Waiting on Claims',
 ]
 
-const AR_TYPES: (ARType | null)[] = ['Insurance', 'Patient', 'Clinic', null]
+const AR_TYPES: (ARType | null)[] = ['Insurance', 'Patient', 'Admin', null]
 
 export default function ProviderSheetTable({
   rows,

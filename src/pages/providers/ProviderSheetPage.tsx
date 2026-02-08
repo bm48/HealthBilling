@@ -345,6 +345,7 @@ export default function ProviderSheetPage() {
       </div>
 
       <ProvidersTab
+        clinicId={clinicId}
         providers={[provider]}
         providerSheetRows={providerSheetRows}
         billingCodes={billingCodes}

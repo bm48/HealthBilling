@@ -733,3 +733,25 @@
   text-align: left !important;
   vertical-align: middle !important;
 }
+
+/* Cell highlight from context menu (Highlight) */
+.handsontable-custom td.cell-highlight-yellow {
+  background-color: #fef08a !important;
+}
+
+/* Cell has comment indicator (small icon in top-right corner) */
+.handsontable-custom td.cell-has-comment {
+  position: relative;
+}
+.handsontable-custom td.cell-has-comment::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%232563eb'%3E%3Cpath d='M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}

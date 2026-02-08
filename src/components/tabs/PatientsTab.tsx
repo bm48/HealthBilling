@@ -30,6 +30,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   const savePatientsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0)
+  const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
   const lockData = isLockPatients || null
 
   const createEmptyPatient = useCallback((index: number): Patient => ({
@@ -328,6 +329,30 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   const columnFields: Array<keyof IsLockPatients> = ['patient_id', 'first_name', 'last_name', 'insurance', 'copay', 'coinsurance']
   const columnTitles = ['Patient ID', 'Patient First', 'Patient Last', 'Insurance', 'Copay', 'Coinsurance']
 
+  const patientsCellsCallback = useCallback(
+    (row: number, col: number) => {
+      const patient = patients[row]
+      const colKey = columnFields[col]
+      if (!colKey) return {}
+      const key = `${patient?.id ?? `row-${row}`}:${colKey}`
+      return highlightedCells.has(key) ? { className: 'cell-highlight-yellow' } : {}
+    },
+    [patients, columnFields, highlightedCells]
+  )
+
+  const handleCellHighlight = useCallback((row: number, col: number) => {
+    const patient = patients[row]
+    const colKey = columnFields[col]
+    if (!colKey) return
+    const key = `${patient?.id ?? `row-${row}`}:${colKey}`
+    setHighlightedCells((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [patients, columnFields])
+
   useEffect(() => {
     if (!canEdit || !onLockColumn || !isColumnLocked) return
     let timeoutId: ReturnType<typeof setTimeout> | null = null
@@ -604,6 +629,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           afterChange={handlePatientsHandsontableChange}
           onAfterRowMove={handlePatientsRowMove}
           onContextMenu={handlePatientsHandsontableContextMenu}
+          onCellHighlight={handleCellHighlight}
+          cells={patientsCellsCallback}
           enableFormula={true}
           readOnly={!canEdit}
           style={{ backgroundColor: '#d2dbe5' }}

@@ -156,9 +156,10 @@ export function createBubbleDropdownRenderer(colorMap: (value: string) => { colo
       bubble.style.color = colorConfig.textColor
       arrowIcon.style.color = colorConfig.color
     } else {
-      bubble.style.backgroundColor = 'white'
+      bubble.style.backgroundColor = '#ddd'
       bubble.style.color = '#374151'
       arrowIcon.style.color = '#374151'
+      bubble.style.height = '24px'
     }
 
     td.appendChild(wrapper)
@@ -232,6 +233,24 @@ export function createMultiBubbleDropdownRenderer(colorMap: (value: string) => {
         }
         wrapper.appendChild(bubble)
       })
+    } else {
+      // Empty cell: show one empty bubble like other select cells
+      const bubble = document.createElement('span')
+      bubble.className = 'handsontable-bubble-select'
+      bubble.style.display = 'inline-flex'
+      bubble.style.alignItems = 'center'
+      bubble.style.flex = '1'
+      bubble.style.minWidth = '0'
+      bubble.style.padding = '4px 12px'
+      bubble.style.borderRadius = '16px'
+      bubble.style.fontSize = '13px'
+      bubble.style.fontWeight = '500'
+      bubble.style.lineHeight = '1.4'
+      bubble.style.minHeight = '24px'
+      bubble.style.cursor = cellProperties.readOnly ? 'default' : 'pointer'
+      bubble.style.backgroundColor = '#ddd'
+      bubble.style.color = '#374151'
+      wrapper.appendChild(bubble)
     }
 
     // Arrow icon – always show so user knows it's a select column (even when empty)

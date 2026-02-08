@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Timecard, Clinic } from '@/types'
+import { Timecard} from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { LogIn, LogOut, Plus } from 'lucide-react'
 
 export default function Timecards() {
   const { user, userProfile } = useAuth()
   const [timecards, setTimecards] = useState<Timecard[]>([])
-  const [clinics, setClinics] = useState<Clinic[]>([])
+  // const [clinics, setClinics] = useState<Clinic[]>([])
   const [selectedClinic, setSelectedClinic] = useState<string>('')
   const [currentClockIn, setCurrentClockIn] = useState<Timecard | null>(null)
   const [showModal, setShowModal] = useState(false)
@@ -34,7 +34,7 @@ export default function Timecards() {
       .in('id', userProfile.clinic_ids)
 
     if (data) {
-      setClinics(data)
+      // setClinics(data)
       if (data.length > 0) {
         setSelectedClinic(data[0].id)
       }
@@ -66,7 +66,7 @@ export default function Timecards() {
       .select('*')
       .eq('user_id', user.id)
       .order('clock_in', { ascending: false })
-      .limit(50)
+      .limit(10)
 
     if (data) {
       setTimecards(data)
@@ -159,9 +159,33 @@ export default function Timecards() {
     loadTimecards()
   }
 
+  // Working time per entry = clock_out - clock_in (stored as tc.hours). Weekly total = sum of those hours for all entries in that week. Average weekly = sum of all weekly totals / number of weeks.
   const totalHours = timecards
     .filter((tc) => tc.hours)
     .reduce((sum, tc) => sum + (tc.hours || 0), 0)
+
+  const getWeekStart = (tc: Timecard): string => {
+    if (tc.week_start_date) return tc.week_start_date
+    const d = new Date(tc.clock_in)
+    const day = d.getDay()
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+    const weekStart = new Date(d)
+    weekStart.setDate(diff)
+    weekStart.setHours(0, 0, 0, 0)
+    return weekStart.toISOString().split('T')[0]
+  }
+  // Group by week: each week's total = sum of (clock_out - clock_in) for every entry in that week
+  const hoursByWeek = timecards
+    .filter((tc) => tc.hours)
+    .reduce<Record<string, number>>((acc, tc) => {
+      const week = getWeekStart(tc)
+      acc[week] = (acc[week] || 0) + (tc.hours || 0)
+      return acc
+    }, {})
+  const weekEntries = Object.entries(hoursByWeek)
+    .map(([date, hours]) => ({ date, hours }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+  const averageHoursPerWeek = weekEntries.length > 0 ? totalHours / weekEntries.length : 0
 
   return (
     <div>
@@ -173,7 +197,7 @@ export default function Timecards() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
           <h2 className="text-xl font-semibold text-white mb-4">Clock In/Out</h2>
-          <div className="mb-4">
+          {/* <div className="mb-4">
             <label className="block text-sm font-medium text-white/90 mb-2">
               Clinic
             </label>
@@ -189,7 +213,7 @@ export default function Timecards() {
                 </option>
               ))}
             </select>
-          </div>
+          </div> */}
           {currentClockIn ? (
             <div>
               <p className="text-sm text-white/70 mb-4">
@@ -224,15 +248,11 @@ export default function Timecards() {
 
         <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
           <h2 className="text-xl font-semibold text-white mb-4">Summary</h2>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-white/70">Total Hours:</span>
-              <span className="font-semibold text-white">{totalHours.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/70">Total Entries:</span>
-              <span className="font-semibold text-white">{timecards.length}</span>
-            </div>
+          <div className="flex justify-between items-center">
+            <span className="text-white/70">Average hours per week</span>
+            <span className="font-semibold text-white text-xl">
+              {averageHoursPerWeek.toFixed(2)} hrs
+            </span>
           </div>
         </div>
       </div>
@@ -270,6 +290,46 @@ export default function Timecards() {
                   <td>{timecard.notes || '-'}</td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="mt-6 bg-white/10 backdrop-blur-md rounded-lg shadow-xl overflow-hidden border border-white/20">
+        <div className="p-4 border-b border-white/20">
+          <h2 className="font-semibold text-white">Weekly Summary</h2>
+        </div>
+        <div className="table-container dark-theme">
+          <table className="table-spreadsheet dark-theme">
+            <thead>
+              <tr>
+                <th>Week</th>
+                <th>Hours</th>
+              </tr>
+            </thead>
+            <tbody>
+              {weekEntries.length === 0 ? (
+                <tr>
+                  <td colSpan={2} className="text-white/60 text-center py-6">
+                    No hours recorded yet.
+                  </td>
+                </tr>
+              ) : (
+                weekEntries.map(({ date, hours }) => {
+                  const weekStart = new Date(date + 'T00:00:00')
+                  const weekEnd = new Date(weekStart)
+                  weekEnd.setDate(weekEnd.getDate() + 6)
+                  const dateRange = weekStart.getMonth() === weekEnd.getMonth()
+                    ? `${weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}-${weekEnd.getDate()}, ${weekEnd.getFullYear()}`
+                    : `${weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${weekEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+                  return (
+                    <tr key={date}>
+                      <td style={{ whiteSpace: 'nowrap' }} className="text-white/90">{dateRange}</td>
+                      <td style={{ fontWeight: 500 }} className="text-white">{hours.toFixed(2)} hrs</td>
+                    </tr>
+                  )
+                })
+              )}
             </tbody>
           </table>
         </div>

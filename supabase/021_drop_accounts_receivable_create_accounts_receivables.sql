@@ -17,7 +17,7 @@ CREATE TABLE accounts_receivables (
   date_of_service DATE,
   amount NUMERIC(10, 2),
   date_recorded DATE,
-  type TEXT NOT NULL CHECK (type IN ('Patient', 'Insurance', 'Collections', 'MindRx Group')),
+  type TEXT NOT NULL CHECK (type IN ('Patient', 'Insurance', 'Admin')),
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),

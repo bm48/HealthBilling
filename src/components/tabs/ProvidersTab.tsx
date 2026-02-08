@@ -5,9 +5,12 @@ import Handsontable from 'handsontable'
 import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor, currencyCellRenderer, percentCellRenderer } from '@/lib/handsontableCustomRenderers'
 import { useCallback, useMemo, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { supabase } from '@/lib/supabase'
 import { toDisplayValue } from '@/lib/utils'
 
 interface ProvidersTabProps {
+  /** Required for loading/saving cell highlights and comments; from URL on provider side when they click a clinic */
+  clinicId?: string
   providers: Provider[]
   providerSheetRows: Record<string, SheetRow[]>
   /** Bumped by parent on row reorder so grid refreshes with new order */
@@ -38,9 +41,12 @@ interface ProvidersTabProps {
   onReorderProviderRows?: (providerId: string, movedRows: number[], finalIndex: number) => void
   /** When true (e.g. official_staff), only columns Patient ID through Date of Service are editable; rest read-only */
   restrictEditToSchedulingColumns?: boolean
+  /** When true (super_admin only), show "Add comment" in cell context menu */
+  canAddComment?: boolean
 }
 
 export default function ProvidersTab({
+  clinicId,
   providers,
   providerSheetRows,
   providerRowsVersion,
@@ -67,10 +73,16 @@ export default function ProvidersTab({
   isProviderColumnLocked,
   onReorderProviderRows,
   restrictEditToSchedulingColumns = false,
+  canAddComment = false,
 }: ProvidersTabProps) {
   
   // Use isLockProviders from props directly - it will update when parent refreshes
   const lockData = isLockProviders || null
+  const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
+  const [commentsMap, setCommentsMap] = useState<Map<string, string>>(new Map())
+  const [commentModal, setCommentModal] = useState<{ row: number; col: number; rowId: string; colKey: string } | null>(null)
+  const [commentText, setCommentText] = useState('')
+  const [commentModalLoading, setCommentModalLoading] = useState(false)
 
   const providersToShow = providerId 
     ? providers.filter(p => p.id === providerId)
@@ -91,6 +103,33 @@ export default function ProvidersTab({
   useEffect(() => {
     latestTableDataRef.current = null
   }, [activeProvider?.id, selectedMonth.getTime()])
+
+  // Load persisted highlights and comments for this clinic (so they survive reload and show for providers)
+  useEffect(() => {
+    if (!clinicId) return
+    const loadHighlights = async () => {
+      const { data } = await supabase
+        .from('cell_highlights')
+        .select('row_id, column_key')
+        .eq('clinic_id', clinicId)
+        .eq('sheet_type', 'providers')
+      if (data) {
+        setHighlightedCells(new Set(data.map((r: { row_id: string; column_key: string }) => `${r.row_id}:${r.column_key}`)))
+      }
+    }
+    const loadComments = async () => {
+      const { data } = await supabase
+        .from('cell_comments')
+        .select('row_id, column_key, comment')
+        .eq('clinic_id', clinicId)
+        .eq('sheet_type', 'providers')
+      if (data) {
+        setCommentsMap(new Map(data.map((r: { row_id: string; column_key: string; comment: string }) => [`${r.row_id}:${r.column_key}`, r.comment ?? ''])))
+      }
+    }
+    loadHighlights()
+    loadComments()
+  }, [clinicId])
 
   // Color mapping functions
   const getCPTColor = useCallback((code: string): { color: string; textColor: string } | null => {
@@ -170,6 +209,27 @@ export default function ProvidersTab({
     return getTableDataFromRows(activeProviderRows)
   }, [activeProvider, activeProviderRows, getTableDataFromRows])
 
+  // Sum of Ins Pay, Collected from PT, Total (computed from current rows; not stored in DB)
+  const providerSums = useMemo(() => {
+    if (isProviderView) return { insPay: 0, collectedFromPt: 0, total: 0 }
+    const parse = (v: unknown): number => {
+      if (v == null || v === '' || v === 'null') return 0
+      const n = typeof v === 'number' ? v : parseFloat(String(v))
+      return Number.isNaN(n) ? 0 : n
+    }
+    let insPay = 0
+    let collectedFromPt = 0
+    let total = 0
+    activeProviderRows.forEach((row) => {
+      insPay += parse(row.insurance_payment)
+      collectedFromPt += parse(row.collected_from_patient)
+      total += parse(row.total)
+    })
+    return { insPay, collectedFromPt, total }
+  }, [activeProviderRows, isProviderView])
+
+  const formatCurrency = (n: number) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
   // Column field names mapping to is_lock_providers table columns
   const columnFieldsFull: Array<keyof IsLockProviders> = [
@@ -344,6 +404,116 @@ export default function ProvidersTab({
     }
   }, [isProviderView, canEdit, onLockProviderColumn, isProviderColumnLocked, columnFields, columnTitles, isLockProviders])
 
+  const providerCellsCallback = useCallback(
+    (row: number, col: number) => {
+      const sheetRow = activeProviderRows[row]
+      const colKey = columnFields[col]
+      if (!colKey) return {}
+      const key = `${sheetRow?.id ?? `row-${row}`}:${colKey}`
+      const classes = [
+        highlightedCells.has(key) ? 'cell-highlight-yellow' : '',
+        commentsMap.has(key) ? 'cell-has-comment' : '',
+      ].filter(Boolean).join(' ')
+      return classes ? { className: classes } : {}
+    },
+    [activeProviderRows, columnFields, highlightedCells, commentsMap]
+  )
+
+  // Tooltip for cells with comments (e.g. on provider side when hovering)
+  const getCellTitle = useCallback(
+    (row: number, col: number) => {
+      const sheetRow = activeProviderRows[row]
+      const colKey = columnFields[col]
+      if (!colKey) return undefined
+      const key = `${sheetRow?.id ?? `row-${row}`}:${colKey}`
+      return commentsMap.get(key) ?? undefined
+    },
+    [activeProviderRows, columnFields, commentsMap]
+  )
+
+  const handleCellHighlight = useCallback(async (row: number, col: number) => {
+    if (!clinicId) return
+    const sheetRow = activeProviderRows[row]
+    const colKey = columnFields[col]
+    if (!colKey) return
+    const key = `${sheetRow?.id ?? `row-${row}`}:${colKey}`
+    const isHighlighted = highlightedCells.has(key)
+    if (isHighlighted) {
+      await supabase
+        .from('cell_highlights')
+        .delete()
+        .eq('clinic_id', clinicId)
+        .eq('sheet_type', 'providers')
+        .eq('row_id', sheetRow?.id ?? `row-${row}`)
+        .eq('column_key', colKey)
+      setHighlightedCells((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+    } else {
+      await supabase.from('cell_highlights').upsert(
+        {
+          clinic_id: clinicId,
+          sheet_type: 'providers',
+          row_id: sheetRow?.id ?? `row-${row}`,
+          column_key: colKey,
+        },
+        { onConflict: 'clinic_id,sheet_type,row_id,column_key' }
+      )
+      setHighlightedCells((prev) => new Set(prev).add(key))
+    }
+  }, [activeProviderRows, columnFields, clinicId, highlightedCells])
+
+  const handleCellAddComment = useCallback((row: number, col: number) => {
+    if (!clinicId) return
+    const sheetRow = activeProviderRows[row]
+    const colKey = columnFields[col]
+    if (!colKey) return
+    const rowId = sheetRow?.id ?? `row-${row}`
+    const key = `${rowId}:${colKey}`
+    const existing = commentsMap.get(key)
+    if (existing !== undefined) {
+      setCommentText(existing)
+      setCommentModalLoading(false)
+    } else {
+      setCommentText('')
+      setCommentModalLoading(true)
+      supabase
+        .from('cell_comments')
+        .select('comment')
+        .eq('clinic_id', clinicId)
+        .eq('sheet_type', 'providers')
+        .eq('row_id', rowId)
+        .eq('column_key', colKey)
+        .maybeSingle()
+        .then(({ data }) => {
+          setCommentModalLoading(false)
+          if (data?.comment != null) setCommentText(data.comment)
+        })
+    }
+    setCommentModal({ row, col, rowId, colKey })
+  }, [activeProviderRows, columnFields, commentsMap, clinicId])
+
+  const handleSaveComment = useCallback(async () => {
+    if (!commentModal || !clinicId) return
+    const key = `${commentModal.rowId}:${commentModal.colKey}`
+    await supabase.from('cell_comments').upsert(
+      {
+        clinic_id: clinicId,
+        sheet_type: 'providers',
+        row_id: commentModal.rowId,
+        column_key: commentModal.colKey,
+        comment: commentText,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'clinic_id,sheet_type,row_id,column_key' }
+    )
+    setCommentsMap((prev) => new Map(prev).set(key, commentText))
+    setCommentModal(null)
+    setCommentText('')
+  }, [commentModal, clinicId, commentText])
+
   // Update columns with readOnly based on lock state
   const providerColumnsWithLocks = useMemo(() => {
     if (!activeProvider) return []
@@ -360,7 +530,7 @@ export default function ProvidersTab({
         { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit) },
         { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyForColumn(6, !canEdit) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyForColumn(7, !canEdit) },
-        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, editor: 'select', selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyForColumn(8, !canEdit) },
+        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyForColumn(8, !canEdit) },
       ]
     }
     
@@ -432,7 +602,6 @@ export default function ProvidersTab({
         title: 'Appt/Note Status', 
         type: 'dropdown' as const, 
         width: 150,
-        editor: 'select',
         selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'],
         renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any,
         readOnly: getReadOnlyForColumn(8, !canEdit || getReadOnly('appointment_note_status'))
@@ -442,7 +611,6 @@ export default function ProvidersTab({
         title: 'Claim Status', 
         type: 'dropdown' as const, 
         width: 120,
-        editor: 'select',
         selectOptions: ['Claim Sent', 'RS', 'IP', 'Pending Pay', 'Paid', 'Deductible', 'N/A', 'PP', 'Denial', 'Rejected', 'No Coverage'],
         renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'claim')) as any,
         readOnly: getReadOnlyForColumn(9, !canEdit || getReadOnly('claim_status'))
@@ -457,8 +625,9 @@ export default function ProvidersTab({
       { 
         data: 11, 
         title: 'Ins Pay', 
-        type: 'text' as const, 
+        type: 'numeric' as const, 
         width: 100,
+        renderer: currencyCellRenderer,
         readOnly: getReadOnlyForColumn(11, !canEdit || getReadOnly('ins_pay'))
       },
       { 
@@ -466,7 +635,6 @@ export default function ProvidersTab({
         title: 'Ins Pay Date', 
         type: 'dropdown' as const, 
         width: 100,
-        editor: 'select',
         selectOptions: months,
         renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any,
         readOnly: getReadOnlyForColumn(12, !canEdit || getReadOnly('ins_pay_date'))
@@ -481,8 +649,9 @@ export default function ProvidersTab({
       { 
         data: 14, 
         title: 'Collected from PT', 
-        type: 'text' as const, 
+        type: 'numeric' as const, 
         width: 120,
+        renderer: currencyCellRenderer,
         readOnly: getReadOnlyForColumn(14, !canEdit || getReadOnly('collected_from_pt'))
       },
       { 
@@ -490,7 +659,6 @@ export default function ProvidersTab({
         title: 'PT Pay Status', 
         type: 'dropdown' as const, 
         width: 120,
-        editor: 'select',
         selectOptions: ['Paid', 'CC declined', 'Secondary', 'Refunded', 'Payment Plan', 'Waiting on Claim', 'Collections'],
         renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'patient_pay')) as any,
         readOnly: getReadOnlyForColumn(15, !canEdit || getReadOnly('pt_pay_status'))
@@ -500,7 +668,6 @@ export default function ProvidersTab({
         title: 'PT Payment AR Ref Date', 
         type: 'dropdown' as const, 
         width: 120,
-        editor: 'select',
         selectOptions: months,
         renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any,
         readOnly: getReadOnlyForColumn(16, !canEdit || getReadOnly('pt_payment_ar_ref_date'))
@@ -508,8 +675,9 @@ export default function ProvidersTab({
       { 
         data: 17, 
         title: 'Total', 
-        type: 'text' as const, 
+        type: 'numeric' as const, 
         width: 100,
+        renderer: currencyCellRenderer,
         readOnly: getReadOnlyForColumn(17, !canEdit || getReadOnly('total'))
       },
       { 
@@ -869,7 +1037,7 @@ export default function ProvidersTab({
       style={isInSplitScreen ? { width: '100%', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
     >
       {providerId && currentProvider && !isInSplitScreen && (
-        <div className="mb-4 pb-4 border-b border-white/20">
+        <div className="mb-2 pb-4 border-b border-white/20">
           <h2 className="text-xl font-semibold text-white">
             {currentProvider.first_name} {currentProvider.last_name}
             {currentProvider.specialty && (
@@ -886,12 +1054,12 @@ export default function ProvidersTab({
         const textColor = monthColor?.textColor ?? '#fff'
         return (
           <div
-            className="mb-4 flex items-center justify-center gap-4 rounded-lg border border-slate-700 -mt-4"
-            style={{ backgroundColor: bgColor, color: textColor }}
+            className="relative flex items-center justify-center gap-4 rounded-lg border border-slate-700"
+            style={{ backgroundColor: bgColor, color: textColor, maxWidth: '40%', margin: 'auto', marginBottom: '10px' }}
           >
             <button
               onClick={onPreviousMonth}
-              className="p-2 hover:opacity-80 rounded-lg transition-opacity"
+              className="absolute left-0 p-2 hover:opacity-80 rounded-lg transition-opacity"
               style={{ color: textColor }}
               title="Previous month"
             >
@@ -902,7 +1070,7 @@ export default function ProvidersTab({
             </div>
             <button
               onClick={onNextMonth}
-              className="p-2 hover:opacity-80 rounded-lg transition-opacity"
+              className="absolute right-0 p-2 hover:opacity-80 rounded-lg transition-opacity"
               style={{ color: textColor }}
               title="Next month"
             >
@@ -941,6 +1109,10 @@ export default function ProvidersTab({
             afterChange={handleProviderRowsHandsontableChange}
             onAfterRowMove={handleProviderRowMove}
             onContextMenu={handleProviderRowsHandsontableContextMenu}
+            onCellHighlight={handleCellHighlight}
+            onCellAddComment={canAddComment ? handleCellAddComment : undefined}
+            getCellTitle={getCellTitle}
+            cells={providerCellsCallback}
             enableFormula={false}
             readOnly={!canEdit}
             style={{ backgroundColor: '#d2dbe5' }}
@@ -948,6 +1120,58 @@ export default function ProvidersTab({
           />
         )}
       </div>
+
+      {activeProvider && !isProviderView && (
+        <div
+          className="mt-3 flex items-center gap-6 px-4 py-3 rounded-lg border border-white/20 bg-slate-800/80 text-white"
+          style={{ width: '100%', maxWidth: '100%' }}
+        >
+          <span className="font-medium text-red-500">Sums:</span>
+          <span className='ml-10'><strong>Ins Pay:</strong> {formatCurrency(providerSums.insPay)}</span>
+          <span className='ml-10'><strong>Collected from PT:</strong> {formatCurrency(providerSums.collectedFromPt)}</span>
+          <span className='ml-10'><strong>Total:</strong> {formatCurrency(providerSums.total)}</span>
+        </div>
+      )}
+
+      {commentModal != null && createPortal(
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[100]">
+          <div className="bg-slate-800/95 backdrop-blur-md rounded-lg p-6 w-full max-w-md border border-white/20">
+            <h2 className="text-xl font-bold text-white mb-2">Add comment for provider</h2>
+            <p className="text-sm text-white/70 mb-4">Cell: row {commentModal.row + 1}, column &quot;{commentModal.colKey}&quot;</p>
+            {commentModalLoading ? (
+              <p className="text-white/80">Loading...</p>
+            ) : (
+              <>
+                <textarea
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder="Enter your comment..."
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 text-white rounded-md placeholder-white/50 min-h-[100px]"
+                  rows={4}
+                  autoFocus
+                />
+                <div className="mt-4 flex gap-3 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => { setCommentModal(null); setCommentText('') }}
+                    className="px-4 py-2 border border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-md"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveComment()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Save
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
 
       {tableContextMenu != null && createPortal(
         <div

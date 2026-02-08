@@ -63,6 +63,12 @@ interface HandsontableWrapperProps {
   style?: React.CSSProperties
   enableFormula?: boolean
   onContextMenu?: (row: number, col: number, event: MouseEvent) => void
+  /** Called when user chooses "Highlight" from cell context menu (row/col are 0-based) */
+  onCellHighlight?: (row: number, col: number) => void
+  /** Called when user chooses "Add comment" from cell context menu (row/col are 0-based) */
+  onCellAddComment?: (row: number, col: number) => void
+  /** Optional tooltip text per cell (e.g. comment for provider); applied as td title on render */
+  getCellTitle?: (row: number, col: number) => string | undefined
   readOnly?: boolean
   /** Bump when rows are added/removed so the grid refreshes (e.g. context-menu add/delete) */
   dataVersion?: number
@@ -87,6 +93,9 @@ export default function HandsontableWrapper({
   style = {},
   enableFormula = false,
   onContextMenu,
+  onCellHighlight,
+  onCellAddComment,
+  getCellTitle,
   readOnly = false,
   dataVersion = 0,
   onAfterRowMove,
@@ -95,6 +104,8 @@ export default function HandsontableWrapper({
   const hotTableRef = useRef<any>(null)
   const hyperformulaInstanceRef = useRef<HyperFormula | null>(null)
   const isBatchOperationRef = useRef<boolean>(false)
+  /** True when the last selection was triggered by a mouse click (so we can open dropdown on single click) */
+  const selectionFromMouseRef = useRef<boolean>(false)
   const dataRef = useRef(data)
   dataRef.current = data
   const prevDataLengthRef = useRef(data.length)
@@ -166,12 +177,18 @@ export default function HandsontableWrapper({
       // Numeric validation and formatting will be handled in the change handler
     }
     
-    // Handle dropdown type - use text type with select editor
+    // Handle dropdown type: use Select editor only when explicitly requested; otherwise use default Dropdown editor (list opens with editor)
     if (col.type === 'dropdown' && col.selectOptions) {
-      processedCol.type = 'text' as const // Use text type
-      processedCol.editor = 'select' // Use select editor
-      processedCol.selectOptions = col.selectOptions
-      processedCol.strict = col.strict !== false
+      if (col.editor === 'select') {
+        processedCol.type = 'text' as const
+        processedCol.editor = 'select'
+        processedCol.selectOptions = col.selectOptions
+        processedCol.strict = col.strict !== false
+      } else {
+        processedCol.type = 'dropdown' as const
+        processedCol.source = col.selectOptions
+        processedCol.strict = col.strict !== false
+      }
     }
     
     // Handle date type - use text type with custom date editor (no external dependencies needed)
@@ -284,22 +301,50 @@ export default function HandsontableWrapper({
     // Delete key - Clear cell content
     // (default behavior when cell is selected)
     
-    // Context menu with copy/paste
-    contextMenu: onContextMenu ? undefined : [
-      'row_above',
-      'row_below',
-      'remove_row',
-      '---------',
-      'col_left',
-      'col_right',
-      'remove_col',
-      '---------',
-      'copy',
-      'cut',
-      '---------',
-      'undo',
-      'redo',
-    ] as any,
+    // Cell context menu: Highlight in all tabs; Add comment only when onCellAddComment provided (e.g. Billing tab)
+    contextMenu:
+      onCellHighlight || onCellAddComment
+        ? {
+            callback(key: string, selection: number[][] | undefined) {
+              const hot = hotTableRef.current?.hotInstance as any
+              let row: number
+              let col: number
+              const range = selection?.[0]
+              if (range && range.length >= 2) {
+                row = range[0]
+                col = range[1]
+              } else if (hot?.getSelectedLast?.()) {
+                const sel = hot.getSelectedLast()
+                row = sel[0]
+                col = sel[1]
+              } else {
+                return
+              }
+              if (key === 'highlight' && onCellHighlight) onCellHighlight(row, col)
+              if (key === 'add_comment' && onCellAddComment) onCellAddComment(row, col)
+            },
+            items: {
+              highlight: { name: 'Highlight' },
+              ...(onCellAddComment ? { sep: '---------', add_comment: { name: 'Add comment' } } : {}),
+            },
+          }
+        : onContextMenu
+          ? undefined
+          : ([
+              'row_above',
+              'row_below',
+              'remove_row',
+              '---------',
+              'col_left',
+              'col_right',
+              'remove_col',
+              '---------',
+              'copy',
+              'cut',
+              '---------',
+              'undo',
+              'redo',
+            ] as any),
     
     // Manual column resize
     manualColumnResize: true,
@@ -326,15 +371,40 @@ export default function HandsontableWrapper({
         return
       }
       if (afterChange && changes) {
-        console.log('[Handsontable] After change:', changes, source)
         afterChange(changes, source)
       }
     },
     
-    // After selection callback
+    // After selection callback (also open dropdown on single-cell selection when selection was from mouse)
     afterSelection: (r, c, r2, c2) => {
       if (afterSelection) {
         afterSelection(r, c, r2, c2)
+      }
+      const hot = hotTableRef.current?.hotInstance as any
+      if (hot && selectionFromMouseRef.current && r === r2 && c === c2) {
+        selectionFromMouseRef.current = false
+        try {
+          const cellProperties = hot.getCellMeta(r, c)
+          const isDropdown =
+            cellProperties &&
+            (cellProperties.type === 'dropdown' || cellProperties.editor === 'select' || (cellProperties as any).selectOptions)
+          if (isDropdown && !hot.isEditing()) {
+            // Open editor via EditorManager (same path as Enter key); editor isn't created until we trigger open
+            setTimeout(() => {
+              try {
+                if (hot.isDestroyed) return
+                const editorManager = hot._getEditorManager?.()
+                if (editorManager?.openEditor) {
+                  editorManager.openEditor(null, null, true)
+                }
+              } catch {
+                // ignore
+              }
+            }, 0)
+          }
+        } catch {
+          // ignore
+        }
       }
     },
     
@@ -373,9 +443,23 @@ export default function HandsontableWrapper({
     // Enable comments
     comments: false,
 
-    // Sync row heights from main table to row header clone so they always match (e.g. when select/dropdown expands a row)
+    // Sync row heights from main table to row header clone; optionally set cell titles (e.g. comment tooltip)
     afterRender: function (this: Handsontable) {
       syncRowHeaderHeightsToClone(this)
+      if (getCellTitle) {
+        const countRows = this.countRows()
+        const countCols = this.countCols()
+        for (let r = 0; r < countRows; r++) {
+          for (let c = 0; c < countCols; c++) {
+            const cell = this.getCell(r, c)
+            if (cell) {
+              const title = getCellTitle(r, c)
+              if (title != null && title !== '') (cell as HTMLElement).setAttribute('title', title)
+              else (cell as HTMLElement).removeAttribute('title')
+            }
+          }
+        }
+      }
     },
     afterScrollVertically: function (this: Handsontable) {
       syncRowHeaderHeightsToClone(this)
@@ -470,45 +554,53 @@ export default function HandsontableWrapper({
     }
   }, [afterChange])
 
-  // Single-click to open dropdown: on mousedown select cell and open editor immediately
+  // Single-click on bubble: select cell, open editor, and open native <select> dropdown immediately
   useEffect(() => {
     if (!hotTableRef.current?.hotInstance) return
-
-    const hotInstance = hotTableRef.current.hotInstance
+    const hotInstance = hotTableRef.current.hotInstance as any
 
     const handleCellMouseDown = (event: MouseEvent) => {
+      // Ignore our own simulated mousedown (dispatched on the <select> to open dropdown); they have isTrusted: false
+      if (!event.isTrusted) return
       const target = event.target as HTMLElement
+      const bubble = target.closest('.handsontable-bubble-select')
       const cell = target.closest('td')
+      // No cell when click is on the opened Select editor (it's outside the table); that's the normal "second click" to open the options list
       if (!cell) return
-
       if (cell.closest('thead') || cell.closest('.ht_clone_top') || cell.closest('.ht_clone_left')) return
+      if (!cell.closest('.ht_master')) return
+
+      if (!bubble) {
+        selectionFromMouseRef.current = true
+        return
+      }
 
       let row: number | null = null
       let col: number | null = null
       try {
         const coords = hotInstance.getCoords(cell)
-        if (coords && Array.isArray(coords) && coords.length >= 2) {
-          row = coords[0]
-          col = coords[1]
+        if (coords) {
+          if (Array.isArray(coords) && coords.length >= 2) {
+            row = coords[0]
+            col = coords[1]
+          } else if (typeof coords === 'object' && 'row' in coords && 'col' in coords) {
+            row = (coords as { row: number; col: number }).row
+            col = (coords as { row: number; col: number }).col
+          }
         }
       } catch {
-        try {
-          const rowElement = cell.closest('tr')
-          if (rowElement?.parentElement) {
-            const tbody = rowElement.parentElement
-            const rowIndex = Array.from(tbody.children).indexOf(rowElement)
-            const cellIndex = Array.from(rowElement.cells).indexOf(cell as HTMLTableCellElement)
-            if (rowIndex >= 0 && cellIndex >= 0) {
-              const hasRowHeaders = hotInstance.getSettings().rowHeaders
-              row = hasRowHeaders ? rowIndex : rowIndex
-              col = hasRowHeaders ? cellIndex - 1 : cellIndex
-            }
+        const rowElement = cell.closest('tr')
+        if (rowElement?.parentElement) {
+          const tbody = rowElement.parentElement
+          const rowIndex = Array.from(tbody.children).indexOf(rowElement)
+          const cellIndex = Array.from(rowElement.cells).indexOf(cell as HTMLTableCellElement)
+          if (rowIndex >= 0 && cellIndex >= 0) {
+            const hasRowHeaders = hotInstance.getSettings().rowHeaders
+            row = hasRowHeaders ? rowIndex : rowIndex
+            col = hasRowHeaders ? cellIndex - 1 : cellIndex
           }
-        } catch {
-          return
         }
       }
-
       if (row === null || col === null || row < 0 || col < 0) return
 
       try {
@@ -516,36 +608,33 @@ export default function HandsontableWrapper({
         const isDropdown =
           cellProperties &&
           (cellProperties.type === 'dropdown' || cellProperties.editor === 'select' || (cellProperties as any).selectOptions)
-        if (isDropdown && !hotInstance.isEditing()) {
-          event.preventDefault()
-          event.stopPropagation()
-          hotInstance.selectCell(row, col)
-          // Open editor on next tick so Handsontable has created the editor for the selected cell
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              try {
-                if ((hotInstance as any).isDestroyed) return
-                const editor = hotInstance.getActiveEditor()
-                if (editor && typeof editor.beginEditing === 'function') {
-                  editor.beginEditing()
-                }
-              } catch {
-                // ignore
-              }
-            })
-          })
-        }
+        const isEditing = typeof hotInstance.isEditing === 'function' ? hotInstance.isEditing() : false
+        if (!isDropdown || isEditing) return
       } catch {
-        // ignore
+        return
       }
+
+      event.preventDefault()
+      event.stopPropagation()
+      hotInstance.selectCell(row, col)
+
+      const openEditorAndDropdown = () => {
+        try {
+          if (hotInstance.isDestroyed) return
+          const editorManager = hotInstance._getEditorManager?.()
+          if (!editorManager?.openEditor) return
+          editorManager.openEditor(null, null, true)
+          // Dropdown (autocomplete) editor shows its list in open() via queryChoices. Select editor's native list cannot be opened programmatically in most browsers.
+        } catch {
+          // ignore
+        }
+      }
+      setTimeout(openEditorAndDropdown, 0)
     }
 
     const rootElement = hotInstance.rootElement
     rootElement.addEventListener('mousedown', handleCellMouseDown, true)
-
-    return () => {
-      rootElement.removeEventListener('mousedown', handleCellMouseDown, true)
-    }
+    return () => rootElement.removeEventListener('mousedown', handleCellMouseDown, true)
   }, [])
 
   // Handle context menu: only when right-clicking on the row header (number row), not on the sheet (data cells)
@@ -563,14 +652,15 @@ export default function HandsontableWrapper({
           const rowIndex = Array.from(tbody.children).indexOf(tr as Element)
           if (rowIndex < 0) return
           event.preventDefault()
+          event.stopPropagation()
           onContextMenu(rowIndex, 0, event)
         }
         
         const element = hotInstance.rootElement
-        element.addEventListener('contextmenu', handleContextMenu)
+        element.addEventListener('contextmenu', handleContextMenu, true)
         
         return () => {
-          element.removeEventListener('contextmenu', handleContextMenu)
+          element.removeEventListener('contextmenu', handleContextMenu, true)
         }
       }
     }

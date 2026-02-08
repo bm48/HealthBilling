@@ -1884,6 +1884,8 @@ export default function ClinicDetail() {
       case 'providers':
         return (
           <ProvidersTab
+            clinicId={clinicId}
+            canAddComment={userProfile?.role === 'super_admin'}
             providers={providers}
             providerSheetRows={providerSheetRows}
             providerRowsVersion={providerRowsVersion}
@@ -1930,7 +1932,8 @@ export default function ClinicDetail() {
   const showBillingTodoTab = userProfile?.role !== 'admin'
   const canLockColumns = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
   const showPatientTab = !isOfficialStaff
-  const showProvidersTab = true
+  // const showProvidersTab = userProfile?.role !== 'billing_staff' && userProfile?.role !== 'office_staff'
+  const showProvidersTab = userProfile?.role !== 'billing_staff' && userProfile?.role !== 'office_staff'
   const showAccountsReceivableTab = !isBillingStaff && !isOfficialStaff
   /** Official staff and office staff can edit only patient_id through date_of_service on the provider sheet; other columns read-only */
   const restrictProviderSheetEditToScheduling = isOfficialStaff || isOfficeStaff

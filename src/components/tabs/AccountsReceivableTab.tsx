@@ -30,6 +30,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0)
   const scrollToRowAfterUpdateRef = useRef<number | null>(null)
+  const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
 
   const formatMonthYear = useCallback((date: Date) => {
     return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
@@ -241,7 +242,6 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
         let savedAR: AccountsReceivable | null = null
 
         if (!ar.id.startsWith('new-') && !ar.id.startsWith('empty-')) {
-          console.log('[saveAR] row', i, 'id=', oldId, 'op=UPDATE')
           const { error: updateError, data: updateData } = await supabase
             .from('accounts_receivables')
             .update(arData)
@@ -253,10 +253,8 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
             savedARMap.set(oldId, savedAR)
             continue
           }
-          console.warn('[saveAR] row', i, 'update failed, fallback to insert', updateError)
         }
 
-        console.log('[saveAR] row', i, 'id=', oldId, 'op=INSERT finalArId=', finalArId)
         const { error: insertError, data: insertedAR } = await supabase
           .from('accounts_receivables')
           .insert(arData)
@@ -271,9 +269,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
         if (insertedAR) {
           savedAR = insertedAR as AccountsReceivable
           savedARMap.set(oldId, savedAR)
-        } else {
-          console.warn('[saveAR] row', i, 'INSERT returned no data')
-        }
+        } 
       }
 
       console.log('[saveAR] loop done savedARMap.size=', savedARMap.size, 'applying setAccountsReceivable')
@@ -545,8 +541,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
       title: 'Type', 
       type: 'dropdown' as const, 
       width: 120,
-      editor: 'select',
-      selectOptions: ['Patient', 'Insurance', 'Collections', 'MindRx Group'],
+      selectOptions: ['Patient', 'Insurance', 'Admin'],
       renderer: createBubbleDropdownRenderer(getTypeColor) as any,
       readOnly: !canEdit || getReadOnly('type')
     },
@@ -558,6 +553,30 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
       readOnly: !canEdit || getReadOnly('notes')
     },
   ], [canEdit, lockData, getTypeColor])
+
+  const arCellsCallback = useCallback(
+    (row: number, col: number) => {
+      const ar = displayAR[row]
+      const colKey = columnFields[col]
+      if (!colKey) return {}
+      const key = `${ar?.id ?? `row-${row}`}:${colKey}`
+      return highlightedCells.has(key) ? { className: 'cell-highlight-yellow' } : {}
+    },
+    [displayAR, columnFields, highlightedCells]
+  )
+
+  const handleCellHighlight = useCallback((row: number, col: number) => {
+    const ar = displayAR[row]
+    const colKey = columnFields[col]
+    if (!colKey) return
+    const key = `${ar?.id ?? `row-${row}`}:${colKey}`
+    setHighlightedCells((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [displayAR, columnFields])
 
   const firstDayOfSelectedMonth = useMemo(() => {
     return `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}-01`
@@ -874,12 +893,12 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
         const textColor = monthColor?.textColor ?? '#fff'
         return (
           <div
-            className="mb-4 flex items-center justify-center gap-4 rounded-lg border border-slate-700 -mt-4"
-            style={{ backgroundColor: bgColor, color: textColor }}
+            className="relative flex items-center justify-center gap-4 rounded-lg border border-slate-700"
+            style={{ backgroundColor: bgColor, color: textColor, maxWidth: '40%', margin: 'auto', marginBottom: '10px' }}
           >
             <button
               onClick={() => setSelectedMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
-              className="p-2 hover:opacity-80 rounded-lg transition-opacity"
+              className="absolute left-0 p-2 hover:opacity-80 rounded-lg transition-opacity"
               style={{ color: textColor }}
               title="Previous month"
             >
@@ -890,7 +909,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
             </div>
             <button
               onClick={() => setSelectedMonth(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
-              className="p-2 hover:opacity-80 rounded-lg transition-opacity"
+              className="absolute right-0 p-2 hover:opacity-80 rounded-lg transition-opacity"
               style={{ color: textColor }}
               title="Next month"
             >
@@ -926,6 +945,8 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           afterChange={handleARHandsontableChange}
           onAfterRowMove={handleARRowMove}
           onContextMenu={handleARHandsontableContextMenu}
+          onCellHighlight={handleCellHighlight}
+          cells={arCellsCallback}
           enableFormula={false}
           readOnly={!canEdit}
           style={{ backgroundColor: '#d2dbe5' }}
