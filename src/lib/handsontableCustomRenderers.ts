@@ -2,6 +2,7 @@ import Handsontable from 'handsontable'
 
 /**
  * Renders a numeric value as currency ($10.00). Empty/null shows blank.
+ * Sets explicit text color so cells are readable in dark-theme containers (e.g. Providers tab).
  */
 export function currencyCellRenderer(
   _instance: any,
@@ -21,10 +22,12 @@ export function currencyCellRenderer(
     }
   }
   textRenderer(_instance, td as HTMLTableCellElement, _row, _col, _prop, display, cellProperties)
+  td.style.color = '#111827'
 }
 
 /**
  * Renders a numeric value as percentage (10%). Empty/null shows blank.
+ * Sets explicit text color so cells are readable in dark-theme containers (e.g. Providers tab).
  */
 export function percentCellRenderer(
   _instance: any,
@@ -44,6 +47,7 @@ export function percentCellRenderer(
     }
   }
   textRenderer(_instance, td as HTMLTableCellElement, _row, _col, _prop, display, cellProperties)
+  td.style.color = '#111827'
 }
 
 /**

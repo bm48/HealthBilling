@@ -506,6 +506,17 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
     [todos, columnFields, highlightedCells]
   )
 
+  const getCellIsHighlighted = useCallback(
+    (row: number, col: number) => {
+      const todo = todos[row]
+      const colKey = columnFields[col]
+      if (!colKey) return false
+      const key = `${todo?.id ?? `row-${row}`}:${colKey}`
+      return highlightedCells.has(key)
+    },
+    [todos, columnFields, highlightedCells]
+  )
+
   const handleCellHighlight = useCallback((row: number, col: number) => {
     const todo = todos[row]
     const colKey = columnFields[col]
@@ -906,6 +917,7 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
           onAfterRowMove={handleTodosRowMove}
           onContextMenu={handleTodosHandsontableContextMenu}
           onCellHighlight={handleCellHighlight}
+          getCellIsHighlighted={getCellIsHighlighted}
           cells={todosCellsCallback}
           enableFormula={false}
           readOnly={!canEdit}

@@ -340,6 +340,17 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
     [patients, columnFields, highlightedCells]
   )
 
+  const getCellIsHighlighted = useCallback(
+    (row: number, col: number) => {
+      const patient = patients[row]
+      const colKey = columnFields[col]
+      if (!colKey) return false
+      const key = `${patient?.id ?? `row-${row}`}:${colKey}`
+      return highlightedCells.has(key)
+    },
+    [patients, columnFields, highlightedCells]
+  )
+
   const handleCellHighlight = useCallback((row: number, col: number) => {
     const patient = patients[row]
     const colKey = columnFields[col]
@@ -630,6 +641,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           onAfterRowMove={handlePatientsRowMove}
           onContextMenu={handlePatientsHandsontableContextMenu}
           onCellHighlight={handleCellHighlight}
+          getCellIsHighlighted={getCellIsHighlighted}
           cells={patientsCellsCallback}
           enableFormula={true}
           readOnly={!canEdit}

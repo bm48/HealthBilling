@@ -565,6 +565,17 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
     [displayAR, columnFields, highlightedCells]
   )
 
+  const getCellIsHighlighted = useCallback(
+    (row: number, col: number) => {
+      const ar = displayAR[row]
+      const colKey = columnFields[col]
+      if (!colKey) return false
+      const key = `${ar?.id ?? `row-${row}`}:${colKey}`
+      return highlightedCells.has(key)
+    },
+    [displayAR, columnFields, highlightedCells]
+  )
+
   const handleCellHighlight = useCallback((row: number, col: number) => {
     const ar = displayAR[row]
     const colKey = columnFields[col]
@@ -946,6 +957,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           onAfterRowMove={handleARRowMove}
           onContextMenu={handleARHandsontableContextMenu}
           onCellHighlight={handleCellHighlight}
+          getCellIsHighlighted={getCellIsHighlighted}
           cells={arCellsCallback}
           enableFormula={false}
           readOnly={!canEdit}

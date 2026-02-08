@@ -63,10 +63,16 @@ interface HandsontableWrapperProps {
   style?: React.CSSProperties
   enableFormula?: boolean
   onContextMenu?: (row: number, col: number, event: MouseEvent) => void
-  /** Called when user chooses "Highlight" from cell context menu (row/col are 0-based) */
+  /** Called when user chooses "Highlight" or "Remove highlight" from cell context menu (row/col are 0-based) */
   onCellHighlight?: (row: number, col: number) => void
+  /** When provided, used to show "Remove highlight" vs "Highlight" when the cell is already highlighted */
+  getCellIsHighlighted?: (row: number, col: number) => boolean
   /** Called when user chooses "Add comment" from cell context menu (row/col are 0-based) */
   onCellAddComment?: (row: number, col: number) => void
+  /** Called when user chooses "Remove comment" from cell context menu (row/col are 0-based) */
+  onCellRemoveComment?: (row: number, col: number) => void
+  /** When provided with onCellAddComment, used to show "Remove comment" vs "Add comment" when the cell already has a comment */
+  getCellHasComment?: (row: number, col: number) => boolean
   /** Optional tooltip text per cell (e.g. comment for provider); applied as td title on render */
   getCellTitle?: (row: number, col: number) => string | undefined
   readOnly?: boolean
@@ -94,7 +100,10 @@ export default function HandsontableWrapper({
   enableFormula = false,
   onContextMenu,
   onCellHighlight,
+  getCellIsHighlighted,
   onCellAddComment,
+  onCellRemoveComment,
+  getCellHasComment,
   getCellTitle,
   readOnly = false,
   dataVersion = 0,
@@ -301,7 +310,7 @@ export default function HandsontableWrapper({
     // Delete key - Clear cell content
     // (default behavior when cell is selected)
     
-    // Cell context menu: Highlight in all tabs; Add comment only when onCellAddComment provided (e.g. Billing tab)
+    // Cell context menu: Highlight in all tabs; Add/Remove comment when onCellAddComment provided
     contextMenu:
       onCellHighlight || onCellAddComment
         ? {
@@ -321,11 +330,32 @@ export default function HandsontableWrapper({
                 return
               }
               if (key === 'highlight' && onCellHighlight) onCellHighlight(row, col)
-              if (key === 'add_comment' && onCellAddComment) onCellAddComment(row, col)
+              if (key === 'add_comment') {
+                const hasComment = getCellHasComment?.(row, col)
+                if (hasComment && onCellRemoveComment) onCellRemoveComment(row, col)
+                else if (!hasComment && onCellAddComment) onCellAddComment(row, col)
+              }
             },
             items: {
-              highlight: { name: 'Highlight' },
-              ...(onCellAddComment ? { sep: '---------', add_comment: { name: 'Add comment' } } : {}),
+              highlight: {
+                name: function (this: any) {
+                  const sel = this.getSelectedLast?.()
+                  if (!sel || !getCellIsHighlighted) return 'Highlight'
+                  return getCellIsHighlighted(sel[0], sel[1]) ? 'Remove highlight' : 'Highlight'
+                },
+              },
+              ...(onCellAddComment
+                ? {
+                    sep: '---------',
+                    add_comment: {
+                      name: function (this: any) {
+                        const sel = this.getSelectedLast?.()
+                        if (!sel || !getCellHasComment) return 'Add comment'
+                        return getCellHasComment(sel[0], sel[1]) ? 'Remove comment' : 'Add comment'
+                      },
+                    },
+                  }
+                : {}),
             },
           }
         : onContextMenu

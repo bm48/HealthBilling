@@ -431,6 +431,52 @@ export default function ProvidersTab({
     [activeProviderRows, columnFields, commentsMap]
   )
 
+  const getCellHasComment = useCallback(
+    (row: number, col: number) => {
+      const sheetRow = activeProviderRows[row]
+      const colKey = columnFields[col]
+      if (!colKey) return false
+      const key = `${sheetRow?.id ?? `row-${row}`}:${colKey}`
+      return commentsMap.has(key)
+    },
+    [activeProviderRows, columnFields, commentsMap]
+  )
+
+  const handleCellRemoveComment = useCallback(
+    async (row: number, col: number) => {
+      if (!clinicId) return
+      const sheetRow = activeProviderRows[row]
+      const colKey = columnFields[col]
+      if (!colKey) return
+      const rowId = sheetRow?.id ?? `row-${row}`
+      const key = `${rowId}:${colKey}`
+      await supabase
+        .from('cell_comments')
+        .delete()
+        .eq('clinic_id', clinicId)
+        .eq('sheet_type', 'providers')
+        .eq('row_id', rowId)
+        .eq('column_key', colKey)
+      setCommentsMap((prev) => {
+        const next = new Map(prev)
+        next.delete(key)
+        return next
+      })
+    },
+    [activeProviderRows, columnFields, clinicId]
+  )
+
+  const getCellIsHighlighted = useCallback(
+    (row: number, col: number) => {
+      const sheetRow = activeProviderRows[row]
+      const colKey = columnFields[col]
+      if (!colKey) return false
+      const key = `${sheetRow?.id ?? `row-${row}`}:${colKey}`
+      return highlightedCells.has(key)
+    },
+    [activeProviderRows, columnFields, highlightedCells]
+  )
+
   const handleCellHighlight = useCallback(async (row: number, col: number) => {
     if (!clinicId) return
     const sheetRow = activeProviderRows[row]
@@ -1110,7 +1156,10 @@ export default function ProvidersTab({
             onAfterRowMove={handleProviderRowMove}
             onContextMenu={handleProviderRowsHandsontableContextMenu}
             onCellHighlight={handleCellHighlight}
+            getCellIsHighlighted={getCellIsHighlighted}
             onCellAddComment={canAddComment ? handleCellAddComment : undefined}
+            onCellRemoveComment={canAddComment ? handleCellRemoveComment : undefined}
+            getCellHasComment={canAddComment ? getCellHasComment : undefined}
             getCellTitle={getCellTitle}
             cells={providerCellsCallback}
             enableFormula={false}
