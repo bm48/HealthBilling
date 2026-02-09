@@ -703,6 +703,7 @@
 .handsontable-custom .billing-todo-lock-icon,
 .handsontable-custom .patient-lock-icon,
 .handsontable-custom .ar-lock-icon,
+.handsontable-custom .provider-pay-lock-icon,
 .providers-handsontable .provider-lock-icon {
   opacity: 1 !important;
 }
