@@ -342,7 +342,7 @@ export default function ProviderPayTab({
           const textColor = monthColor?.textColor ?? '#fff'
           return (
             <div
-              className="relative flex items-center justify-center gap-4 rounded-lg border border-slate-700"
+              className="relative flex h-9 mb-3 items-center justify-center gap-4 rounded-lg border border-slate-700"
               style={{
                 backgroundColor: bgColor,
                 color: textColor,
@@ -382,7 +382,7 @@ export default function ProviderPayTab({
               id="provider-pay-provider-select"
               value={selectedProviderId}
               onChange={(e) => setSelectedProviderId(e.target.value)}
-              className="rounded-lg border border-slate-600 bg-slate-800 text-slate-100 px-3 py-2 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="cursor-pointer rounded-lg border border-slate-600 bg-slate-800 text-slate-100 px-3 py-2 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {providers.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -409,7 +409,7 @@ export default function ProviderPayTab({
             type="date"
             value={payDate}
             onChange={(e) => setPayDate(e.target.value)}
-            className="flex-1 max-w-[12rem] bg-transparent border border-white/30 rounded px-2 py-1 outline-none text-inherit [color-scheme:dark]"
+            className={`flex-1 max-w-[12rem] bg-transparent border border-white/30 rounded px-2 py-1 outline-none text-inherit [color-scheme:dark] ${!payDate ? 'provider-pay-date-empty' : ''}`}
             style={{ color: headerStyle.textColor }}
           />
         </div>
@@ -421,7 +421,7 @@ export default function ProviderPayTab({
               type="date"
               value={payPeriodFrom}
               onChange={(e) => setPayPeriodFrom(e.target.value)}
-              className="w-[8.5rem] bg-transparent border border-white/30 rounded px-1.5 py-1 text-sm outline-none text-inherit [color-scheme:dark]"
+              className={`w-[8.5rem] bg-transparent border border-white/30 rounded px-1.5 py-1 text-sm outline-none text-inherit [color-scheme:dark] ${!payPeriodFrom ? 'provider-pay-date-empty' : ''}`}
               style={{ color: headerStyle.textColor }}
             />
           </div>
@@ -431,7 +431,7 @@ export default function ProviderPayTab({
               type="date"
               value={payPeriodTo}
               onChange={(e) => setPayPeriodTo(e.target.value)}
-              className="w-[8.5rem] bg-transparent border border-white/30 rounded px-1.5 py-1 text-sm outline-none text-inherit [color-scheme:dark]"
+              className={`w-[8.5rem] bg-transparent border border-white/30 rounded px-1.5 py-1 text-sm outline-none text-inherit [color-scheme:dark] ${!payPeriodTo ? 'provider-pay-date-empty' : ''}`}
               style={{ color: headerStyle.textColor }}
             />
           </div>
@@ -478,6 +478,14 @@ export default function ProviderPayTab({
         }
         .provider-pay-table .htCore td {
           border-color: rgba(0,0,0,0.2);
+        }
+        /* Hide browser date format placeholder when value is empty */
+        .provider-pay-date-empty::-webkit-datetime-edit,
+        .provider-pay-date-empty::-webkit-datetime-edit-fields-wrapper {
+          color: transparent;
+        }
+        .provider-pay-date-empty::-moz-placeholder {
+          color: transparent;
         }
       `}</style>
     </div>
