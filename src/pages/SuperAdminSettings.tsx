@@ -43,8 +43,10 @@ export default function SuperAdminSettings() {
   const [users, setUsers] = useState<User[]>([])
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])
   const [clinics, setClinics] = useState<Clinic[]>([])
-  const [_providers, setProviders] = useState<Provider[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
   const [providersByClinic, setProvidersByClinic] = useState<Record<string, Provider[]>>({})
+  const [providerLevelsMap, setProviderLevelsMap] = useState<Record<string, number>>({})
+  const [providerLevelsLoadError, setProviderLevelsLoadError] = useState(false)
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
   const [lockedSheets, setLockedSheets] = useState<ProviderSheet[]>([])
   const [loading, setLoading] = useState(true)
@@ -105,15 +107,14 @@ export default function SuperAdminSettings() {
   const fetchUsers = async () => {
     try {
       const { data, error } = await supabase.from('users').select('*').order('email')
-      console.log('data', data)
       if (error) throw error
       let list = data || []
-      console.log('list', list)
       if (variant === 'admin' && userProfile?.clinic_ids?.length) {
         list = list.filter((u: User) =>
           (u.clinic_ids || []).some((cid: string) => userProfile.clinic_ids.includes(cid))
         )
       }
+      
       setUsers(list)
     } catch (error) {
       console.error('Error fetching users:', error)
@@ -140,9 +141,8 @@ export default function SuperAdminSettings() {
       if (error) throw error
       setClinics(data || [])
 
-      if (data && data.length > 0) {
-        await fetchProvidersForClinics(data.map(c => c.id))
-      }
+      const clinicIds = data?.length ? data.map((c: Clinic) => c.id) : []
+      await fetchProvidersForClinics(clinicIds)
     } catch (error) {
       console.error('Error fetching clinics:', error)
     }
@@ -150,26 +150,48 @@ export default function SuperAdminSettings() {
 
   const fetchProvidersForClinics = async (clinicIds: string[]) => {
     try {
-      const { data, error } = await supabase
-        .from('providers')
-        .select('*')
-        .overlaps('clinic_ids', clinicIds)
-        .order('last_name')
-        .order('first_name')
-      
-      if (error) throw error
-      
+      let providerList: Provider[] = []
+      if (variant === 'super_admin') {
+        const { data, error } = await supabase
+          .from('providers')
+          .select('*')
+          .order('last_name')
+          .order('first_name')
+        if (!error) providerList = data || []
+      } else {
+        const { data, error } = await supabase
+          .from('providers')
+          .select('*')
+          .overlaps('clinic_ids', clinicIds)
+          .order('last_name')
+          .order('first_name')
+        if (!error) providerList = data || []
+      }
+
       // Group providers by clinic (a provider can appear in multiple clinics)
       const grouped: Record<string, Provider[]> = {}
-      data?.forEach(provider => {
+      providerList.forEach(provider => {
         (provider.clinic_ids || []).forEach((cid: string) => {
           if (!grouped[cid]) grouped[cid] = []
           grouped[cid].push(provider)
         })
       })
-      
+
       setProvidersByClinic(grouped)
-      setProviders(data || [])
+      setProviders(providerList)
+
+      // Provider level is on providers table (level column, 1 or 2)
+      if (providerList.length > 0 && variant === 'super_admin') {
+        const map: Record<string, number> = {}
+        providerList.forEach((p: Provider) => {
+          map[p.id] = p.level === 2 ? 2 : 1
+        })
+        setProviderLevelsMap(map)
+        setProviderLevelsLoadError(false)
+      } else {
+        setProviderLevelsMap({})
+        setProviderLevelsLoadError(false)
+      }
     } catch (error) {
       console.error('Error fetching providers:', error)
     }
@@ -205,7 +227,7 @@ export default function SuperAdminSettings() {
     }
   }
 
-  const handleSaveUser = async (userData: Partial<User>) => {
+  const handleSaveUser = async (userData: Partial<User>, providerLevel?: number) => {
     try {
       if (editingUser) {
         const { error } = await supabase
@@ -214,10 +236,24 @@ export default function SuperAdminSettings() {
           .eq('id', editingUser.id)
 
         if (error) throw error
+
+        console.log('providers', providers)
+        // Super admin: update provider level on providers table
+        if (variant === 'super_admin' && editingUser.role === 'provider' && providerLevel !== undefined && (providerLevel === 1 || providerLevel === 2)) {
+          const providersForEmail = providers.filter(p => p.email === editingUser.email)
+          for (const p of providersForEmail) {
+            const { error: levelError } = await supabase
+              .from('providers')
+              .update({ level: providerLevel, updated_at: new Date().toISOString() })
+              .eq('id', p.id)
+            if (levelError) throw levelError
+          }
+        }
+        await fetchUsers()
+        if (variant === 'super_admin') await fetchClinics()
+        setShowUserForm(false)
+        setEditingUser(null)
       }
-      await fetchUsers()
-      setShowUserForm(false)
-      setEditingUser(null)
     } catch (error) {
       console.error('Error saving user:', error)
       alert('Failed to save user. Please try again.')
@@ -227,13 +263,11 @@ export default function SuperAdminSettings() {
   const handleSaveAssignClinics = async (userId: string, clinicIds: string[]) => {
     console.log('handleSaveAssignClinics', userId, clinicIds)
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('users')
         .update({ clinic_ids: clinicIds })
         .eq('id', userId)
 
-        console.log('data', data)
-        console.log('error', error)
       if (error) throw error
       await fetchUsers()
       setShowAssignClinicModal(false)
@@ -431,57 +465,70 @@ export default function SuperAdminSettings() {
                           <th>Email</th>
                           <th>Name</th>
                           <th>Role</th>
+                          {variant === 'super_admin' && <th>Provider Level</th>}
                           <th>Clinics</th>
                           <th>Assign Clinics</th>
                           <th style={{ width: '80px' }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {users.map((user) => (
-                          <tr key={user.id}>
-                            <td>{user.email}</td>
-                            <td>{user.full_name || '-'}</td>
-                            <td>
-                              <span className="status-badge" style={{ backgroundColor: '#dbeafe', color: '#1e40af' }}>
-                                {user.role}
-                              </span>
-                            </td>
-                            <td>
-                              {user.clinic_ids.length > 0
-                                ? user.clinic_ids.length + ' clinic(s)'
-                                : 'None'}
-                            </td>
-                            <td>
-                              {(user.role === 'provider' || user.role === 'admin' || user.role === 'billing_staff' || user.role === 'office_staff') ? (
+                        {users.map((user) => {
+                          const providersForUser = user.role === 'provider' ? providers.filter(p => p.email === user.email) : []
+                          const levelInMap = providersForUser.length > 0 ? providerLevelsMap[providersForUser[0].id] : undefined
+                          const displayLevel = providersForUser.length > 0
+                            ? (levelInMap ?? (providerLevelsLoadError ? null : 1))
+                            : null
+                          return (
+                            <tr key={user.id}>
+                              <td>{user.email}</td>
+                              <td>{user.full_name || '-'}</td>
+                              <td>
+                                <span className="status-badge" style={{ backgroundColor: '#dbeafe', color: '#1e40af' }}>
+                                  {user.role}
+                                </span>
+                              </td>
+                              {variant === 'super_admin' && (
+                                <td>
+                                  {user.role === 'provider' ? (displayLevel != null ? String(displayLevel) : <span title={providerLevelsLoadError ? 'Level could not be loaded' : undefined}>—</span>) : <span className="text-white/50">—</span>}
+                                </td>
+                              )}
+                              <td>
+                                {user.clinic_ids.length > 0
+                                  ? user.clinic_ids.length + ' clinic(s)'
+                                  : 'None'}
+                              </td>
+                              <td>
+                                {(user.role === 'provider' || user.role === 'admin' || user.role === 'billing_staff' || user.role === 'office_staff') ? (
+                                  <button
+                                    onClick={() => {
+                                      setAssignClinicUser(user)
+                                      setShowAssignClinicModal(true)
+                                    }}
+                                    className="text-primary-400 hover:text-primary-300 inline-flex items-center gap-1"
+                                    style={{ padding: '4px' }}
+                                    title="Assign clinics"
+                                  >
+                                    <Link2 size={16} />
+                                  </button>
+                                ) : (
+                                  <span className="text-white/50">—</span>
+                                )}
+                              </td>
+                              <td>
                                 <button
                                   onClick={() => {
-                                    setAssignClinicUser(user)
-                                    setShowAssignClinicModal(true)
+                                    setEditingUser(user)
+                                    setShowUserForm(true)
                                   }}
-                                  className="text-primary-400 hover:text-primary-300 inline-flex items-center gap-1"
+                                  className="text-primary-400 hover:text-primary-300"
                                   style={{ padding: '4px' }}
-                                  title="Assign clinics"
                                 >
-                                  <Link2 size={16} />
+                                  <Edit size={16} />
                                 </button>
-                              ) : (
-                                <span className="text-white/50">—</span>
-                              )}
-                            </td>
-                            <td>
-                              <button
-                                onClick={() => {
-                                  setEditingUser(user)
-                                  setShowUserForm(true)
-                                }}
-                                className="text-primary-400 hover:text-primary-300"
-                                style={{ padding: '4px' }}
-                              >
-                                <Edit size={16} />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -802,6 +849,9 @@ export default function SuperAdminSettings() {
       {showUserForm && (
         <UserFormModal
           user={editingUser}
+          providers={providers}
+          providerLevelsMap={providerLevelsMap}
+          variant={variant}
           onClose={() => {
             setShowUserForm(false)
             setEditingUser(null)
@@ -849,23 +899,33 @@ export default function SuperAdminSettings() {
 
 function UserFormModal({
   user,
+  providers,
+  providerLevelsMap,
+  variant,
   onClose,
   onSave,
 }: {
   user: User | null
-  onSave: (data: Partial<User>) => Promise<void>
+  providers: Provider[]
+  providerLevelsMap: Record<string, number>
+  variant: Variant | null
+  onSave: (data: Partial<User>, providerLevel?: number) => Promise<void>
   onClose: () => void
 }) {
+  const providersForUser = user?.role === 'provider' && user?.email ? providers.filter(p => p.email === user.email) : []
+  const initialLevel = providersForUser.length > 0 ? (providerLevelsMap[providersForUser[0].id] ?? 1) : 1
   const [formData, setFormData] = useState({
     full_name: user?.full_name || '',
     role: user?.role || 'provider',
     clinic_ids: user?.clinic_ids || [],
     highlight_color: user?.highlight_color || '#3b82f6',
+    provider_level: initialLevel as 1 | 2,
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    await onSave(formData)
+    const { provider_level, ...userData } = formData
+    await onSave(userData, formData.role === 'provider' ? provider_level : undefined)
   }
 
   return (
@@ -908,6 +968,21 @@ function UserFormModal({
               <option value="office_staff">Office Staff</option>
             </select>
           </div>
+
+          {variant === 'super_admin' && formData.role === 'provider' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Provider Level</label>
+              <select
+                value={formData.provider_level}
+                onChange={(e) => setFormData({ ...formData, provider_level: Number(e.target.value) as 1 | 2 })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              >
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">Level can be 1 or 2 (default is 1).</p>
+            </div>
+          )}
 
           {/* <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Highlight Color</label>

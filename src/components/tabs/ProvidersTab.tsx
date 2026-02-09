@@ -6,7 +6,8 @@ import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiS
 import { useCallback, useMemo, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
-import { toDisplayValue } from '@/lib/utils'
+import { toDisplayValue, toDisplayDate } from '@/lib/utils'
+import { computeBillingMetrics } from '@/lib/billingMetrics'
 
 interface ProvidersTabProps {
   /** Required for loading/saving cell highlights and comments; from URL on provider side when they click a clinic */
@@ -23,8 +24,10 @@ interface ProvidersTabProps {
   currentProvider: Provider | null
   canEdit: boolean
   isInSplitScreen: boolean
-  /** When true, show provider columns: Patient ID, First Name, Last Initial, Insurance, Co-pay, Co-Ins, Date of Service, CPT Code, Appt/Note Status */
+  /** When true, show provider columns. providerLevel 1 = columns up to Appt/Note Status; providerLevel 2 = all columns. */
   isProviderView?: boolean
+  /** Provider level (1 or 2). Level 1 sees only up to Appt/Note Status; level 2 sees all columns. All providers can edit only CPT Code and Appt/Note Status. */
+  providerLevel?: 1 | 2
   onUpdateProviderSheetRow: (providerId: string, rowId: string, field: string, value: any) => void
   onSaveProviderSheetRowsDirect: (providerId: string, rows: SheetRow[]) => Promise<void>
   onDeleteRow?: (providerId: string, rowId: string) => void
@@ -59,6 +62,7 @@ export default function ProvidersTab({
   canEdit,
   isInSplitScreen,
   isProviderView = false,
+  providerLevel = 1,
   onUpdateProviderSheetRow,
   onSaveProviderSheetRowsDirect,
   onDeleteRow,
@@ -161,11 +165,12 @@ export default function ProvidersTab({
   }, [statusColors])
 
   // Map rows to Handsontable 2D array format (shared by getProviderRowsHandsontableData and change handler); never show "null"
+  // When isProviderView and providerLevel 2, show full columns; when providerLevel 1, show only up to Appt/Note Status
   const getTableDataFromRows = useCallback((rows: SheetRow[]) => {
     return rows.map(row => {
       const patient = patients.find(p => p.patient_id === row.patient_id)
       const patientDisplay = patient ? toDisplayValue(patient.patient_id) : toDisplayValue(row.patient_id)
-      if (isProviderView) {
+      if (isProviderView && providerLevel !== 2) {
         return [
           patientDisplay,
           toDisplayValue(row.patient_first_name),
@@ -173,9 +178,32 @@ export default function ProvidersTab({
           toDisplayValue(row.patient_insurance),
           toDisplayValue(row.patient_copay),
           toDisplayValue(row.patient_coinsurance),
-          toDisplayValue(row.appointment_date),
+          toDisplayDate(row.appointment_date),
           toDisplayValue(row.cpt_code),
           toDisplayValue(row.appointment_status),
+        ]
+      }
+      if (isProviderView && providerLevel === 2) {
+        return [
+          patientDisplay,
+          toDisplayValue(row.patient_first_name),
+          toDisplayValue(row.last_initial),
+          toDisplayValue(row.patient_insurance),
+          toDisplayValue(row.patient_copay),
+          toDisplayValue(row.patient_coinsurance),
+          toDisplayDate(row.appointment_date),
+          toDisplayValue(row.cpt_code),
+          toDisplayValue(row.appointment_status),
+          toDisplayValue(row.claim_status),
+          toDisplayDate(row.submit_date),
+          toDisplayValue(row.insurance_payment),
+          toDisplayValue(row.payment_date),
+          toDisplayValue(row.insurance_adjustment),
+          toDisplayValue(row.collected_from_patient),
+          toDisplayValue(row.patient_pay_status),
+          toDisplayValue(row.ar_date),
+          toDisplayValue(row.total),
+          toDisplayValue(row.notes),
         ]
       }
       return [
@@ -185,11 +213,11 @@ export default function ProvidersTab({
         toDisplayValue(row.patient_insurance),
         toDisplayValue(row.patient_copay),
         toDisplayValue(row.patient_coinsurance),
-        toDisplayValue(row.appointment_date),
+        toDisplayDate(row.appointment_date),
         toDisplayValue(row.cpt_code),
         toDisplayValue(row.appointment_status),
         toDisplayValue(row.claim_status),
-        toDisplayValue(row.submit_date),
+        toDisplayDate(row.submit_date),
         toDisplayValue(row.insurance_payment),
         toDisplayValue(row.payment_date),
         toDisplayValue(row.insurance_adjustment),
@@ -200,7 +228,7 @@ export default function ProvidersTab({
         toDisplayValue(row.notes),
       ]
     })
-  }, [patients, isProviderView])
+  }, [patients, isProviderView, providerLevel])
 
   // Convert rows to Handsontable data format; prefer latest from change handler to avoid stale data on re-render
   const getProviderRowsHandsontableData = useCallback(() => {
@@ -228,6 +256,12 @@ export default function ProvidersTab({
     return { insPay, collectedFromPt, total }
   }, [activeProviderRows, isProviderView])
 
+  // Billing metrics (visits, no shows, paid claims, etc.) for the selected month – admin/billing only
+  const billingMetrics = useMemo(() => {
+    if (isProviderView) return null
+    return computeBillingMetrics(activeProviderRows)
+  }, [activeProviderRows, isProviderView])
+
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
@@ -246,8 +280,15 @@ export default function ProvidersTab({
   ]
   const columnFieldsProviderView = ['patient_id', 'first_name', 'last_initial', 'insurance', 'copay', 'coinsurance', 'date_of_service', 'cpt_code', 'appointment_note_status'] as const
   const columnTitlesProviderView = ['Patient ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins', 'Date of Service', 'CPT Code', 'Appt/Note Status']
-  const columnFields = isProviderView ? columnFieldsProviderView : columnFieldsFull
-  const columnTitles = isProviderView ? columnTitlesProviderView : columnTitlesFull
+  const columnFields = isProviderView
+    ? (providerLevel === 2 ? columnFieldsFull : columnFieldsProviderView)
+    : columnFieldsFull
+  const columnTitles = isProviderView
+    ? (providerLevel === 2 ? columnTitlesFull : columnTitlesProviderView)
+    : columnTitlesFull
+  /** In provider view, only CPT Code (7) and Appt/Note Status (8) are editable */
+  const isProviderEditableColumn = (dataIndex: number) => dataIndex === 7 || dataIndex === 8
+  const getReadOnlyProviderView = (dataIndex: number) => !canEdit || !isProviderEditableColumn(dataIndex)
 
   const getReadOnly = (columnName: keyof IsLockProviders): boolean => {
     if (!canEdit) return true
@@ -260,147 +301,111 @@ export default function ProvidersTab({
   const getReadOnlyForColumn = (dataIndex: number, baseReadOnly: boolean) =>
     baseReadOnly || (restrictEditToSchedulingColumns && !isSchedulingColumn(dataIndex))
 
-  // Add lock icons to headers after table renders
+  // Right-click on column headers to lock/unlock (no lock icon in header)
   useEffect(() => {
-    // Only run if lock functionality is enabled (not in provider view)
     if (isProviderView || !canEdit || !onLockProviderColumn || !isProviderColumnLocked) return
 
     let timeoutId: NodeJS.Timeout | null = null
+    let menuEl: HTMLElement | null = null
+    let closeListener: (() => void) | null = null
 
-    const addLockIconsToHeader = (headerRow: Element | null) => {
+    const hideMenu = () => {
+      if (menuEl?.parentNode) menuEl.parentNode.removeChild(menuEl)
+      menuEl = null
+      if (closeListener) {
+        document.removeEventListener('click', closeListener)
+        document.removeEventListener('contextmenu', closeListener)
+        closeListener = null
+      }
+    }
+
+    const showHeaderContextMenu = (e: MouseEvent, columnName: string) => {
+      e.preventDefault()
+      e.stopPropagation()
+      hideMenu()
+      const isLocked = isProviderColumnLocked ? isProviderColumnLocked(columnName as keyof IsLockProviders) : false
+      const menu = document.createElement('div')
+      menu.className = 'provider-col-header-context-menu'
+      menu.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.4);padding:4px 0;min-width:140px;'
+      const item = document.createElement('div')
+      item.style.cssText = 'padding:6px 12px;cursor:pointer;white-space:nowrap;font-size:13px;'
+      item.textContent = isLocked ? 'Unlock column' : 'Lock column'
+      item.onclick = () => {
+        onLockProviderColumn(columnName)
+        hideMenu()
+      }
+      menu.appendChild(item)
+      document.body.appendChild(menu)
+      menuEl = menu
+      const x = Math.min(e.clientX, window.innerWidth - 150)
+      const y = Math.min(e.clientY, window.innerHeight - 40)
+      menu.style.left = `${x}px`
+      menu.style.top = `${y}px`
+      closeListener = () => { hideMenu() }
+      setTimeout(() => {
+        document.addEventListener('click', closeListener!, true)
+        document.addEventListener('contextmenu', closeListener!, true)
+      }, 0)
+    }
+
+    const attachContextMenuToHeader = (headerRow: Element | null) => {
       if (!headerRow) return
-
-      // Get all header cells
       const headerCells = Array.from(headerRow.querySelectorAll('th'))
-      
-      // Match each header cell to our column by text content
       headerCells.forEach((th) => {
-        // Get the text content of the header cell (before any modifications)
         let cellText = th.textContent?.trim() || th.innerText?.trim() || ''
-        
-        // If there's already a lock icon, extract the original text from the span
         const existingWrapper = th.querySelector('div')
         if (existingWrapper) {
           const titleSpan = existingWrapper.querySelector('span')
-          if (titleSpan) {
-            cellText = titleSpan.textContent?.trim() || cellText
-          }
+          if (titleSpan) cellText = titleSpan.textContent?.trim() || cellText
         }
-        
-        // Remove any existing lock icon text if present
         cellText = cellText.replace(/🔒|🔓/g, '').trim()
-        
-        // Find the matching column index by comparing with column titles
         const columnIndex = columnTitles.findIndex(title => {
-          const normalizedTitle = title.toLowerCase().trim()
-          const normalizedCellText = cellText.toLowerCase().trim()
-          return normalizedCellText === normalizedTitle || normalizedCellText.includes(normalizedTitle) || normalizedTitle.includes(normalizedCellText)
+          const a = title.toLowerCase().trim()
+          const b = cellText.toLowerCase().trim()
+          return a === b || b.includes(a) || a.includes(b)
         })
-        
-        // Skip if we couldn't match this header to a column
         if (columnIndex === -1 || columnIndex >= columnFields.length) return
-
         const columnName = columnFields[columnIndex]
-        const isLocked = isProviderColumnLocked ? isProviderColumnLocked(columnName) : false
-
-        const relative = th.querySelector('.relative')
-        if (!relative) return
-        const existingLock = relative.querySelector('.provider-lock-icon')
-        if (existingLock) existingLock.remove()
-        const rel = relative as HTMLElement
-        rel.style.display = 'flex'
-        rel.style.alignItems = 'center'
-        rel.style.justifyContent = 'space-between'
-        rel.style.gap = '4px'
-        const colHeaderSpan = relative.querySelector('.colHeader')
-        if (colHeaderSpan) {
-          ;(colHeaderSpan as HTMLElement).style.flex = '1'
-          ;(colHeaderSpan as HTMLElement).style.minWidth = '0'
+        const el = th as HTMLElement
+        const prev = (el as any)._providerHeaderContext
+        if (prev) {
+          el.removeEventListener('contextmenu', prev)
         }
-        const lockButton = document.createElement('button')
-        lockButton.className = 'provider-lock-icon'
-        lockButton.style.cssText = `
-          opacity: 1;
-          transition: opacity 0.2s;
-          padding: 2px;
-          cursor: pointer;
-          background: transparent;
-          border: none;
-          display: flex;
-          align-items: center;
-          color: currentColor;
-          flex-shrink: 0;
-        `
-        lockButton.title = isLocked ? 'Click to unlock column' : 'Click to lock column'
-        lockButton.innerHTML = isLocked
-          ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V7a6 6 0 0 1 12 0v2"></path><rect x="3" y="9" width="18" height="12" rx="2"></rect></svg>'
-          : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12V7a3 3 0 0 1 6 0v5"></path><path d="M3 12h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9z"></path></svg>'
-        lockButton.onclick = (e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          if (onLockProviderColumn) onLockProviderColumn(columnName as string)
-        }
-        relative.appendChild(lockButton)
+        const handler = (e: MouseEvent) => showHeaderContextMenu(e, columnName as string)
+        ;(el as any)._providerHeaderContext = handler
+        el.addEventListener('contextmenu', handler)
       })
     }
 
-    const addLockIcons = () => {
+    const attachAll = () => {
       if (timeoutId) {
         clearTimeout(timeoutId)
         timeoutId = null
       }
-
-      document.querySelectorAll('.provider-lock-icon').forEach(icon => icon.remove())
-
-      // Add to main table header
       const table = document.querySelector('.providers-handsontable table.htCore')
-      if (table) {
-        const headerRow = table.querySelector('thead tr')
-        if (headerRow) {
-          addLockIconsToHeader(headerRow)
-        }
-      }
-
-      // Add to cloned header (sticky header)
+      if (table) attachContextMenuToHeader(table.querySelector('thead tr'))
       const cloneTop = document.querySelector('.providers-handsontable .ht_clone_top table.htCore')
-      if (cloneTop) {
-        const headerRow = cloneTop.querySelector('thead tr')
-        if (headerRow) {
-          addLockIconsToHeader(headerRow)
-        }
-      }
+      if (cloneTop) attachContextMenuToHeader(cloneTop.querySelector('thead tr'))
     }
 
-    // Debounced version
-    const debouncedAddLockIcons = () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
-      timeoutId = setTimeout(addLockIcons, 200)
+    const debouncedAttach = () => {
+      if (timeoutId) clearTimeout(timeoutId)
+      timeoutId = setTimeout(attachAll, 200)
     }
 
-    // Add lock icons after a delay
-    timeoutId = setTimeout(addLockIcons, 300)
-
-    // Mutation observer for dynamic updates
-    const observer = new MutationObserver(() => {
-      debouncedAddLockIcons()
-    })
-
+    timeoutId = setTimeout(attachAll, 300)
+    const observer = new MutationObserver(() => debouncedAttach())
     const tableContainer = document.querySelector('.providers-handsontable')
-    if (tableContainer) {
-      observer.observe(tableContainer, { 
-        childList: true, 
-        subtree: true,
-        attributes: false
-      })
-    }
+    if (tableContainer) observer.observe(tableContainer, { childList: true, subtree: true })
 
     return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
+      if (timeoutId) clearTimeout(timeoutId)
       observer.disconnect()
+      hideMenu()
+      document.querySelectorAll('.providers-handsontable th').forEach((th) => {
+        const h = (th as any)._providerHeaderContext
+        if (h) th.removeEventListener('contextmenu', h)
+      })
     }
   }, [isProviderView, canEdit, onLockProviderColumn, isProviderColumnLocked, columnFields, columnTitles, isLockProviders])
 
@@ -566,17 +571,41 @@ export default function ProvidersTab({
     
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
     
-    if (isProviderView) {
+    if (isProviderView && providerLevel !== 2) {
       return [
-        { data: 0, title: 'Patient ID', type: 'text' as const, width: 180, readOnly: getReadOnlyForColumn(0, !canEdit) },
-        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(1, !canEdit) },
-        { data: 2, title: 'Last Initial', type: 'text' as const, width: 80, readOnly: getReadOnlyForColumn(2, !canEdit) },
-        { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(3, !canEdit) },
-        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit) },
-        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit) },
-        { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyForColumn(6, !canEdit) },
-        { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyForColumn(7, !canEdit) },
-        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyForColumn(8, !canEdit) },
+        { data: 0, title: 'Patient ID', type: 'text' as const, width: 180, readOnly: getReadOnlyProviderView(0) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
+        { data: 2, title: 'Last Initial', type: 'text' as const, width: 80, readOnly: getReadOnlyProviderView(2) },
+        { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
+        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(4) },
+        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyProviderView(5) },
+        { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyProviderView(6) },
+        { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyProviderView(7) },
+        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
+      ]
+    }
+    if (isProviderView && providerLevel === 2) {
+      const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+      return [
+        { data: 0, title: 'Patient ID', type: 'text' as const, width: 100, readOnly: getReadOnlyProviderView(0) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
+        { data: 2, title: 'Last Initial', type: 'text' as const, width: 40, readOnly: getReadOnlyProviderView(2) },
+        { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
+        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(4) },
+        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyProviderView(5) },
+        { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyProviderView(6) },
+        { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyProviderView(7) },
+        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 150, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
+        { data: 9, title: 'Claim Status', type: 'dropdown' as const, width: 120, selectOptions: ['Claim Sent', 'RS', 'IP', 'Pending Pay', 'Paid', 'Deductible', 'N/A', 'PP', 'Denial', 'Rejected', 'No Coverage'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'claim')) as any, readOnly: getReadOnlyProviderView(9) },
+        { data: 10, title: 'Most Recent Submit Date', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(10) },
+        { data: 11, title: 'Ins Pay', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(11) },
+        { data: 12, title: 'Ins Pay Date', type: 'dropdown' as const, width: 100, selectOptions: months, renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any, readOnly: getReadOnlyProviderView(12) },
+        { data: 13, title: 'PT RES', type: 'text' as const, width: 100, readOnly: getReadOnlyProviderView(13) },
+        { data: 14, title: 'Collected from PT', type: 'numeric' as const, width: 120, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(14) },
+        { data: 15, title: 'PT Pay Status', type: 'dropdown' as const, width: 120, selectOptions: ['Paid', 'CC declined', 'Secondary', 'Refunded', 'Payment Plan', 'Waiting on Claim', 'Collections'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'patient_pay')) as any, readOnly: getReadOnlyProviderView(15) },
+        { data: 16, title: 'PT Payment AR Ref Date', type: 'dropdown' as const, width: 120, selectOptions: months, renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any, readOnly: getReadOnlyProviderView(16) },
+        { data: 17, title: 'Total', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(17) },
+        { data: 18, title: 'Notes', type: 'text' as const, width: 150, readOnly: getReadOnlyProviderView(18) },
       ]
     }
     
@@ -734,7 +763,7 @@ export default function ProvidersTab({
         readOnly: getReadOnlyForColumn(18, !canEdit || getReadOnly('notes'))
       },
     ]
-  }, [activeProvider, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView, restrictEditToSchedulingColumns])
+  }, [activeProvider, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView, providerLevel, restrictEditToSchedulingColumns])
 
   const handleProviderRowsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData' || !activeProvider) return
@@ -749,12 +778,15 @@ export default function ProvidersTab({
       'patient_id', 'patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance',
       'appointment_date', 'cpt_code', 'appointment_status'
     ]
-    const fields: Array<keyof SheetRow> = isProviderView ? fieldsProviderView : fieldsFull
+    const fields: Array<keyof SheetRow> = isProviderView ? (providerLevel === 2 ? fieldsFull : fieldsProviderView) : fieldsFull
     
+    const dateFields: (keyof SheetRow)[] = ['appointment_date', 'submit_date', 'payment_date', 'ar_date']
     // Compute all changes locally first
     const updatedRows = [...activeProviderRows]
     let idCounter = 0
-    
+    let hadPatientIdMerge = false
+    let hadDateColumnEdit = false
+
     changes.forEach(([row, col, , newValue]) => {
       // Ensure we have enough rows
       while (updatedRows.length <= row) {
@@ -828,6 +860,7 @@ export default function ProvidersTab({
             updated_at: new Date().toISOString(),
           }
           if (patient) {
+            hadPatientIdMerge = true
             merged.patient_first_name = patient.first_name || null
             merged.last_initial = patient.last_name ? patient.last_name.charAt(0) : null
             merged.patient_insurance = patient.insurance || null
@@ -839,9 +872,11 @@ export default function ProvidersTab({
           const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: numValue, updated_at: new Date().toISOString() } as SheetRow
         } else if (field === 'appointment_date') {
+          hadDateColumnEdit = true
           const value = (newValue === '' || newValue === 'null') ? null : String(newValue)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
         } else if (field) {
+          if (dateFields.includes(field)) hadDateColumnEdit = true
           const value = (newValue === '' || newValue === 'null') ? null : String(newValue)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
         }
@@ -963,7 +998,14 @@ export default function ProvidersTab({
         console.error('[handleProviderRowsHandsontableChange] Error in saveProviderSheetRowsDirect:', err)
       })
     }, 0)
-  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, patients, getTableDataFromRows])
+
+    // When patient_id was merged or a date column was edited, bump so HandsontableWrapper pushes
+    // the ref data to the grid (wrapper only updates on dataVersion/length change). This makes
+    // date cells show MM-DD-YY immediately instead of YYYY-MM-DD until reload.
+    if (hadPatientIdMerge || hadDateColumnEdit) {
+      setStructureVersion((v) => v + 1)
+    }
+  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, providerLevel, patients, getTableDataFromRows])
 
   const handleDeleteProviderSheetRow = useCallback((providerId: string, rowId: string) => {
     if (onDeleteRow) onDeleteRow(providerId, rowId)
@@ -1162,7 +1204,7 @@ export default function ProvidersTab({
             getCellHasComment={canAddComment ? getCellHasComment : undefined}
             getCellTitle={getCellTitle}
             cells={providerCellsCallback}
-            enableFormula={false}
+            enableFormula={true}
             readOnly={!canEdit}
             style={{ backgroundColor: '#d2dbe5' }}
             className="handsontable-custom providers-handsontable"
@@ -1172,13 +1214,26 @@ export default function ProvidersTab({
 
       {activeProvider && !isProviderView && (
         <div
-          className="mt-3 flex items-center gap-6 px-4 py-3 rounded-lg border border-white/20 bg-slate-800/80 text-white"
+          className="mt-3 flex flex-col gap-2 px-4 py-3 rounded-lg border border-white/20 bg-slate-800/80 text-white"
           style={{ width: '100%', maxWidth: '100%' }}
         >
-          <span className="font-medium text-red-500">Sums:</span>
-          <span className='ml-10'><strong>Ins Pay:</strong> {formatCurrency(providerSums.insPay)}</span>
-          <span className='ml-10'><strong>Collected from PT:</strong> {formatCurrency(providerSums.collectedFromPt)}</span>
-          <span className='ml-10'><strong>Total:</strong> {formatCurrency(providerSums.total)}</span>
+          <div className="flex items-center gap-6 flex-wrap">
+            <span className="font-medium text-red-500">Sums:</span>
+            <span className="ml-2"><strong>Ins Pay:</strong> {formatCurrency(providerSums.insPay)}</span>
+            <span className="ml-2"><strong>Collected from PT:</strong> {formatCurrency(providerSums.collectedFromPt)}</span>
+            <span className="ml-2"><strong>Total:</strong> {formatCurrency(providerSums.total)}</span>
+          </div>
+          {billingMetrics && (
+            <div className="flex items-center gap-4 flex-wrap text-sm border-t border-white/20 pt-2">
+              <span className="font-medium text-red-500/90">Metrics:</span>
+              <span>Visits: <strong>{billingMetrics.visits}</strong></span>
+              <span>No Shows: <strong>{billingMetrics.noShows}</strong></span>
+              <span>Paid claims: <strong>{billingMetrics.paidClaims}</strong></span>
+              <span>Private Pay: <strong>{billingMetrics.privatePay}</strong></span>
+              <span>Secondary: <strong>{billingMetrics.secondary}</strong></span>
+              <span>CC Declines: <strong>{billingMetrics.ccDeclines}</strong></span>
+            </div>
+          )}
         </div>
       )}
 

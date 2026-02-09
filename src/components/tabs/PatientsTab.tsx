@@ -364,11 +364,53 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
     })
   }, [patients, columnFields])
 
+  // Right-click on column headers to lock/unlock (no lock icon in header)
   useEffect(() => {
     if (!canEdit || !onLockColumn || !isColumnLocked) return
     let timeoutId: ReturnType<typeof setTimeout> | null = null
+    let menuEl: HTMLElement | null = null
+    let closeListener: (() => void) | null = null
 
-    const addLockIconsToHeader = (headerRow: Element | null) => {
+    const hideMenu = () => {
+      if (menuEl?.parentNode) menuEl.parentNode.removeChild(menuEl)
+      menuEl = null
+      if (closeListener) {
+        document.removeEventListener('click', closeListener)
+        document.removeEventListener('contextmenu', closeListener)
+        closeListener = null
+      }
+    }
+
+    const showHeaderContextMenu = (e: MouseEvent, columnName: string) => {
+      e.preventDefault()
+      e.stopPropagation()
+      hideMenu()
+      const isLocked = isColumnLocked(columnName as keyof IsLockPatients)
+      const menu = document.createElement('div')
+      menu.className = 'patient-col-header-context-menu'
+      menu.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.4);padding:4px 0;min-width:140px;'
+      const item = document.createElement('div')
+      item.style.cssText = 'padding:6px 12px;cursor:pointer;white-space:nowrap;font-size:13px;'
+      item.textContent = isLocked ? 'Unlock column' : 'Lock column'
+      item.onclick = () => {
+        onLockColumn(columnName)
+        hideMenu()
+      }
+      menu.appendChild(item)
+      document.body.appendChild(menu)
+      menuEl = menu
+      const x = Math.min(e.clientX, window.innerWidth - 150)
+      const y = Math.min(e.clientY, window.innerHeight - 40)
+      menu.style.left = `${x}px`
+      menu.style.top = `${y}px`
+      closeListener = () => { hideMenu() }
+      setTimeout(() => {
+        document.addEventListener('click', closeListener!, true)
+        document.addEventListener('contextmenu', closeListener!, true)
+      }, 0)
+    }
+
+    const attachContextMenuToHeader = (headerRow: Element | null) => {
       if (!headerRow) return
       const headerCells = Array.from(headerRow.querySelectorAll('th'))
       headerCells.forEach((th) => {
@@ -386,66 +428,38 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
         })
         if (columnIndex === -1 || columnIndex >= columnFields.length) return
         const columnName = columnFields[columnIndex]
-        const isLocked = isColumnLocked(columnName)
-        const relative = th.querySelector('.relative')
-        if (!relative) return
-        const existingLock = relative.querySelector('.patient-lock-icon')
-        if (existingLock) existingLock.remove()
-        const rel = relative as HTMLElement
-        rel.style.display = 'flex'
-        rel.style.alignItems = 'center'
-        rel.style.justifyContent = 'space-between'
-        rel.style.gap = '4px'
-        const colHeaderSpan = relative.querySelector('.colHeader')
-        if (colHeaderSpan) {
-          (colHeaderSpan as HTMLElement).style.flex = '1'
-          ;(colHeaderSpan as HTMLElement).style.minWidth = '0'
-        }
-        const lockButton = document.createElement('button')
-        lockButton.className = 'patient-lock-icon'
-        lockButton.style.cssText = 'opacity: 1; transition: opacity 0.2s; padding: 2px; cursor: pointer; background: transparent; border: none; display: flex; align-items: center; color: currentColor; flex-shrink: 0;'
-        lockButton.title = isLocked ? 'Click to unlock column' : 'Click to lock column'
-        lockButton.innerHTML = isLocked
-          ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V7a6 6 0 0 1 12 0v2"></path><rect x="3" y="9" width="18" height="12" rx="2"></rect></svg>'
-          : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12V7a3 3 0 0 1 6 0v5"></path><path d="M3 12h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9z"></path></svg>'
-        lockButton.onclick = (e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          onLockColumn(columnName as string)
-        }
-        relative.appendChild(lockButton)
+        const el = th as HTMLElement
+        const prev = (el as any)._patientHeaderContext
+        if (prev) el.removeEventListener('contextmenu', prev)
+        const handler = (e: MouseEvent) => showHeaderContextMenu(e, columnName as string)
+        ;(el as any)._patientHeaderContext = handler
+        el.addEventListener('contextmenu', handler)
       })
     }
 
-    const addLockIcons = () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
-      document.querySelectorAll('.patient-lock-icon').forEach(icon => icon.remove())
+    const attachAll = () => {
+      if (timeoutId) { clearTimeout(timeoutId); timeoutId = null }
       const table = document.querySelector('.handsontable-custom table.htCore')
-      if (table) {
-        const headerRow = table.querySelector('thead tr')
-        if (headerRow) addLockIconsToHeader(headerRow)
-      }
+      if (table) attachContextMenuToHeader(table.querySelector('thead tr'))
       const cloneTop = document.querySelector('.handsontable-custom .ht_clone_top table.htCore')
-      if (cloneTop) {
-        const headerRow = cloneTop.querySelector('thead tr')
-        if (headerRow) addLockIconsToHeader(headerRow)
-      }
+      if (cloneTop) attachContextMenuToHeader(cloneTop.querySelector('thead tr'))
     }
 
-    const debouncedAddLockIcons = () => {
+    timeoutId = setTimeout(attachAll, 300)
+    const observer = new MutationObserver(() => {
       if (timeoutId) clearTimeout(timeoutId)
-      timeoutId = setTimeout(addLockIcons, 200)
-    }
-    timeoutId = setTimeout(addLockIcons, 300)
-    const observer = new MutationObserver(() => debouncedAddLockIcons())
+      timeoutId = setTimeout(attachAll, 200)
+    })
     const tableContainer = document.querySelector('.handsontable-custom')
-    if (tableContainer) observer.observe(tableContainer, { childList: true, subtree: true, attributes: false })
+    if (tableContainer) observer.observe(tableContainer, { childList: true, subtree: true })
     return () => {
       if (timeoutId) clearTimeout(timeoutId)
       observer.disconnect()
+      hideMenu()
+      document.querySelectorAll('.handsontable-custom th').forEach((th) => {
+        const h = (th as any)._patientHeaderContext
+        if (h) th.removeEventListener('contextmenu', h)
+      })
     }
   }, [canEdit, onLockColumn, isColumnLocked, isLockPatients])
 

@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { Clinic, Provider } from '@/types'
 import { fetchSheetRows } from '@/lib/providerSheetRows'
+import { computeBillingMetrics, type BillingMetrics } from '@/lib/billingMetrics'
 import { Users, FileText, CheckSquare, DollarSign } from 'lucide-react'
 
 interface ClinicStats {
@@ -19,6 +20,8 @@ interface ProviderCardStats {
   unpaidClaimsCount: number
   todoCount: number
   currentMonthTotal: number
+  /** Billing sheet metrics for current month (admin/billing staff) */
+  metrics: BillingMetrics
 }
 
 function formatCurrency(value: number | null): string {
@@ -127,6 +130,7 @@ export default function ClinicDashboard() {
             unpaidClaimsCount: 0,
             todoCount: todosRes.count ?? 0,
             currentMonthTotal: 0,
+            metrics: { visits: 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
           }))
         )
       } else {
@@ -143,15 +147,26 @@ export default function ClinicDashboard() {
           sheetToProvider[s.id] = s.provider_id
         })
 
-        const byProvider: Record<string, { claims: number; unpaid: number; total: number }> = {}
+        const byProvider: Record<string, { claims: number; unpaid: number; total: number; metrics: BillingMetrics }> = {}
         providersList.forEach((p) => {
-          byProvider[p.id] = { claims: 0, unpaid: 0, total: 0 }
+          byProvider[p.id] = {
+            claims: 0,
+            unpaid: 0,
+            total: 0,
+            metrics: { visits: 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
+          }
         })
 
         sheets.forEach((sheet) => {
           const rows = rowsBySheet[sheet.id] || []
           const providerId = sheet.provider_id
-          if (!byProvider[providerId]) byProvider[providerId] = { claims: 0, unpaid: 0, total: 0 }
+          if (!byProvider[providerId])
+            byProvider[providerId] = {
+              claims: 0,
+              unpaid: 0,
+              total: 0,
+              metrics: { visits: 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
+            }
           rows.forEach((row) => {
             byProvider[providerId].claims += 1
             if (row.claim_status !== 'Paid') byProvider[providerId].unpaid += 1
@@ -160,6 +175,8 @@ export default function ClinicDashboard() {
             const ar = Number(row.ar_amount) || 0
             byProvider[providerId].total += ins + pat + ar
           })
+          const metrics = computeBillingMetrics(rows)
+          byProvider[providerId].metrics = metrics
         })
 
         setProviderStats(
@@ -169,6 +186,7 @@ export default function ClinicDashboard() {
             unpaidClaimsCount: byProvider[p.id]?.unpaid ?? 0,
             todoCount: todosRes.count ?? 0,
             currentMonthTotal: byProvider[p.id]?.total ?? 0,
+            metrics: byProvider[p.id]?.metrics ?? { visits: 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
           }))
         )
       }
@@ -283,6 +301,14 @@ export default function ClinicDashboard() {
                   </div>
                   <div className="text-white/80 text-sm">
                     Total $ for current month: {formatCurrency(ps?.currentMonthTotal ?? 0)}
+                  </div>
+                  <div className="text-white/80 text-sm flex flex-wrap gap-x-4 gap-y-0.5 mt-1 border-t border-white/20 pt-2">
+                    <span>Visits: {ps?.metrics?.visits ?? 0}</span>
+                    <span>No Shows: {ps?.metrics?.noShows ?? 0}</span>
+                    <span>Paid: {ps?.metrics?.paidClaims ?? 0}</span>
+                    <span>PP: {ps?.metrics?.privatePay ?? 0}</span>
+                    <span>Secondary: {ps?.metrics?.secondary ?? 0}</span>
+                    <span>CC Declines: {ps?.metrics?.ccDeclines ?? 0}</span>
                   </div>
                 </div>
               </Link>

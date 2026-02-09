@@ -530,141 +530,99 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
     })
   }, [todos, columnFields])
 
-  // Add lock icons to headers after table renders
+  // Right-click on column headers to lock/unlock (no lock icon in header)
   useEffect(() => {
-    // Only run if lock functionality is enabled
     if (!canEdit || !onLockColumn || !isColumnLocked) return
 
     let timeoutId: NodeJS.Timeout | null = null
+    let menuEl: HTMLElement | null = null
+    let closeListener: (() => void) | null = null
 
-    const addLockIconsToHeader = (headerRow: Element | null) => {
+    const hideMenu = () => {
+      if (menuEl?.parentNode) menuEl.parentNode.removeChild(menuEl)
+      menuEl = null
+      if (closeListener) {
+        document.removeEventListener('click', closeListener)
+        document.removeEventListener('contextmenu', closeListener)
+        closeListener = null
+      }
+    }
+
+    const showHeaderContextMenu = (e: MouseEvent, columnName: string) => {
+      e.preventDefault()
+      e.stopPropagation()
+      hideMenu()
+      const isLocked = isColumnLocked ? isColumnLocked(columnName as keyof IsLockBillingTodo) : false
+      const menu = document.createElement('div')
+      menu.className = 'billing-todo-col-header-context-menu'
+      menu.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.4);padding:4px 0;min-width:140px;'
+      const item = document.createElement('div')
+      item.style.cssText = 'padding:6px 12px;cursor:pointer;white-space:nowrap;font-size:13px;'
+      item.textContent = isLocked ? 'Unlock column' : 'Lock column'
+      item.onclick = () => {
+        onLockColumn(columnName)
+        hideMenu()
+      }
+      menu.appendChild(item)
+      document.body.appendChild(menu)
+      menuEl = menu
+      const x = Math.min(e.clientX, window.innerWidth - 150)
+      const y = Math.min(e.clientY, window.innerHeight - 40)
+      menu.style.left = `${x}px`
+      menu.style.top = `${y}px`
+      closeListener = () => { hideMenu() }
+      setTimeout(() => {
+        document.addEventListener('click', closeListener!, true)
+        document.addEventListener('contextmenu', closeListener!, true)
+      }, 0)
+    }
+
+    const attachContextMenuToHeader = (headerRow: Element | null) => {
       if (!headerRow) return
-
-      // Get all header cells
       const headerCells = Array.from(headerRow.querySelectorAll('th'))
-      
-      // Match each header cell to our column by text content
       headerCells.forEach((th) => {
-        // Get the text from Handsontable's colHeader span (keeps sort icon visible)
         const colHeader = th.querySelector('.colHeader')
         let cellText = (colHeader?.textContent ?? th.textContent ?? '').replace(/🔒|🔓/g, '').trim()
-
         const columnIndex = columnTitles.findIndex(title => {
-          const normalizedTitle = title.toLowerCase().trim()
-          const normalizedCellText = cellText.toLowerCase().trim()
-          return normalizedCellText === normalizedTitle || normalizedCellText.includes(normalizedTitle) || normalizedTitle.includes(normalizedCellText)
+          const a = title.toLowerCase().trim()
+          const b = cellText.toLowerCase().trim()
+          return a === b || b.includes(a) || a.includes(b)
         })
-
         if (columnIndex === -1 || columnIndex >= columnFields.length) return
-
         const columnName = columnFields[columnIndex]
-        const isLocked = isColumnLocked ? isColumnLocked(columnName) : false
-
-        // Preserve Handsontable structure (th > .relative > span.colHeader) and only add lock button
-        const relative = th.querySelector('.relative')
-        if (!relative) return
-
-        // Remove existing lock button if present (avoid duplicates)
-        const existingLock = relative.querySelector('.billing-todo-lock-icon')
-        if (existingLock) existingLock.remove()
-
-        // Layout: [sort icon + title | lock button]
-        const rel = relative as HTMLElement
-        rel.style.display = 'flex'
-        rel.style.alignItems = 'center'
-        rel.style.justifyContent = 'space-between'
-        rel.style.gap = '4px'
-        const colHeaderSpan = relative.querySelector('.colHeader')
-        if (colHeaderSpan) {
-          ;(colHeaderSpan as HTMLElement).style.flex = '1'
-          ;(colHeaderSpan as HTMLElement).style.minWidth = '0'
-        }
-
-        const lockButton = document.createElement('button')
-        lockButton.className = 'billing-todo-lock-icon'
-        lockButton.style.cssText = `
-          opacity: 1;
-          transition: opacity 0.2s;
-          padding: 2px;
-          cursor: pointer;
-          background: transparent;
-          border: none;
-          display: flex;
-          align-items: center;
-          color: currentColor;
-          flex-shrink: 0;
-        `
-        lockButton.title = isLocked ? 'Click to unlock column' : 'Click to lock column'
-        lockButton.innerHTML = isLocked
-          ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V7a6 6 0 0 1 12 0v2"></path><rect x="3" y="9" width="18" height="12" rx="2"></rect></svg>'
-          : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12V7a3 3 0 0 1 6 0v5"></path><path d="M3 12h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9z"></path></svg>'
-        lockButton.onclick = (e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          if (onLockColumn) onLockColumn(columnName as string)
-        }
-        relative.appendChild(lockButton)
+        const el = th as HTMLElement
+        const prev = (el as any)._billingTodoHeaderContext
+        if (prev) el.removeEventListener('contextmenu', prev)
+        const handler = (e: MouseEvent) => showHeaderContextMenu(e, columnName as string)
+        ;(el as any)._billingTodoHeaderContext = handler
+        el.addEventListener('contextmenu', handler)
       })
     }
 
-    const addLockIcons = () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
-
-      // Remove only the lock buttons; keep .relative and .colHeader so sort icon stays
-      document.querySelectorAll('.billing-todo-lock-icon').forEach(icon => icon.remove())
-
-      // Add to main table header
+    const attachAll = () => {
+      if (timeoutId) { clearTimeout(timeoutId); timeoutId = null }
       const table = document.querySelector('.handsontable-custom table.htCore')
-      if (table) {
-        const headerRow = table.querySelector('thead tr')
-        if (headerRow) {
-          addLockIconsToHeader(headerRow)
-        }
-      }
-
-      // Add to cloned header (sticky header)
+      if (table) attachContextMenuToHeader(table.querySelector('thead tr'))
       const cloneTop = document.querySelector('.handsontable-custom .ht_clone_top table.htCore')
-      if (cloneTop) {
-        const headerRow = cloneTop.querySelector('thead tr')
-        if (headerRow) {
-          addLockIconsToHeader(headerRow)
-        }
-      }
+      if (cloneTop) attachContextMenuToHeader(cloneTop.querySelector('thead tr'))
     }
 
-    // Debounced version
-    const debouncedAddLockIcons = () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
-      timeoutId = setTimeout(addLockIcons, 200)
-    }
-
-    // Add lock icons after a delay
-    timeoutId = setTimeout(addLockIcons, 300)
-
-    // Mutation observer for dynamic updates
+    timeoutId = setTimeout(attachAll, 300)
     const observer = new MutationObserver(() => {
-      debouncedAddLockIcons()
+      if (timeoutId) clearTimeout(timeoutId)
+      timeoutId = setTimeout(attachAll, 200)
     })
-
     const tableContainer = document.querySelector('.handsontable-custom')
-    if (tableContainer) {
-      observer.observe(tableContainer, { 
-        childList: true, 
-        subtree: true,
-        attributes: false
-      })
-    }
+    if (tableContainer) observer.observe(tableContainer, { childList: true, subtree: true })
 
     return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
+      if (timeoutId) clearTimeout(timeoutId)
       observer.disconnect()
+      hideMenu()
+      document.querySelectorAll('.handsontable-custom th').forEach((th) => {
+        const h = (th as any)._billingTodoHeaderContext
+        if (h) th.removeEventListener('contextmenu', h)
+      })
     }
   }, [canEdit, onLockColumn, isColumnLocked, columnFields, columnTitles, isLockBillingTodo])
 
@@ -919,7 +877,7 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
           onCellHighlight={handleCellHighlight}
           getCellIsHighlighted={getCellIsHighlighted}
           cells={todosCellsCallback}
-          enableFormula={false}
+          enableFormula={true}
           readOnly={!canEdit}
           style={{ backgroundColor: '#d2dbe5' }}
           className="handsontable-custom"

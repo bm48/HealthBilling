@@ -307,28 +307,32 @@ export class DateEditor extends Handsontable.editors.TextEditor {
     
     // Format the date value for HTML5 date input (YYYY-MM-DD)
     if (initialValue && this.TEXTAREA) {
+      const inputElement = this.TEXTAREA as HTMLInputElement
       try {
-        // Try to parse and format the date
-        const date = new Date(initialValue)
-        if (!isNaN(date.getTime())) {
-          const year = date.getFullYear()
-          const monthValue = date.getMonth() + 1
-          const monthStr = String(monthValue).padStart(2, '0')
-          const dayValue = date.getDate()
-          const dayStr = String(dayValue).padStart(2, '0')
-          const formattedDate = year + '-' + monthStr + '-' + dayStr
-          const inputElement = this.TEXTAREA as HTMLInputElement
-          inputElement.value = formattedDate
-        } else {
-          // If it's already in YYYY-MM-DD format, use it directly
-          if (/^\d{4}-\d{2}-\d{2}$/.test(initialValue)) {
-            (this.TEXTAREA as HTMLInputElement).value = initialValue
+        let normalized = initialValue.trim()
+        // Parse MM-DD-YY or MM-DD-YYYY (table display format)
+        const mmddyy = /^(\d{1,2})-(\d{1,2})-(\d{2,4})$/.exec(normalized)
+        if (mmddyy) {
+          const month = parseInt(mmddyy[1], 10)
+          const day = parseInt(mmddyy[2], 10)
+          const y = parseInt(mmddyy[3], 10)
+          const year = y < 100 ? 2000 + y : y
+          if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            normalized = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
           }
         }
-      } catch (e) {
-        // If parsing fails, try to use the value as-is if it matches YYYY-MM-DD
+        const date = new Date(normalized)
+        if (!isNaN(date.getTime())) {
+          const year = date.getFullYear()
+          const monthStr = String(date.getMonth() + 1).padStart(2, '0')
+          const dayStr = String(date.getDate()).padStart(2, '0')
+          inputElement.value = `${year}-${monthStr}-${dayStr}`
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(initialValue)) {
+          inputElement.value = initialValue
+        }
+      } catch {
         if (/^\d{4}-\d{2}-\d{2}$/.test(initialValue)) {
-          (this.TEXTAREA as HTMLInputElement).value = initialValue
+          inputElement.value = initialValue
         }
       }
     }

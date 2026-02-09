@@ -138,6 +138,9 @@ export default function ClinicDetail() {
           fetchStatusColors()
           fetchColumnLocks()
           fetchProviders()
+        } else if (activeTab === 'provider_pay') {
+          fetchStatusColors()
+          fetchProviders()
         }
       } else {
         // When no providerId, fetch data for the active tab normally
@@ -183,6 +186,7 @@ export default function ClinicDetail() {
         await fetchProviders()
       } else if (activeTab === 'provider_pay') {
         await fetchStatusColors()
+        await fetchProviders()
         await fetchProviderSheets()
       } else if (activeTab === 'patients') {
         await fetchIsLockPatients()
@@ -1815,18 +1819,6 @@ export default function ClinicDetail() {
     await saveProviderSheetRows(providerId, rowsToSave)
   }, [saveProviderSheetRows])
 
-  const handleUpdateProviderPayRow = useCallback((providerId: string, updatedRow: SheetRow) => {
-    setProviderSheetRows(prev => {
-      const rows = [...(prev[providerId] || [])]
-      const idx = rows.findIndex(r => r.id === updatedRow.id)
-      if (idx < 0) return prev
-      rows[idx] = updatedRow
-      const next = { ...prev, [providerId]: rows }
-      saveProviderSheetRows(providerId, rows).catch(err => console.error('Failed to save provider pay row', err))
-      return next
-    })
-  }, [saveProviderSheetRows])
-
   const handleReorderProviderRows = useCallback((providerId: string, movedRows: number[], finalIndex: number) => {
     const rows = providerSheetRows[providerId] || []
     const arr = [...rows]
@@ -1918,16 +1910,15 @@ export default function ClinicDetail() {
         return (
           <ProviderPayTab
             clinicId={clinicId!}
+            providerId={providerId ?? undefined}
+            providers={providers}
             canEdit={canEdit}
             isInSplitScreen={!!splitScreen}
-            providerSheetRows={providerSheetRows}
             selectedMonth={selectedMonth}
             onPreviousMonth={handlePreviousMonth}
             onNextMonth={handleNextMonth}
             formatMonthYear={formatMonthYear}
-            filterRowsByMonth={filterRowsByMonth}
             statusColors={statusColors}
-            onUpdateProviderPayRow={handleUpdateProviderPayRow}
             isLockProviderPay={isLockProviderPay}
             onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = (isLockProviderPay?.[`${columnName}_comment` as keyof IsLockProviderPay] as string | null) ?? ''

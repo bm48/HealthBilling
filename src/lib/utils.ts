@@ -35,6 +35,17 @@ export function formatDateTime(date: string | null | undefined): string {
   })
 }
 
+/** Format date for table cells as MM-DD-YY (e.g. 01-05-25). Returns '' for empty/invalid. */
+export function toDisplayDate(value: string | null | undefined): string {
+  if (value == null || value === '' || value === 'null') return ''
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return ''
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  const yy = String(d.getFullYear()).slice(-2)
+  return `${mm}-${dd}-${yy}`
+}
+
 /** Use for table cell display: never show the literal "null" or null/undefined. */
 export function toDisplayValue(value: string | number | null | undefined): string {
   if (value == null || value === '' || value === 'null') return ''

@@ -1,81 +1,167 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
-import type { SheetRow } from '@/types'
-import type { StatusColor } from '@/types'
-
-export type ProviderPayRow = [string, string] // [cpt_code, app_note_status]
+import Handsontable from 'handsontable'
+import type { Provider, StatusColor } from '@/types'
+import { fetchProviderPay, saveProviderPay } from '@/lib/providerPay'
 
 export type IsLockProviderPay = {
-  cpt_code?: boolean
-  app_note_status?: boolean
-  cpt_code_comment?: string | null
-  app_note_status_comment?: string | null
+  description?: boolean
+  amount?: boolean
+  notes?: boolean
+  description_comment?: string | null
+  amount_comment?: string | null
+  notes_comment?: string | null
 }
+
+const DESCRIPTION_LABELS: Record<number, string> = {
+  1: 'Patient Payments',
+  2: 'Insurance Payments',
+  3: 'A/R Payments',
+  7: 'Total Payments',
+  8: 'Provider Cut',
+}
+
+const INITIAL_TABLE_DATA: string[][] = (() => {
+  const rows: string[][] = [
+    ['Description', 'Amount', 'Notes'], // row 0 - header
+    ['Patient Payments', '', ''],
+    ['Insurance Payments', '', ''],
+    ['A/R Payments', '', ''],
+    ['', '', ''],
+    // ['', '', ''],
+    // ['', '', ''],
+    ['Total Payments', '', ''],
+    ['Provider Cut', '', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['', '', ''],
+    ['', '', ''],
+  ]
+  return rows
+})()
 
 export interface ProviderPayTabProps {
   clinicId: string
+  /** When set, data is loaded and saved to the provider_pay database tables. */
+  providerId?: string
+  /** List of providers in the clinic for the provider dropdown. When provided, a select is shown and the chosen provider is used for load/save. */
+  providers?: Provider[]
   canEdit: boolean
   isInSplitScreen?: boolean
-  providerSheetRows: Record<string, SheetRow[]>
   selectedMonth: Date
   onPreviousMonth: () => void
   onNextMonth: () => void
   formatMonthYear: (date: Date) => string
-  filterRowsByMonth: (rows: SheetRow[]) => SheetRow[]
   statusColors: StatusColor[]
-  onUpdateProviderPayRow: (providerId: string, updatedRow: SheetRow) => void
   isLockProviderPay?: IsLockProviderPay | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockProviderPay) => boolean
 }
 
-const COLUMN_FIELDS: (keyof IsLockProviderPay)[] = ['cpt_code', 'app_note_status']
-const COLUMN_TITLES = ['CPT Code', 'App/Note Status']
-
-const EMPTY_ROW: ProviderPayRow = ['', '']
-
 export default function ProviderPayTab({
   clinicId,
+  providerId: providerIdProp,
+  providers = [],
   canEdit,
   isInSplitScreen,
-  providerSheetRows,
   selectedMonth,
   onPreviousMonth,
   onNextMonth,
   formatMonthYear,
-  filterRowsByMonth,
   statusColors,
-  onUpdateProviderPayRow,
   isLockProviderPay,
-  onLockColumn,
-  isColumnLocked,
+  onLockColumn: _onLockColumn,
+  isColumnLocked: _isColumnLocked,
 }: ProviderPayTabProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [tableHeight, setTableHeight] = useState(600)
+  const [payDate, setPayDate] = useState('')
+  const [payPeriod, setPayPeriod] = useState('')
+  const [tableData, setTableData] = useState<string[][]>(() => INITIAL_TABLE_DATA.map(row => [...row]))
+  const [selectedProviderId, setSelectedProviderId] = useState<string>(() =>
+    providerIdProp ?? providers[0]?.id ?? ''
+  )
+  const [loading, setLoading] = useState(false)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lockData = isLockProviderPay || null
 
-  // Flatten all provider rows for the selected month (order: provider order, then row order per provider)
-  const flattenedEntries = useMemo(() => {
-    const entries: { providerId: string; row: SheetRow }[] = []
-    Object.entries(providerSheetRows).forEach(([providerId, rows]) => {
-      const filtered = filterRowsByMonth(rows)
-      filtered.forEach((row) => entries.push({ providerId, row }))
-    })
-    return entries
-  }, [providerSheetRows, filterRowsByMonth])
+  const year = selectedMonth.getFullYear()
+  const month = selectedMonth.getMonth() + 1
 
-  // Table data: first 200 rows (flattened + empty padding)
-  const tableData = useMemo(() => {
-    const data: ProviderPayRow[] = flattenedEntries.slice(0, 200).map(({ row }) => [
-      row.cpt_code ?? '',
-      row.appointment_status ?? '',
-    ])
-    while (data.length < 200) {
-      data.push([...EMPTY_ROW])
+  const effectiveProviderId = providers.length > 0 ? selectedProviderId : providerIdProp
+
+  // Sync selectedProviderId when providerIdProp or providers list changes (e.g. initial load or provider no longer in list)
+  useEffect(() => {
+    if (providerIdProp && providers.some((p) => p.id === providerIdProp)) {
+      setSelectedProviderId(providerIdProp)
+    } else if (providers.length > 0 && !providers.some((p) => p.id === selectedProviderId)) {
+      setSelectedProviderId(providers[0].id)
     }
-    return data
-  }, [flattenedEntries])
+  }, [providerIdProp, providers, selectedProviderId])
+
+  // Fetch from DB when clinicId, effectiveProviderId, and selectedMonth are set
+  useEffect(() => {
+    if (!clinicId || !effectiveProviderId) {
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    fetchProviderPay(clinicId, effectiveProviderId, year, month)
+      .then((data) => {
+        if (data) {
+          setPayDate(data.payDate)
+          setPayPeriod(data.payPeriod)
+          setTableData(data.rows.map((r) => [...r]))
+        } else {
+          setPayDate('')
+          setPayPeriod('')
+          setTableData(INITIAL_TABLE_DATA.map((r) => [...r]))
+        }
+      })
+      .catch((err) => console.error('[ProviderPayTab] fetchProviderPay error:', err))
+      .finally(() => setLoading(false))
+  }, [clinicId, effectiveProviderId, year, month])
+
+  // Debounced save when payDate, payPeriod, or tableData change (only when effectiveProviderId is set and not loading)
+  useEffect(() => {
+    if (!clinicId || !effectiveProviderId || !canEdit || loading) return
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null
+      saveProviderPay(clinicId, effectiveProviderId, year, month, payDate, payPeriod, tableData).catch((err) =>
+        console.error('[ProviderPayTab] saveProviderPay error:', err)
+      )
+    }, 800)
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+    }
+  }, [clinicId, effectiveProviderId, year, month, canEdit, loading, payDate, payPeriod, tableData])
+
+  const getMonthColor = useCallback(
+    (month: string): { color: string; textColor: string } | null => {
+      const monthColor = statusColors.find((s) => s.status === month && s.type === 'month')
+      if (monthColor) {
+        return { color: monthColor.color, textColor: monthColor.text_color || '#000000' }
+      }
+      return null
+    },
+    [statusColors]
+  )
+
+  const headerStyle = useMemo(() => {
+    const monthName = selectedMonth.toLocaleString('en-US', { month: 'long' })
+    const monthColor = getMonthColor(monthName)
+    const bgColor = monthColor?.color ?? 'rgba(30, 41, 59, 0.95)'
+    const textColor = monthColor?.textColor ?? '#ffffff'
+    return { bgColor, textColor }
+  }, [selectedMonth, getMonthColor])
 
   useEffect(() => {
     const el = containerRef.current
@@ -90,253 +176,270 @@ export default function ProviderPayTab({
     return () => ro.disconnect()
   }, [isInSplitScreen])
 
-  const afterChange = useCallback(
-    (changes: unknown, _source?: unknown) => {
-      if (!Array.isArray(changes) || !changes.length || !canEdit || !onUpdateProviderPayRow) return
-      for (const c of changes) {
-        const rowIndex = typeof c[0] === 'number' ? c[0] : -1
-        const col = typeof c[1] === 'number' ? c[1] : -1
-        const newVal = c[3]
-        if (rowIndex < 0 || rowIndex >= flattenedEntries.length || (col !== 0 && col !== 1)) continue
-        const { providerId, row } = flattenedEntries[rowIndex]
-        const value = newVal != null ? String(newVal) : ''
-        if (col === 0) {
-          onUpdateProviderPayRow(providerId, { ...row, cpt_code: value || null })
-        } else if (col === 1) {
-          onUpdateProviderPayRow(providerId, {
-            ...row,
-            appointment_status: (value || null) as SheetRow['appointment_status'],
-          })
-        }
-      }
-    },
-    [canEdit, onUpdateProviderPayRow, flattenedEntries]
-  )
-
   const getReadOnly = (columnName: keyof IsLockProviderPay): boolean => {
     if (!canEdit) return true
     if (!lockData) return false
     return Boolean(lockData[columnName])
   }
 
-  const columnsWithLock = useCallback(
+  const columns = useMemo(
     () => [
       {
         data: 0,
-        title: COLUMN_TITLES[0],
+        title: 'Description',
         type: 'text' as const,
-        width: 120,
-        readOnly: !canEdit || getReadOnly('cpt_code'),
+        width: 200,
+        readOnly: true,
       },
       {
         data: 1,
-        title: COLUMN_TITLES[1],
+        title: 'Amount',
+        type: 'numeric' as const,
+        width: 120,
+        readOnly: !canEdit || getReadOnly('amount'),
+      },
+      {
+        data: 2,
+        title: 'Notes',
         type: 'text' as const,
-        width: 180,
-        readOnly: !canEdit || getReadOnly('app_note_status'),
+        width: 200,
+        readOnly: !canEdit || getReadOnly('notes'),
       },
     ],
     [canEdit, lockData]
   )
 
-  const getMonthColor = useCallback(
-    (month: string): { color: string; textColor: string } | null => {
-      if (!month) return null
-      const monthColor = statusColors.find((s) => s.status === month && s.type === 'month')
-      if (monthColor) {
-        return { color: monthColor.color, textColor: monthColor.text_color || '#000000' }
+  const cellsCallback = useCallback(
+    (row: number, col: number) => {
+      const props: { readOnly?: boolean; className?: string } = {}
+      if (row === 0) {
+        props.className = 'provider-pay-table-header-row'
+        props.readOnly = true
+        return props
       }
-      return null
+      if (col === 0 && DESCRIPTION_LABELS[row] != null) {
+        props.readOnly = true
+      }
+      return props
     },
-    [statusColors]
+    []
   )
 
-  // Add lock icons to headers after table renders (like BillingTodoTab)
-  useEffect(() => {
-    if (!canEdit || !onLockColumn || !isColumnLocked) return
-
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
-
-    const addLockIconsToHeader = (headerRow: Element | null) => {
-      if (!headerRow) return
-
-      const headerCells = Array.from(headerRow.querySelectorAll('th'))
-
-      headerCells.forEach((th) => {
-        const colHeader = th.querySelector('.colHeader')
-        let cellText = (colHeader?.textContent ?? th.textContent ?? '').replace(/🔒|🔓/g, '').trim()
-
-        const columnIndex = COLUMN_TITLES.findIndex((title) => {
-          const normalizedTitle = title.toLowerCase().trim()
-          const normalizedCellText = cellText.toLowerCase().trim()
-          return (
-            normalizedCellText === normalizedTitle ||
-            normalizedCellText.includes(normalizedTitle) ||
-            normalizedTitle.includes(normalizedCellText)
-          )
-        })
-
-        if (columnIndex === -1 || columnIndex >= COLUMN_FIELDS.length) return
-
-        const columnName = COLUMN_FIELDS[columnIndex]
-        const isLocked = isColumnLocked(columnName)
-
-        const relative = th.querySelector('.relative')
-        if (!relative) return
-
-        const existingLock = relative.querySelector('.provider-pay-lock-icon')
-        if (existingLock) existingLock.remove()
-
-        const rel = relative as HTMLElement
-        rel.style.display = 'flex'
-        rel.style.alignItems = 'center'
-        rel.style.justifyContent = 'space-between'
-        rel.style.gap = '4px'
-        const colHeaderSpan = relative.querySelector('.colHeader')
-        if (colHeaderSpan) {
-          ;(colHeaderSpan as HTMLElement).style.flex = '1'
-          ;(colHeaderSpan as HTMLElement).style.minWidth = '0'
+  const afterChange = useCallback(
+    (changes: Handsontable.CellChange[] | null, _source?: Handsontable.ChangeSource) => {
+      if (!changes?.length || !canEdit) return
+      setTableData((prev) => {
+        const next = prev.map((r) => [...r])
+        for (const change of changes) {
+          const row = typeof change[0] === 'number' ? change[0] : -1
+          const col = typeof change[1] === 'number' ? change[1] : -1
+          const newVal = change[3]
+          if (row <= 0 || row >= next.length || col < 0 || col >= 3) continue
+          if (col === 0 && DESCRIPTION_LABELS[row] != null) continue
+          const val = newVal == null ? '' : String(newVal)
+          if (next[row][col] !== val) next[row][col] = val
         }
-
-        const lockButton = document.createElement('button')
-        lockButton.className = 'provider-pay-lock-icon'
-        lockButton.style.cssText = `
-          opacity: 1;
-          transition: opacity 0.2s;
-          padding: 2px;
-          cursor: pointer;
-          background: transparent;
-          border: none;
-          display: flex;
-          align-items: center;
-          color: currentColor;
-          flex-shrink: 0;
-        `
-        lockButton.title = isLocked ? 'Click to unlock column' : 'Click to lock column'
-        lockButton.innerHTML = isLocked
-          ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V7a6 6 0 0 1 12 0v2"></path><rect x="3" y="9" width="18" height="12" rx="2"></rect></svg>'
-          : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12V7a3 3 0 0 1 6 0v5"></path><path d="M3 12h18v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9z"></path></svg>'
-        lockButton.onclick = (e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          onLockColumn(columnName as string)
-        }
-        relative.appendChild(lockButton)
+        return next
       })
-    }
+    },
+    [canEdit]
+  )
 
-    const addLockIcons = () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
+  // Apply header color to thead and to row 0 (first data row) via CSS variables
+  useEffect(() => {
+    const applyHeaderStyle = () => {
+      const root = document.querySelector('.handsontable-custom.provider-pay-table')
+      if (!root || !(root instanceof HTMLElement)) return
+      root.style.setProperty('--provider-pay-header-bg', headerStyle.bgColor)
+      root.style.setProperty('--provider-pay-header-text', headerStyle.textColor)
+      const thead = root.querySelector('.ht_master thead th, .ht_clone_top thead th')
+      if (thead) {
+        const ths = root.querySelectorAll('.ht_master thead th, .ht_clone_top thead th')
+        ths.forEach((th) => {
+          if (th instanceof HTMLElement) {
+            th.style.background = headerStyle.bgColor
+            th.style.color = headerStyle.textColor
+            th.style.fontWeight = 'bold'
+            th.style.borderColor = '#1e293b'
+          }
+        })
       }
-      document.querySelectorAll('.provider-pay-lock-icon').forEach((icon) => icon.remove())
-
-      const table = document.querySelector('.handsontable-custom table.htCore')
-      if (table) {
-        const headerRow = table.querySelector('thead tr')
-        if (headerRow) addLockIconsToHeader(headerRow)
+      const core = root.querySelector('.ht_master table.htCore tbody tr:first-child td')
+      if (core) {
+        const firstRowCells = root.querySelectorAll('.ht_master table.htCore tbody tr:first-child td')
+        firstRowCells.forEach((td) => {
+          if (td instanceof HTMLElement) {
+            td.style.background = headerStyle.bgColor
+            td.style.color = headerStyle.textColor
+            td.style.fontWeight = 'bold'
+            td.style.borderColor = 'rgba(0,0,0,0.2)'
+          }
+        })
       }
-
-      const cloneTop = document.querySelector('.handsontable-custom .ht_clone_top table.htCore')
-      if (cloneTop) {
-        const headerRow = cloneTop.querySelector('thead tr')
-        if (headerRow) addLockIconsToHeader(headerRow)
+      const cloneLeft = root.querySelector('.ht_clone_left table.htCore tbody tr:first-child td')
+      if (cloneLeft) {
+        const leftCells = root.querySelectorAll('.ht_clone_left table.htCore tbody tr:first-child td')
+        leftCells.forEach((td) => {
+          if (td instanceof HTMLElement) {
+            td.style.background = headerStyle.bgColor
+            td.style.color = headerStyle.textColor
+            td.style.fontWeight = 'bold'
+          }
+        })
       }
     }
+    const t = setTimeout(applyHeaderStyle, 100)
+    return () => clearTimeout(t)
+  }, [headerStyle, tableData])
 
-    const debouncedAddLockIcons = () => {
-      if (timeoutId) clearTimeout(timeoutId)
-      timeoutId = setTimeout(addLockIcons, 200)
-    }
-
-    timeoutId = setTimeout(addLockIcons, 300)
-
-    const observer = new MutationObserver(() => debouncedAddLockIcons())
-    const tableContainer = document.querySelector('.handsontable-custom')
-    if (tableContainer) {
-      observer.observe(tableContainer, { childList: true, subtree: true, attributes: false })
-    }
-
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId)
-      observer.disconnect()
-    }
-  }, [canEdit, onLockColumn, isColumnLocked, lockData])
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[200px]">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-slate-500" />
+      </div>
+    )
+  }
 
   return (
     <div
       className="p-6"
       style={isInSplitScreen ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
     >
-      {/* Month selector - same style as Providers tab */}
-      {(() => {
-        const monthName = selectedMonth.toLocaleString('en-US', { month: 'long' })
-        const monthColor = getMonthColor(monthName)
-        const bgColor = monthColor?.color ?? 'rgba(30, 41, 59, 0.5)'
-        const textColor = monthColor?.textColor ?? '#fff'
-        return (
-          <div
-            className="relative flex items-center justify-center gap-4 rounded-lg border border-slate-700"
-            style={{
-              backgroundColor: bgColor,
-              color: textColor,
-              maxWidth: '40%',
-              margin: 'auto',
-              marginBottom: '10px',
-            }}
-          >
-            <button
-              onClick={onPreviousMonth}
-              className="absolute left-0 p-2 hover:opacity-80 rounded-lg transition-opacity"
-              style={{ color: textColor }}
-              title="Previous month"
+      <div className="flex items-center gap-2 justify-between">
+        {/* Month selector - same style as other tabs */}
+        {(() => {
+          const monthName = selectedMonth.toLocaleString('en-US', { month: 'long' })
+          const monthColor = getMonthColor(monthName)
+          const bgColor = monthColor?.color ?? 'rgba(30, 41, 59, 0.5)'
+          const textColor = monthColor?.textColor ?? '#fff'
+          return (
+            <div
+              className="relative flex items-center justify-center gap-4 rounded-lg border border-slate-700"
+              style={{
+                backgroundColor: bgColor,
+                color: textColor,
+                width: '25rem',
+                // margin: 'auto',
+                // marginBottom: '10px',
+              }}
             >
-              <ChevronLeft size={20} />
-            </button>
-            <div className="text-lg font-semibold min-w-[200px] text-center">
-              {formatMonthYear(selectedMonth)}
+              <button
+                onClick={onPreviousMonth}
+                className="absolute left-0 p-2 hover:opacity-80 rounded-lg transition-opacity"
+                style={{ color: textColor }}
+                title="Previous month"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <div className="text-lg font-semibold min-w-[200px] text-center">{formatMonthYear(selectedMonth)}</div>
+              <button
+                onClick={onNextMonth}
+                className="absolute right-0 p-2 hover:opacity-80 rounded-lg transition-opacity"
+                style={{ color: textColor }}
+                title="Next month"
+              >
+                <ChevronRight size={20} />
+              </button>
             </div>
-            <button
-              onClick={onNextMonth}
-              className="absolute right-0 p-2 hover:opacity-80 rounded-lg transition-opacity"
-              style={{ color: textColor }}
-              title="Next month"
+          )
+        })()}
+
+        {/* Provider select - when providers list is provided */}
+        {providers.length > 0 && (
+          <div className="mb-3 flex items-center gap-2">
+            <label htmlFor="provider-pay-provider-select" className="text-sm font-medium text-slate-300 whitespace-nowrap">
+              Provider:
+            </label>
+            <select
+              id="provider-pay-provider-select"
+              value={selectedProviderId}
+              onChange={(e) => setSelectedProviderId(e.target.value)}
+              className="rounded-lg border border-slate-600 bg-slate-800 text-slate-100 px-3 py-2 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <ChevronRight size={20} />
-            </button>
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.first_name} {p.last_name}
+                </option>
+              ))}
+            </select>
           </div>
-        )
-      })()}
+        )}
+      </div>
+
+
+      {/* Pay Date and Pay Period - header color same as selected month */}
+      <div
+        className="rounded-t-lg border border-b-0 border-slate-700"
+        style={{
+          backgroundColor: headerStyle.bgColor,
+          color: headerStyle.textColor,
+        }}
+      >
+        <div className="flex items-center px-4 py-2 border-b border-slate-600/50">
+          <span className="font-bold w-28">Pay Date:</span>
+          <input
+            type="text"
+            value={payDate}
+            onChange={(e) => setPayDate(e.target.value)}
+            placeholder=""
+            className="flex-1 bg-transparent border-none outline-none text-inherit placeholder-slate-400"
+            style={{ color: headerStyle.textColor }}
+          />
+        </div>
+        <div className="flex items-center px-4 py-2">
+          <span className="font-bold w-28">Pay Period:</span>
+          <input
+            type="text"
+            value={payPeriod}
+            onChange={(e) => setPayPeriod(e.target.value)}
+            placeholder=""
+            className="flex-1 bg-transparent border-none outline-none text-inherit placeholder-slate-400"
+            style={{ color: headerStyle.textColor }}
+          />
+        </div>
+      </div>
 
       <div
         ref={containerRef}
-        className="table-container dark-theme"
+        className="table-container dark-theme flex-1"
         style={{
-          maxHeight: isInSplitScreen ? undefined : 600,
+          maxHeight: isInSplitScreen ? undefined : 500,
           flex: isInSplitScreen ? 1 : undefined,
           minHeight: isInSplitScreen ? 0 : undefined,
-          overflowX: 'auto',
-          overflowY: 'auto',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '8px',
-          backgroundColor: '#d2dbe5',
+          overflow: 'auto',
+          border: '1px solid rgba(0,0,0,0.2)',
+          borderTop: 'none',
+          borderRadius: '0 0 8px 8px',
+          backgroundColor: '#fff',
         }}
       >
         <HandsontableWrapper
           key={`provider-pay-${clinicId}-${selectedMonth.getTime()}-${JSON.stringify(lockData)}`}
           data={tableData}
-          columns={columnsWithLock()}
-          colHeaders={COLUMN_TITLES}
-          rowHeaders={true}
+          columns={columns}
+          colHeaders={false}
+          rowHeaders={false}
           width="100%"
-          height={isInSplitScreen ? tableHeight : 600}
+          height={isInSplitScreen ? tableHeight : 400}
           readOnly={!canEdit}
           afterChange={afterChange}
-          style={{ backgroundColor: '#d2dbe5' }}
-          className="handsontable-custom"
+          cells={cellsCallback}
+          style={{ backgroundColor: '#fff' }}
+          className="handsontable-custom provider-pay-table"
+          enableFormula={true}
         />
       </div>
+
+      <style>{`
+        .provider-pay-table .provider-pay-table-header-row {
+          background: var(--provider-pay-header-bg, rgba(30, 41, 59, 0.95)) !important;
+          color: var(--provider-pay-header-text, #fff) !important;
+          font-weight: bold !important;
+        }
+        .provider-pay-table .htCore td {
+          border-color: rgba(0,0,0,0.2);
+        }
+      `}</style>
     </div>
   )
 }

@@ -13,6 +13,8 @@ import {
   StatusColor,
 } from '@/types'
 import ProvidersTab from '@/components/tabs/ProvidersTab'
+import AccountsReceivableTab from '@/components/tabs/AccountsReceivableTab'
+import ProviderPayTab from '@/components/tabs/ProviderPayTab'
 
 export default function ProviderSheetPage() {
   const { user, userProfile, loading: authLoading } = useAuth()
@@ -21,6 +23,7 @@ export default function ProviderSheetPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [provider, setProvider] = useState<Provider | null>(null)
+  const [providerLevel, setProviderLevel] = useState<1 | 2>(1)
   const [clinic, setClinic] = useState<Clinic | null>(null)
   const [providerSheetRows, setProviderSheetRows] = useState<Record<string, SheetRow[]>>({})
   const [patients, setPatients] = useState<Patient[]>([])
@@ -29,6 +32,8 @@ export default function ProviderSheetPage() {
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
   const providerSheetRowsRef = useRef<Record<string, SheetRow[]>>({})
   const [currentSheet, setCurrentSheet] = useState<ProviderSheet | null>(null)
+  /** When provider level is 2: 'sheet' | 'accounts_receivable' | 'provider_pay' */
+  const [providerViewTab, setProviderViewTab] = useState<'sheet' | 'accounts_receivable' | 'provider_pay'>('sheet')
 
   // Redirect non-providers; redirect to dashboard if no clinic in URL
   useEffect(() => {
@@ -74,6 +79,7 @@ export default function ProviderSheetPage() {
           return
         }
         setProvider(data)
+        setProviderLevel(data.level === 2 ? 2 : 1)
       } catch (e) {
         console.error('Error resolving provider:', e)
         setError('Failed to load your provider profile.')
@@ -335,35 +341,98 @@ export default function ProviderSheetPage() {
     )
   }
 
-  if (!provider) return null
+  if (!provider || !clinicId) return null
+
+  const showARTab = providerLevel === 2
+  const showProviderPayTab = providerLevel === 2
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-white mb-2">My Sheet</h1>
+        <h1 className="text-3xl font-bold text-white mb-2">
+          {showARTab || showProviderPayTab ? (providerViewTab === 'sheet' ? 'My Sheet' : providerViewTab === 'accounts_receivable' ? 'Accounts Receivable' : 'Provider Pay') : 'My Sheet'}
+        </h1>
         {clinic && <p className="text-white/70">{clinic.name}</p>}
       </div>
 
-      <ProvidersTab
-        clinicId={clinicId}
-        providers={[provider]}
-        providerSheetRows={providerSheetRows}
-        billingCodes={billingCodes}
-        statusColors={statusColors}
-        patients={patients}
-        selectedMonth={selectedMonth}
-        providerId={provider.id}
-        currentProvider={provider}
-        canEdit={true}
-        isInSplitScreen={false}
-        isProviderView={true}
-        onUpdateProviderSheetRow={handleUpdateProviderSheetRow}
-        onSaveProviderSheetRowsDirect={saveProviderSheetRowsDirect}
-        onPreviousMonth={handlePreviousMonth}
-        onNextMonth={handleNextMonth}
-        formatMonthYear={formatMonthYear}
-        filterRowsByMonth={filterRowsByMonth}
-      />
+      {(showARTab || showProviderPayTab) && (
+        <div className="flex gap-1 mb-4 border-b border-white/20 pb-2">
+          <button
+            type="button"
+            onClick={() => setProviderViewTab('sheet')}
+            className={`px-4 py-2 rounded-t font-medium transition-colors ${
+              providerViewTab === 'sheet' ? 'bg-white/20 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            My Sheet
+          </button>
+          <button
+            type="button"
+            onClick={() => setProviderViewTab('accounts_receivable')}
+            className={`px-4 py-2 rounded-t font-medium transition-colors ${
+              providerViewTab === 'accounts_receivable' ? 'bg-white/20 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            Accounts Receivable
+          </button>
+          <button
+            type="button"
+            onClick={() => setProviderViewTab('provider_pay')}
+            className={`px-4 py-2 rounded-t font-medium transition-colors ${
+              providerViewTab === 'provider_pay' ? 'bg-white/20 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            Provider Pay
+          </button>
+        </div>
+      )}
+
+      {providerViewTab === 'sheet' && (
+        <ProvidersTab
+          clinicId={clinicId}
+          providers={[provider]}
+          providerSheetRows={providerSheetRows}
+          billingCodes={billingCodes}
+          statusColors={statusColors}
+          patients={patients}
+          selectedMonth={selectedMonth}
+          providerId={provider.id}
+          currentProvider={provider}
+          canEdit={true}
+          isInSplitScreen={false}
+          isProviderView={true}
+          providerLevel={providerLevel}
+          onUpdateProviderSheetRow={handleUpdateProviderSheetRow}
+          onSaveProviderSheetRowsDirect={saveProviderSheetRowsDirect}
+          onPreviousMonth={handlePreviousMonth}
+          onNextMonth={handleNextMonth}
+          formatMonthYear={formatMonthYear}
+          filterRowsByMonth={filterRowsByMonth}
+        />
+      )}
+
+      {providerViewTab === 'accounts_receivable' && showARTab && clinicId && (
+        <AccountsReceivableTab
+          clinicId={clinicId}
+          canEdit={false}
+          isInSplitScreen={false}
+        />
+      )}
+
+      {providerViewTab === 'provider_pay' && showProviderPayTab && clinicId && provider && (
+        <ProviderPayTab
+          clinicId={clinicId}
+          providerId={provider.id}
+          providers={[provider]}
+          canEdit={true}
+          isInSplitScreen={false}
+          selectedMonth={selectedMonth}
+          onPreviousMonth={handlePreviousMonth}
+          onNextMonth={handleNextMonth}
+          formatMonthYear={formatMonthYear}
+          statusColors={statusColors}
+        />
+      )}
     </div>
   )
 }

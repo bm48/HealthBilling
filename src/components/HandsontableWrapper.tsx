@@ -1,9 +1,60 @@
-import { useRef, useEffect, useMemo } from 'react'
+import { useRef, useEffect, useMemo, useState } from 'react'
 import { HotTable } from '@handsontable/react'
 import Handsontable from 'handsontable'
 import { HyperFormula } from 'hyperformula'
 import { DateEditor } from '@/lib/handsontableCustomRenderers'
 import 'handsontable/dist/handsontable.full.css'
+
+/** 0-based row/col range for formula reference highlighting */
+export type FormulaRefRange = { startRow: number; startCol: number; endRow: number; endCol: number }
+
+/** Parse a formula string for cell references (e.g. B2:B4, A1) and return 0-based ranges. */
+export function parseFormulaReferences(formula: string): FormulaRefRange[] {
+  const ranges: FormulaRefRange[] = []
+  if (typeof formula !== 'string' || !formula.startsWith('=')) return ranges
+
+  const colLetterToIndex = (letters: string): number => {
+    let n = 0
+    for (let i = 0; i < letters.length; i++) {
+      n = n * 26 + (letters.charCodeAt(i) - 64)
+    }
+    return n - 1
+  }
+
+  const rangeRegex = /([A-Z]+)(\d+):([A-Z]+)(\d+)/gi
+  const rangeMatches = [...formula.matchAll(rangeRegex)]
+  const seen = new Set<string>()
+
+  for (const m of rangeMatches) {
+    const startCol = colLetterToIndex(m[1].toUpperCase())
+    const startRow = Math.max(0, parseInt(m[2], 10) - 1)
+    const endCol = colLetterToIndex(m[3].toUpperCase())
+    const endRow = Math.max(0, parseInt(m[4], 10) - 1)
+    const rMin = Math.min(startRow, endRow)
+    const rMax = Math.max(startRow, endRow)
+    const cMin = Math.min(startCol, endCol)
+    const cMax = Math.max(startCol, endCol)
+    // Push every cell in the range so the first (and all) cells get the dotted highlight
+    for (let r = rMin; r <= rMax; r++) {
+      for (let c = cMin; c <= cMax; c++) {
+        seen.add(`${r}-${c}`)
+        ranges.push({ startRow: r, startCol: c, endRow: r, endCol: c })
+      }
+    }
+  }
+
+  const singleRegex = /([A-Z]+)(\d+)/g
+  let singleMatch
+  while ((singleMatch = singleRegex.exec(formula)) !== null) {
+    const col = colLetterToIndex(singleMatch[1].toUpperCase())
+    const row = Math.max(0, parseInt(singleMatch[2], 10) - 1)
+    const key = `${row}-${col}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    ranges.push({ startRow: row, startCol: col, endRow: row, endCol: col })
+  }
+  return ranges
+}
 
 /** Copy row heights from main table to row header clone so the row number column matches data row heights. */
 function syncRowHeaderHeightsToClone(hot: Handsontable) {
@@ -115,6 +166,10 @@ export default function HandsontableWrapper({
   const isBatchOperationRef = useRef<boolean>(false)
   /** True when the last selection was triggered by a mouse click (so we can open dropdown on single click) */
   const selectionFromMouseRef = useRef<boolean>(false)
+  /** When enableFormula: ranges to highlight with dotted border while editing a formula cell */
+  const [formulaRefRanges, setFormulaRefRanges] = useState<FormulaRefRange[]>([])
+  /** Ref to editor input and listener so we can remove on afterFinishEditing and update highlight while typing */
+  const formulaEditorInputRef = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; listener: () => void } | null>(null)
   const dataRef = useRef(data)
   dataRef.current = data
   const prevDataLengthRef = useRef(data.length)
@@ -122,27 +177,13 @@ export default function HandsontableWrapper({
   // Stable ref for settings.data so HotTable doesn't overwrite grid on every re-render (avoids stale data wiping typed input)
   const dataForSettingsRef = useRef(data)
 
-  useEffect(() => {
-    if (enableFormula && hotTableRef.current) {
-      // Initialize HyperFormula
-      const hyperformulaInstance = HyperFormula.buildEmpty({
-        licenseKey: 'gpl-v3',
-      })
-      hyperformulaInstanceRef.current = hyperformulaInstance
-
-      // Get the Handsontable instance
-      const hotInstance = hotTableRef.current.hotInstance
-      if (hotInstance) {
-        // Register HyperFormula as an engine
-        hotInstance.updateSettings({
-          formulas: {
-            engine: hyperformulaInstance,
-            sheetName: 'Sheet1',
-          },
-        })
-      }
-    }
+  // Create HyperFormula once when enableFormula is true so initial settings include formulas with a valid sheetName (string).
+  // This prevents "Expected value of type: string for config parameter: sheetName" when the Formulas plugin runs on mount/update.
+  const hyperformulaInstance = useMemo(() => {
+    if (!enableFormula) return null
+    return HyperFormula.buildEmpty({ licenseKey: 'gpl-v3' })
   }, [enableFormula])
+  hyperformulaInstanceRef.current = hyperformulaInstance
 
   useEffect(() => {
     if (dataRef.current.length > 0 && hotTableRef.current?.hotInstance) {
@@ -279,6 +320,10 @@ export default function HandsontableWrapper({
     stretchH,
     licenseKey: 'non-commercial-and-evaluation',
     readOnly,
+    // Include formulas in initial config when enableFormula so Formulas plugin always has a string sheetName (avoids HyperFormula error)
+    ...(enableFormula && hyperformulaInstance
+      ? { formulas: { engine: hyperformulaInstance, sheetName: 'Sheet1' } }
+      : {}),
     // Enable borders for cells
     renderAllRows: false,
     // Ensure Handsontable recognizes all rows for virtual scrolling
@@ -400,6 +445,16 @@ export default function HandsontableWrapper({
       if (isBatchOperationRef.current && String(source) === 'CopyDown') {
         return
       }
+      // When user commits an edit, clear formula ref highlight so dotted line is removed
+      if (enableFormula && String(source) === 'edit') {
+        setFormulaRefRanges([])
+        const hot = hotTableRef.current?.hotInstance as Handsontable | undefined
+        if (hot?.rootElement) {
+          hot.rootElement.querySelectorAll('.formula-ref-highlight').forEach((el) => {
+            el.classList.remove('formula-ref-highlight')
+          })
+        }
+      }
       if (afterChange && changes) {
         afterChange(changes, source)
       }
@@ -437,9 +492,79 @@ export default function HandsontableWrapper({
         }
       }
     },
-    
-    // Custom cell renderer
-    cells: cells || undefined,
+
+    // Formula reference highlighting: show dotted border around referenced cells while typing a formula
+    ...(enableFormula
+      ? {
+          afterBeginEditing(row: number, col: number) {
+            const hot = hotTableRef.current?.hotInstance as Handsontable
+            if (!hot) return
+            // Remove any previous editor listener (e.g. from another cell)
+            const prev = formulaEditorInputRef.current
+            if (prev) {
+              prev.el.removeEventListener('input', prev.listener)
+              formulaEditorInputRef.current = null
+            }
+            const val = (hot as any).getSourceDataAtCell?.(row, col) ?? hot.getDataAtCell(row, col)
+            const formula = typeof val === 'string' ? val : ''
+            if (formula.startsWith('=')) {
+              setFormulaRefRanges(parseFormulaReferences(formula))
+            } else {
+              setFormulaRefRanges([])
+            }
+            // Listen to editor input so highlight updates as the user types
+            setTimeout(() => {
+              const root = hot.rootElement
+              const input = root?.querySelector('.handsontableInput') as HTMLInputElement | HTMLTextAreaElement | null
+              if (input) {
+                const listener = () => {
+                  const value = input.value
+                  if (typeof value === 'string' && value.startsWith('=')) {
+                    setFormulaRefRanges(parseFormulaReferences(value))
+                  } else {
+                    setFormulaRefRanges([])
+                  }
+                }
+                input.addEventListener('input', listener)
+                formulaEditorInputRef.current = { el: input, listener }
+              }
+            }, 0)
+          },
+          afterFinishEditing() {
+            const ref = formulaEditorInputRef.current
+            if (ref) {
+              ref.el.removeEventListener('input', ref.listener)
+              formulaEditorInputRef.current = null
+            }
+            setFormulaRefRanges([])
+            // Remove dotted highlight from DOM immediately (grid may not re-apply cells callback right away)
+            const hot = hotTableRef.current?.hotInstance as Handsontable | undefined
+            if (hot?.rootElement) {
+              hot.rootElement.querySelectorAll('.formula-ref-highlight').forEach((el) => {
+                el.classList.remove('formula-ref-highlight')
+              })
+            }
+          },
+        }
+      : {}),
+
+    // Custom cell renderer (merge formula-ref highlight when enableFormula)
+    cells:
+      enableFormula && formulaRefRanges.length > 0
+        ? (row: number, col: number) => {
+            const base = cells?.(row, col) ?? {}
+            const inRange = formulaRefRanges.some(
+              (r) => row >= r.startRow && row <= r.endRow && col >= r.startCol && col <= r.endCol
+            )
+            if (inRange) {
+              return {
+                ...base,
+                className: (base.className ? base.className + ' ' : '') + 'formula-ref-highlight',
+              }
+            }
+            return base
+          }
+        : cells || undefined,
     
     // Custom header renderer for colored headers - removed as it's not a valid Handsontable setting
     // Header styling is handled via CSS and custom header rendering in individual tabs
@@ -733,8 +858,23 @@ export default function HandsontableWrapper({
     }
   }, [data.length, dataVersion])
 
+  // Re-render grid when formula ref ranges change so dotted highlight is applied/cleared
+  useEffect(() => {
+    const hot = hotTableRef.current?.hotInstance
+    if (hot && typeof hot.render === 'function') {
+      hot.render()
+    }
+  }, [formulaRefRanges])
+
   return (
     <div style={style} className={className}>
+      <style>{`
+        .formula-ref-highlight {
+          outline: 2px dotted #2563eb !important;
+          outline-offset: -1px;
+          z-index: 1;
+        }
+      `}</style>
       <HotTable
         ref={hotTableRef}
         settings={settings}

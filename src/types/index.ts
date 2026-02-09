@@ -72,6 +72,8 @@ export interface Provider {
   email: string | null
   phone: string | null
   active: boolean
+  /** Provider access level: 1 or 2 (default 1). Set by super admin in User Management. */
+  level?: 1 | 2
   created_at: string
   updated_at: string
 }
@@ -207,6 +209,31 @@ export interface AccountsReceivable {
   amount: number | null
   date_recorded: string | null
   type: ARType | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Provider Pay header: one per provider per month (pay date, pay period). */
+export interface ProviderPay {
+  id: string
+  clinic_id: string
+  provider_id: string
+  year: number
+  month: number
+  pay_date: string | null
+  pay_period: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** One row in the Provider Pay table (description, amount, notes). Amount is text to support formulas. */
+export interface ProviderPayRow {
+  id: string
+  provider_pay_id: string
+  row_index: number
+  description: string | null
+  amount: string | null
   notes: string | null
   created_at: string
   updated_at: string
