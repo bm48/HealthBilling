@@ -2103,7 +2103,7 @@ export default function ClinicDetail() {
           <h1 className="text-3xl font-bold text-white mb-2">{clinic?.name || 'Clinic Details'}</h1>
           {clinic?.address && <p className="text-white/70">{clinic.address}</p>}
         </div>
-        {(!providerId || userProfile?.role !== 'office_staff') && (showPatientTab || !splitScreen) && (
+        {(!providerId || userProfile?.role !== 'office_staff') && (showPatientTab || showBillingTodoTab || !splitScreen) && (
           <div className="flex items-center gap-2 shrink-0">
             {showPatientTab && (
               <button
@@ -2117,6 +2117,20 @@ export default function ClinicDetail() {
               >
                 <Users size={18} />
                 Patient Info
+              </button>
+            )}
+            {showBillingTodoTab && (
+              <button
+                type="button"
+                onClick={() => handleTabChange('todo')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+                  activeTab === 'todo' || splitScreen?.right === 'todo' || splitScreen?.left === 'todo'
+                    ? 'bg-primary-500/20 text-primary-400 border-primary-400'
+                    : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+                }`}
+              >
+                <CheckSquare size={18} />
+                Billing To-Do
               </button>
             )}
             {!splitScreen && (
@@ -2137,19 +2151,6 @@ export default function ClinicDetail() {
       {(!providerId || userProfile?.role !== 'office_staff') && (
       <div className="flex gap-2 mb-6 border-b border-white/20 justify-between items-center">
         <div className="flex gap-2">
-          {showBillingTodoTab && (
-            <button
-              onClick={() => handleTabChange('todo')}
-              className={`px-6 py-3 font-medium transition-colors flex items-center gap-2 ${
-                activeTab === 'todo' || splitScreen?.right === 'todo' || splitScreen?.left === 'todo'
-                  ? 'text-primary-400 border-b-2 border-primary-400'
-                  : 'text-white/70 hover:text-white'
-              }`}
-            >
-              <CheckSquare size={18} />
-              Billing To-Do
-            </button>
-          )}
           {showProvidersTab && (
           <button
             onClick={() => handleTabChange('providers')}
@@ -2205,7 +2206,14 @@ export default function ClinicDetail() {
       </div>
       )}
 
-      <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20">
+      <div
+        className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20"
+        style={
+          !splitScreen && activeTab === 'provider_pay'
+            ? { width: 'fit-content', maxWidth: '50vw', minWidth: '22rem' }
+            : undefined
+        }
+      >
         {splitScreen ? (
           <div 
             ref={splitScreenContainerRef}

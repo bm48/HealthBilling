@@ -83,8 +83,15 @@ export default function ProviderPayTab({
   const containerRef = useRef<HTMLDivElement>(null)
   const [tableHeight, setTableHeight] = useState(600)
   const [payDate, setPayDate] = useState('')
-  const [payPeriod, setPayPeriod] = useState('')
+  const [payPeriodFrom, setPayPeriodFrom] = useState('')
+  const [payPeriodTo, setPayPeriodTo] = useState('')
   const [tableData, setTableData] = useState<string[][]>(() => INITIAL_TABLE_DATA.map(row => [...row]))
+
+  /** Serialize pay period for DB (single string). */
+  const payPeriod = useMemo(
+    () => [payPeriodFrom, payPeriodTo].filter(Boolean).join(' to ') || '',
+    [payPeriodFrom, payPeriodTo]
+  )
   const [selectedProviderId, setSelectedProviderId] = useState<string>(() =>
     providerIdProp ?? providers[0]?.id ?? ''
   )
@@ -117,11 +124,28 @@ export default function ProviderPayTab({
       .then((data) => {
         if (data) {
           setPayDate(data.payDate)
-          setPayPeriod(data.payPeriod)
+          const raw = (data.payPeriod ?? '').trim()
+          const datePart = /^\d{4}-\d{2}-\d{2}$/
+          if (raw.includes(' to ')) {
+            const [a, b] = raw.split(' to ').map((s) => s.trim())
+            setPayPeriodFrom(datePart.test(a) ? a : '')
+            setPayPeriodTo(datePart.test(b) ? b : '')
+          } else if (raw.includes(' - ')) {
+            const [a, b] = raw.split(' - ').map((s) => s.trim())
+            setPayPeriodFrom(datePart.test(a) ? a : '')
+            setPayPeriodTo(datePart.test(b) ? b : '')
+          } else if (datePart.test(raw)) {
+            setPayPeriodFrom(raw)
+            setPayPeriodTo('')
+          } else {
+            setPayPeriodFrom('')
+            setPayPeriodTo('')
+          }
           setTableData(data.rows.map((r) => [...r]))
         } else {
           setPayDate('')
-          setPayPeriod('')
+          setPayPeriodFrom('')
+          setPayPeriodTo('')
           setTableData(INITIAL_TABLE_DATA.map((r) => [...r]))
         }
       })
@@ -303,7 +327,11 @@ export default function ProviderPayTab({
   return (
     <div
       className="p-6"
-      style={isInSplitScreen ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
+      style={
+        isInSplitScreen
+          ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }
+          : { maxWidth: '45vw', width: '100%' }
+      }
     >
       <div className="flex items-center gap-2 justify-between">
         {/* Month selector - same style as other tabs */}
@@ -378,24 +406,35 @@ export default function ProviderPayTab({
         <div className="flex items-center px-4 py-2 border-b border-slate-600/50">
           <span className="font-bold w-28">Pay Date:</span>
           <input
-            type="text"
+            type="date"
             value={payDate}
             onChange={(e) => setPayDate(e.target.value)}
-            placeholder=""
-            className="flex-1 bg-transparent border-none outline-none text-inherit placeholder-slate-400"
+            className="flex-1 max-w-[12rem] bg-transparent border border-white/30 rounded px-2 py-1 outline-none text-inherit [color-scheme:dark]"
             style={{ color: headerStyle.textColor }}
           />
         </div>
-        <div className="flex items-center px-4 py-2">
-          <span className="font-bold w-28">Pay Period:</span>
-          <input
-            type="text"
-            value={payPeriod}
-            onChange={(e) => setPayPeriod(e.target.value)}
-            placeholder=""
-            className="flex-1 bg-transparent border-none outline-none text-inherit placeholder-slate-400"
-            style={{ color: headerStyle.textColor }}
-          />
+        <div className="flex items-center gap-3 px-4 py-2">
+          <span className="font-bold w-28 shrink-0">Pay Period:</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <label className="text-sm font-medium opacity-90 whitespace-nowrap">From</label>
+            <input
+              type="date"
+              value={payPeriodFrom}
+              onChange={(e) => setPayPeriodFrom(e.target.value)}
+              className="w-[8.5rem] bg-transparent border border-white/30 rounded px-1.5 py-1 text-sm outline-none text-inherit [color-scheme:dark]"
+              style={{ color: headerStyle.textColor }}
+            />
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <label className="text-sm font-medium opacity-90 whitespace-nowrap">To</label>
+            <input
+              type="date"
+              value={payPeriodTo}
+              onChange={(e) => setPayPeriodTo(e.target.value)}
+              className="w-[8.5rem] bg-transparent border border-white/30 rounded px-1.5 py-1 text-sm outline-none text-inherit [color-scheme:dark]"
+              style={{ color: headerStyle.textColor }}
+            />
+          </div>
         </div>
       </div>
 
@@ -403,7 +442,8 @@ export default function ProviderPayTab({
         ref={containerRef}
         className="table-container dark-theme flex-1"
         style={{
-          maxHeight: isInSplitScreen ? undefined : 500,
+          height: isInSplitScreen ? undefined : '50vh',
+          maxHeight: isInSplitScreen ? undefined : '50vh',
           flex: isInSplitScreen ? 1 : undefined,
           minHeight: isInSplitScreen ? 0 : undefined,
           overflow: 'auto',
@@ -420,7 +460,7 @@ export default function ProviderPayTab({
           colHeaders={false}
           rowHeaders={false}
           width="100%"
-          height={isInSplitScreen ? tableHeight : 400}
+          height={tableHeight}
           readOnly={!canEdit}
           afterChange={afterChange}
           cells={cellsCallback}
