@@ -2,34 +2,53 @@ import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Circle, ArrowUp } from 'lucide-react'
-import AOS from 'aos'
 import 'aos/dist/aos.css'
 
 const SCROLL_THRESHOLD_PX = 300
+const AOS_OFFSET = 40
+const AOS_DURATION = 600
 
 export default function Landing() {
+  const containerRef = useRef<HTMLDivElement>(null)
   const lastScrollY = useRef(0)
   const [headerVisible, setHeaderVisible] = useState(true)
   const [showScrollToTop, setShowScrollToTop] = useState(false)
 
+  // Custom Intersection Observer so scroll animations work in dev and production build
   useEffect(() => {
-    AOS.init({
-      duration: 600,
-      once: true,
-      offset: 40,
-    })
-    // In production build, below-the-fold elements may not be observed when init runs.
-    // Refresh after layout/paint so AOS attaches observers to all [data-aos] elements.
-    const rafId = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        AOS.refresh()
-      })
-    })
-    const fallbackTimer = setTimeout(() => AOS.refresh(), 300)
+    document.body.setAttribute('data-aos-duration', String(AOS_DURATION))
+
+    const container = containerRef.current
+    if (!container) {
+      return () => document.body.removeAttribute('data-aos-duration')
+    }
+
+    const elements = container.querySelectorAll<HTMLElement>('[data-aos]')
+    const timeouts: ReturnType<typeof setTimeout>[] = []
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return
+          const el = entry.target as HTMLElement
+          observer.unobserve(el)
+          const delay = parseInt(el.getAttribute('data-aos-delay') ?? '0', 10)
+          const animate = () => el.classList.add('aos-animate')
+          if (delay > 0) {
+            timeouts.push(setTimeout(animate, delay))
+          } else {
+            animate()
+          }
+        })
+      },
+      { rootMargin: `${AOS_OFFSET}px 0px`, threshold: 0 }
+    )
+
+    elements.forEach((el) => observer.observe(el))
     return () => {
-      cancelAnimationFrame(rafId)
-      clearTimeout(fallbackTimer)
-      AOS.refresh()
+      document.body.removeAttribute('data-aos-duration')
+      elements.forEach((el) => observer.unobserve(el))
+      timeouts.forEach((id) => clearTimeout(id))
     }
   }, [])
 
@@ -50,7 +69,7 @@ export default function Landing() {
   }
 
   return (
-    <div className="min-h-screen relative bg-white text-black">
+    <div ref={containerRef} className="min-h-screen relative bg-white text-black">
         
         {/* Header - hides when scrolling down past 300px, shows when scrolling up or near top */}
         <header
