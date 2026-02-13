@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '@/contexts/AuthContext'
 
 import { Circle, ArrowUp } from 'lucide-react'
 import AOS from 'aos'
@@ -8,6 +9,7 @@ import 'aos/dist/aos.css'
 const SCROLL_THRESHOLD_PX = 300
 
 export default function Landing() {
+  const { user } = useAuth()
   const lastScrollY = useRef(0)
   const [headerVisible, setHeaderVisible] = useState(true)
   const [showScrollToTop, setShowScrollToTop] = useState(false)
@@ -87,8 +89,8 @@ export default function Landing() {
         </div>
 
         <div className='px-4 sm:px-6 md:px-8 lg:pl-[20%] lg:pr-[20%] w-full text-center text-black mt-12 sm:mt-16 md:mt-20 border-t border-black pt-8 sm:pt-10' data-aos="fade-up">
-            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 data-aos="fade-right" data-aos-delay="0"   data-aos-offset="100"'>About Us</h1>
-            <h2 className='text-2xl sm:text-3xl font-medium mb-4 data-aos="fade-right" data-aos-delay="0"   data-aos-offset="100"'>Our Mission</h2>
+            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4'>About Us</h1>
+            <h2 className='text-2xl sm:text-3xl font-medium mb-4'>Our Mission</h2>
             <p className='text-sm sm:text-md'>
                 American Medical Billing and Coding is dedicated to providing high-quality medical billing services to 
                 healthcare professionals. We provide comprehensive revenue cycle solutions for healthcare practices that
@@ -104,8 +106,8 @@ export default function Landing() {
 
         <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3'>
             <div className='flex flex-col items-start justify-center gap-2 text-center p-6 sm:p-8 md:p-10 pl-6 sm:pl-10 md:pl-20' data-aos="fade-up" data-aos-delay="0">
-                <h1 className='text-3xl sm:text-4xl md:text-5xl font-bold mb-4 fade-left' data-aos="fade-right" data-aos-delay="0">Our Services</h1>
-                <div className='flex items-center justify-center mb-6 sm:mb-10 fade-left' data-aos="fade-right" data-aos-delay="0">
+                <h1 className='text-3xl sm:text-4xl md:text-5xl font-bold mb-4'>Our Services</h1>
+                <div className='flex items-center justify-center mb-6 sm:mb-10'>
                     <h2 className='text-2xl sm:text-3xl font-medium mb-4'>Medical Billing</h2>
                     <img src='/BillingTag.png' alt="Billing Tag" className="w-12 h-12 sm:w-16 sm:h-16 ml-2" />
                 </div>
@@ -152,9 +154,9 @@ export default function Landing() {
             </div>
 
             <div className='flex flex-col gap-4 text-center items-start p-6 sm:p-8 md:p-10 pl-6 sm:pl-10 md:pl-20 pt-10 sm:pt-16 md:pt-20' data-aos="fade-up" data-aos-delay="150">
-                <div className='flex items-start justify-start mb-6 sm:mb-10 mt-6 data-aos="fade-right" data-aos-delay="0"'>
-                    <h2 className='text-2xl sm:text-3xl font-medium mb-4 data-aos="fade-right" data-aos-delay="0"'>Proprietary Revenue Tracking Software</h2>
-                    <img src='/Revenue.png' alt='Revenue Tracking Software" className="w-12 h-12 sm:w-16 sm:h-16 -ml-3 flex-shrink-0 data-aos="fade-right" data-aos-delay="0"' />
+                <div className='flex items-start justify-start mb-6 sm:mb-10 mt-6'>
+                    <h2 className='text-2xl sm:text-3xl font-medium mb-4'>Proprietary Revenue Tracking Software</h2>
+                    <img src='/Revenue.png' alt="Revenue Tracking Software" className="w-12 h-12 sm:w-16 sm:h-16 -ml-3 flex-shrink-0" />
                 </div>
                 <p className='text-md -mt-5'>
                     Our proprietary platform delivers full visibility into your practice&apos;s financial health.
@@ -188,9 +190,9 @@ export default function Landing() {
 
             <div className='flex flex-col items-start justify-start gap-4 text-center p-6 sm:p-8 md:p-10 pt-10 sm:pt-16 md:pt-20 pl-6 sm:pl-10 md:pl-20' data-aos="fade-up" data-aos-delay="300">
 
-                <div className='flex items-start justify-start mb-6 sm:mb-10 mt-6 data-aos="fade-right" data-aos-delay="0"'>
-                    <h2 className='text-2xl sm:text-3xl font-medium mb-4 data-aos="fade-right" data-aos-delay="0"   data-aos-offset="100"'>Practice Consultation</h2>
-                    <img src='/consultation.png' alt='consultation" className="w-12 h-12 sm:w-16 sm:h-16 -mt-3 ml-2 flex-shrink-0 data-aos="fade-right" data-aos-delay="0"' />
+                <div className='flex items-start justify-start mb-6 sm:mb-10 mt-6'>
+                    <h2 className='text-2xl sm:text-3xl font-medium mb-4'>Practice Consultation</h2>
+                    <img src='/consultation.png' alt="consultation" className="w-12 h-12 sm:w-16 sm:h-16 -mt-3 ml-2 flex-shrink-0" />
                 </div>
                 <p className='text-md mt-5'>
                     We help practices identify revenue gaps, operational inefficiencies, and growth opportunities.
@@ -225,7 +227,7 @@ export default function Landing() {
         </div>
 
         <div className='w-full text-gray-900 mt-12 sm:mt-16 md:mt-20 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
-            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 ml-0 sm:ml-10 md:ml-20 data-aos="fade-right" data-aos-delay="0"   data-aos-offset="100"'>Why Choose Us</h1>
+            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 ml-0 sm:ml-10 md:ml-20'>Why Choose Us</h1>
             <div className='w-full max-w-[95%] sm:max-w-[85%] md:max-w-[70%] lg:w-[50%] mx-auto text-left pt-6 sm:pt-10'>
                 
                 <p className='text-base sm:text-lg md:text-xl'>
@@ -252,7 +254,7 @@ export default function Landing() {
         </div>
 
         <div className='w-full text-gray-900 mt-12 sm:mt-16 md:mt-20 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
-            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 ml-0 sm:ml-10 md:ml-20 data-aos="fade-right" data-aos-delay="0"   data-aos-offset="100"'>Contact Us</h1>
+            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 ml-0 sm:ml-10 md:ml-20'>Contact Us</h1>
             <div className='mt-6 sm:mt-10 w-full max-w-[95%] sm:max-w-[85%] md:max-w-[60%] lg:w-[40%] ml-0 sm:ml-10 md:ml-20'>
                 <h3 className='text-lg sm:text-xl text-gray-700 pb-4 sm:pb-6'>Get in Touch</h3>
                 <p className='text-sm sm:text-md mb-4 text-gray-600'>
