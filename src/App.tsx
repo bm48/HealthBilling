@@ -12,7 +12,7 @@ import ClinicDashboard from '@/pages/ClinicDashboard'
 import Invoices from '@/pages/Invoices'
 import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
-import Landing from '@/pages/Landing'
+import LandingNew from '@/pages/Landing_new'
 import Layout from '@/components/Layout'
 import ProviderDashboardPage from '@/pages/providers/ProviderDashboardPage'
 import ProviderSheetPage from '@/pages/providers/ProviderSheetPage'
@@ -63,7 +63,8 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
-      <Route path="/" element={<Landing />} />
+      {/* <Route path="/" element={<Landing />} /> */}
+      <Route path="/" element={<LandingNew />} />
       <Route
         path="/dashboard"
         element={

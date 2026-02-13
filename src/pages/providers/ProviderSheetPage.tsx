@@ -306,6 +306,135 @@ export default function ProviderSheetPage() {
     [saveProviderSheetRows]
   )
 
+  const handleDeleteProviderSheetRow = useCallback(
+    async (providerId: string, rowId: string) => {
+      let rowsAfterDelete: SheetRow[] = []
+      setProviderSheetRows(prev => {
+        const rows = prev[providerId] || []
+        rowsAfterDelete = rows.filter(r => r.id !== rowId)
+        return { ...prev, [providerId]: rowsAfterDelete }
+      })
+      await saveProviderSheetRows(providerId, rowsAfterDelete)
+    },
+    [saveProviderSheetRows]
+  )
+
+  const handleAddProviderRowAbove = useCallback(
+    (providerId: string, beforeRowId: string) => {
+      const rows = providerSheetRows[providerId] || []
+      const idx = rows.findIndex(r => r.id === beforeRowId)
+      if (idx < 0) return
+      const createEmptyRow = (): SheetRow => ({
+        id: `empty-${providerId}-${Date.now()}`,
+        patient_id: null,
+        patient_first_name: null,
+        patient_last_name: null,
+        last_initial: null,
+        patient_insurance: null,
+        patient_copay: null,
+        patient_coinsurance: null,
+        appointment_date: null,
+        appointment_time: null,
+        visit_type: null,
+        notes: null,
+        billing_code: null,
+        billing_code_color: null,
+        appointment_status: null,
+        appointment_status_color: null,
+        claim_status: null,
+        claim_status_color: null,
+        submit_date: null,
+        insurance_payment: null,
+        insurance_adjustment: null,
+        invoice_amount: null,
+        collected_from_patient: null,
+        patient_pay_status: null,
+        patient_pay_status_color: null,
+        payment_date: null,
+        payment_date_color: null,
+        ar_type: null,
+        ar_amount: null,
+        ar_date: null,
+        ar_date_color: null,
+        ar_notes: null,
+        provider_payment_amount: null,
+        provider_payment_date: null,
+        provider_payment_notes: null,
+        highlight_color: null,
+        total: null,
+        cpt_code: null,
+        cpt_code_color: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      const newRow = createEmptyRow()
+      const newRows = [...rows.slice(0, idx), newRow, ...rows.slice(idx)]
+      setProviderSheetRows(prev => ({ ...prev, [providerId]: newRows }))
+      saveProviderSheetRows(providerId, newRows).catch(err =>
+        console.error('Failed to save after add row', err)
+      )
+    },
+    [providerSheetRows, saveProviderSheetRows]
+  )
+
+  const handleAddProviderRowBelow = useCallback(
+    (providerId: string, afterRowId: string) => {
+      const rows = providerSheetRows[providerId] || []
+      const idx = rows.findIndex(r => r.id === afterRowId)
+      if (idx < 0) return
+      const createEmptyRow = (): SheetRow => ({
+        id: `empty-${providerId}-${Date.now()}`,
+        patient_id: null,
+        patient_first_name: null,
+        patient_last_name: null,
+        last_initial: null,
+        patient_insurance: null,
+        patient_copay: null,
+        patient_coinsurance: null,
+        appointment_date: null,
+        appointment_time: null,
+        visit_type: null,
+        notes: null,
+        billing_code: null,
+        billing_code_color: null,
+        appointment_status: null,
+        appointment_status_color: null,
+        claim_status: null,
+        claim_status_color: null,
+        submit_date: null,
+        insurance_payment: null,
+        insurance_adjustment: null,
+        invoice_amount: null,
+        collected_from_patient: null,
+        patient_pay_status: null,
+        patient_pay_status_color: null,
+        payment_date: null,
+        payment_date_color: null,
+        ar_type: null,
+        ar_amount: null,
+        ar_date: null,
+        ar_date_color: null,
+        ar_notes: null,
+        provider_payment_amount: null,
+        provider_payment_date: null,
+        provider_payment_notes: null,
+        highlight_color: null,
+        total: null,
+        cpt_code: null,
+        cpt_code_color: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      const newRow = createEmptyRow()
+      const newRows = [...rows.slice(0, idx + 1), newRow, ...rows.slice(idx + 1)]
+      setProviderSheetRows(prev => ({ ...prev, [providerId]: newRows }))
+      saveProviderSheetRows(providerId, newRows).catch(err =>
+        console.error('Failed to save after add row', err)
+      )
+    },
+    [providerSheetRows, saveProviderSheetRows]
+  )
+
   const formatMonthYear = (date: Date) =>
     date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
   const filterRowsByMonth = (rows: SheetRow[]) => rows
@@ -391,6 +520,7 @@ export default function ProviderSheetPage() {
         <ProvidersTab
           clinicId={clinicId}
           providers={[provider]}
+          canAddComment={userProfile?.role === 'provider'}
           providerSheetRows={providerSheetRows}
           billingCodes={billingCodes}
           statusColors={statusColors}
@@ -404,6 +534,9 @@ export default function ProviderSheetPage() {
           providerLevel={providerLevel}
           onUpdateProviderSheetRow={handleUpdateProviderSheetRow}
           onSaveProviderSheetRowsDirect={saveProviderSheetRowsDirect}
+          onDeleteRow={handleDeleteProviderSheetRow}
+          onAddRowBelow={handleAddProviderRowBelow}
+          onAddRowAbove={handleAddProviderRowAbove}
           onPreviousMonth={handlePreviousMonth}
           onNextMonth={handleNextMonth}
           formatMonthYear={formatMonthYear}
@@ -424,7 +557,7 @@ export default function ProviderSheetPage() {
           clinicId={clinicId}
           providerId={provider.id}
           providers={[provider]}
-          canEdit={true}
+          canEdit={false}
           isInSplitScreen={false}
           selectedMonth={selectedMonth}
           onPreviousMonth={handlePreviousMonth}

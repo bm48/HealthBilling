@@ -22,6 +22,42 @@ const DESCRIPTION_LABELS: Record<number, string> = {
   8: 'Provider Cut',
 }
 
+/** Row indices for amount rows used to compute Total Payments. */
+const ROWS_FOR_TOTAL = [1, 2, 3] as const // Patient Payments, Insurance Payments, A/R Payments
+const ROW_TOTAL_PAYMENTS = 5
+const ROW_PROVIDER_CUT = 6
+
+const DEFAULT_PROVIDER_CUT_PERCENT = 0.7
+
+function parseAmount(val: unknown): number {
+  if (val == null || val === '') return 0
+  const s = String(val).replace(/,/g, '').replace(/\$/g, '').trim()
+  if (s === '') return 0
+  const n = parseFloat(s)
+  return Number.isNaN(n) ? 0 : n
+}
+
+/** Format a number or string as currency $x,xxx.xx for display in the Amount column. */
+function formatAmount(val: unknown): string {
+  const n = parseAmount(val)
+  if (n === 0 && (val == null || String(val).trim() === '')) return ''
+  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function computeTotalPayments(data: string[][]): string {
+  let sum = 0
+  for (const row of ROWS_FOR_TOTAL) {
+    if (row < data.length && data[row][1] != null) sum += parseAmount(data[row][1])
+  }
+  return sum === 0 ? '' : String(sum)
+}
+
+function computeProviderCut(totalAmount: number, percent: number): string {
+  if (totalAmount === 0 || percent <= 0) return ''
+  const cut = totalAmount * percent
+  return String(cut)
+}
+
 const INITIAL_TABLE_DATA: string[][] = (() => {
   const rows: string[][] = [
     ['Description', 'Amount', 'Notes'], // row 0 - header
@@ -86,6 +122,8 @@ export default function ProviderPayTab({
   const [payPeriodFrom, setPayPeriodFrom] = useState('')
   const [payPeriodTo, setPayPeriodTo] = useState('')
   const [tableData, setTableData] = useState<string[][]>(() => INITIAL_TABLE_DATA.map(row => [...row]))
+  const [providerPayDataVersion, setProviderPayDataVersion] = useState(0)
+  const [sideNotes, setSideNotes] = useState('')
 
   /** Serialize pay period for DB (single string). */
   const payPeriod = useMemo(
@@ -103,6 +141,10 @@ export default function ProviderPayTab({
   const month = selectedMonth.getMonth() + 1
 
   const effectiveProviderId = providers.length > 0 ? selectedProviderId : providerIdProp
+  const providerCutPercent = useMemo(
+    () => providers.find((p) => p.id === effectiveProviderId)?.provider_cut_percent ?? DEFAULT_PROVIDER_CUT_PERCENT,
+    [providers, effectiveProviderId]
+  )
 
   // Sync selectedProviderId when providerIdProp or providers list changes (e.g. initial load or provider no longer in list)
   useEffect(() => {
@@ -124,6 +166,7 @@ export default function ProviderPayTab({
       .then((data) => {
         if (data) {
           setPayDate(data.payDate)
+          setSideNotes(data.notes ?? '')
           const raw = (data.payPeriod ?? '').trim()
           const datePart = /^\d{4}-\d{2}-\d{2}$/
           if (raw.includes(' to ')) {
@@ -141,32 +184,55 @@ export default function ProviderPayTab({
             setPayPeriodFrom('')
             setPayPeriodTo('')
           }
-          setTableData(data.rows.map((r) => [...r]))
+          const rows = data.rows.map((r) => [...r])
+          if (rows.length > ROW_TOTAL_PAYMENTS) {
+            rows[ROW_TOTAL_PAYMENTS][1] = formatAmount(computeTotalPayments(rows))
+          }
+          if (rows.length > ROW_PROVIDER_CUT) {
+            rows[ROW_PROVIDER_CUT][1] = formatAmount(computeProviderCut(parseAmount(rows[ROW_TOTAL_PAYMENTS][1]), providerCutPercent))
+          }
+          for (const r of [1, 2, 3]) {
+            if (rows[r]?.[1] != null && rows[r][1] !== '') rows[r][1] = formatAmount(rows[r][1])
+          }
+          setTableData(rows)
+          setProviderPayDataVersion((v) => v + 1)
         } else {
           setPayDate('')
           setPayPeriodFrom('')
           setPayPeriodTo('')
-          setTableData(INITIAL_TABLE_DATA.map((r) => [...r]))
+          setSideNotes('')
+          const initial = INITIAL_TABLE_DATA.map((r) => [...r])
+          if (initial.length > ROW_TOTAL_PAYMENTS) {
+            initial[ROW_TOTAL_PAYMENTS][1] = formatAmount(computeTotalPayments(initial))
+          }
+          if (initial.length > ROW_PROVIDER_CUT) {
+            initial[ROW_PROVIDER_CUT][1] = formatAmount(computeProviderCut(parseAmount(initial[ROW_TOTAL_PAYMENTS][1]), providerCutPercent))
+          }
+          for (const r of [1, 2, 3]) {
+            if (initial[r]?.[1] != null && initial[r][1] !== '') initial[r][1] = formatAmount(initial[r][1])
+          }
+          setTableData(initial)
+          setProviderPayDataVersion((v) => v + 1)
         }
       })
       .catch((err) => console.error('[ProviderPayTab] fetchProviderPay error:', err))
       .finally(() => setLoading(false))
-  }, [clinicId, effectiveProviderId, year, month])
+  }, [clinicId, effectiveProviderId, year, month, providerCutPercent])
 
-  // Debounced save when payDate, payPeriod, or tableData change (only when effectiveProviderId is set and not loading)
+  // Debounced save when payDate, payPeriod, tableData, or sideNotes change (only when effectiveProviderId is set and not loading)
   useEffect(() => {
     if (!clinicId || !effectiveProviderId || !canEdit || loading) return
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     saveTimeoutRef.current = setTimeout(() => {
       saveTimeoutRef.current = null
-      saveProviderPay(clinicId, effectiveProviderId, year, month, payDate, payPeriod, tableData).catch((err) =>
+      saveProviderPay(clinicId, effectiveProviderId, year, month, payDate, payPeriod, tableData, sideNotes).catch((err) =>
         console.error('[ProviderPayTab] saveProviderPay error:', err)
       )
     }, 800)
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     }
-  }, [clinicId, effectiveProviderId, year, month, canEdit, loading, payDate, payPeriod, tableData])
+  }, [clinicId, effectiveProviderId, year, month, canEdit, loading, payDate, payPeriod, tableData, sideNotes])
 
   const getMonthColor = useCallback(
     (month: string): { color: string; textColor: string } | null => {
@@ -244,6 +310,14 @@ export default function ProviderPayTab({
       if (col === 0 && DESCRIPTION_LABELS[row] != null) {
         props.readOnly = true
       }
+      // Total Payments amount is calculated from Patient + Insurance + A/R
+      if (row === ROW_TOTAL_PAYMENTS && col === 1) {
+        props.readOnly = true
+      }
+      // Provider Cut amount is calculated as Total Payments × provider cut %
+      if (row === ROW_PROVIDER_CUT && col === 1) {
+        props.readOnly = true
+      }
       return props
     },
     []
@@ -260,13 +334,23 @@ export default function ProviderPayTab({
           const newVal = change[3]
           if (row <= 0 || row >= next.length || col < 0 || col >= 3) continue
           if (col === 0 && DESCRIPTION_LABELS[row] != null) continue
-          const val = newVal == null ? '' : String(newVal)
+          let val = newVal == null ? '' : String(newVal)
+          if (col === 1 && (row === 1 || row === 2 || row === 3)) val = formatAmount(val)
           if (next[row][col] !== val) next[row][col] = val
+        }
+        // Recalculate Total Payments when amount in Patient/Insurance/A/R row changes
+        if (next.length > ROW_TOTAL_PAYMENTS) {
+          next[ROW_TOTAL_PAYMENTS][1] = formatAmount(computeTotalPayments(next))
+        }
+        // Recalculate Provider Cut = Total Payments × provider cut %
+        if (next.length > ROW_PROVIDER_CUT) {
+          next[ROW_PROVIDER_CUT][1] = formatAmount(computeProviderCut(parseAmount(next[ROW_TOTAL_PAYMENTS][1]), providerCutPercent))
         }
         return next
       })
+      setProviderPayDataVersion((v) => v + 1)
     },
-    [canEdit]
+    [canEdit, providerCutPercent]
   )
 
   // Apply header color to thead and to row 0 (first data row) via CSS variables
@@ -326,7 +410,7 @@ export default function ProviderPayTab({
 
   return (
     <div
-      className="p-6"
+      className="p-6 min-w-0"
       style={
         isInSplitScreen
           ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }
@@ -438,36 +522,40 @@ export default function ProviderPayTab({
         </div>
       </div>
 
-      <div
-        ref={containerRef}
-        className="table-container dark-theme flex-1"
-        style={{
-          height: isInSplitScreen ? undefined : '50vh',
-          maxHeight: isInSplitScreen ? undefined : '50vh',
-          flex: isInSplitScreen ? 1 : undefined,
-          minHeight: isInSplitScreen ? 0 : undefined,
-          overflow: 'auto',
-          border: '1px solid rgba(0,0,0,0.2)',
-          borderTop: 'none',
-          borderRadius: '0 0 8px 8px',
-          backgroundColor: '#fff',
-        }}
-      >
-        <HandsontableWrapper
-          key={`provider-pay-${clinicId}-${selectedMonth.getTime()}-${JSON.stringify(lockData)}`}
-          data={tableData}
-          columns={columns}
-          colHeaders={false}
-          rowHeaders={false}
-          width="100%"
-          height={tableHeight}
-          readOnly={!canEdit}
-          afterChange={afterChange}
-          cells={cellsCallback}
-          style={{ backgroundColor: '#fff' }}
-          className="handsontable-custom provider-pay-table"
-          enableFormula={true}
-        />
+      <div className="mt-4 flex gap-4">
+        <div
+          ref={containerRef}
+          className="table-container dark-theme flex-1"
+          style={{
+            height: isInSplitScreen ? undefined : '50vh',
+            maxHeight: isInSplitScreen ? undefined : '50vh',
+            flex: isInSplitScreen ? 1 : undefined,
+            minHeight: isInSplitScreen ? 0 : undefined,
+            overflow: 'auto',
+            border: '1px solid rgba(0,0,0,0.2)',
+            borderTop: 'none',
+            borderRadius: '0 0 8px 8px',
+            backgroundColor: '#fff',
+          }}
+        >
+          <HandsontableWrapper
+            key={`provider-pay-${clinicId}-${selectedMonth.getTime()}-${JSON.stringify(lockData)}`}
+            data={tableData}
+            dataVersion={providerPayDataVersion}
+            columns={columns}
+            colHeaders={false}
+            rowHeaders={false}
+            width="100%"
+            height={tableHeight}
+            readOnly={!canEdit}
+            afterChange={afterChange}
+            cells={cellsCallback}
+            style={{ backgroundColor: '#fff' }}
+            className="handsontable-custom provider-pay-table"
+            enableFormula={true}
+          />
+        </div>
+
       </div>
 
       <style>{`
@@ -488,6 +576,26 @@ export default function ProviderPayTab({
           color: transparent;
         }
       `}</style>
+
+      
+        {/* Side notes/description on the right */}
+        {
+          !isInSplitScreen &&  (
+
+            <div className="w-[30rem] flex-1 flex-col absolute top-7 right-0 min-w-0">
+            <label className="text-sm font-semibold text-slate-100 mb-2 text-[2rem]">
+              Description / Notes
+            </label>
+            <textarea
+              value={sideNotes}
+              onChange={(e) => setSideNotes(e.target.value)}
+              disabled={!canEdit}
+              className="mt-8 w-full h-[29.5rem] flex-1 min-h-[200px] rounded-md border border-slate-600 bg-slate-900/60 text-slate-50 text-sm px-3 py-2 resize-vertical focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter overall description or notes for this provider pay period..."
+            />
+          </div>
+          )
+        }
     </div>
   )
 }

@@ -1,0 +1,285 @@
+import { useState, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
+
+import { Circle, ArrowUp } from 'lucide-react'
+import AOS from 'aos'
+import 'aos/dist/aos.css'
+
+const SCROLL_THRESHOLD_PX = 300
+
+export default function Landing() {
+  const lastScrollY = useRef(0)
+  const [headerVisible, setHeaderVisible] = useState(true)
+  const [showScrollToTop, setShowScrollToTop] = useState(false)
+
+  useEffect(() => {
+    AOS.init({
+      duration: 600,
+      once: true,
+      offset: 40,
+    })
+    return () => {
+      AOS.refresh()
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const current = window.scrollY
+      const scrollingDown = current > lastScrollY.current
+      lastScrollY.current = current
+      setShowScrollToTop(current > SCROLL_THRESHOLD_PX)
+      setHeaderVisible(current <= SCROLL_THRESHOLD_PX || !scrollingDown)
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  return (
+    <div className="min-h-screen relative bg-white text-black">
+        
+        {/* Header - hides when scrolling down past 300px, shows when scrolling up or near top */}
+        <header
+          className={`fixed top-0 left-0 w-full min-h-[5rem] flex items-center justify-end shadow-xl px-4 sm:px-6 md:px-8 gap-2 sm:gap-4 z-50 bg-white transition-transform duration-500 ease-out ${
+            headerVisible ? 'translate-y-0' : '-translate-y-full'
+          }`}
+        >
+          <Link
+            to="/login"
+            className="px-4 sm:px-6 py-2 bg-gray-200 text-black font-medium hover:bg-gray-300 rounded-lg transition-colors text-sm sm:text-base"
+          >
+            Login
+          </Link>
+          <Link
+            to="/signup"
+            className="px-4 sm:px-6 py-2 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg transition-colors text-sm sm:text-base"
+          >
+            Sign Up
+          </Link>
+        </header>
+
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 h-full pt-20 px-4 sm:px-6 md:px-8 text-center mt-10">
+            {/* left side - AOS fade-up with stagger */}
+            <div className="flex flex-col items-center justify-center gap-4 sm:gap-6 pt-6 sm:pt-10 w-full max-w-[90%] sm:max-w-[85%] lg:w-[76%] lg:max-w-none mx-auto pb-0">
+                <img src='/AMBC logo update.png' alt="Logo" className="w-full max-h-24 sm:max-h-32 md:max-h-40 lg:h-120 object-contain" data-aos="fade-up" data-aos-delay="0" />
+                <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold text-black w-full max-w-[95%] sm:max-w-[80%]" data-aos="fade-up" data-aos-delay="80">
+                    Simplifying Healthcare Revenue Management. Strengthening
+                     Practice Performance.
+                </h1>
+                <p className="text-base sm:text-lg text-gray-900 w-full max-w-[95%] sm:max-w-[80%]" data-aos="fade-up" data-aos-delay="160">
+                    End-to-end billing, coding, consulting, and proprietary technology designed to improve cash flow, reduce denials,
+                     and give practices complete financial visibility.
+                </p>
+                <button className='border w-[9rem] h-[3rem] bg-gray-900 text-white rounded-3xl hover:bg-white hover:text-black hover:border-black transition-colors' data-aos="fade-up" data-aos-delay="240">
+                    Get Started
+                </button>
+                <img className='w-full max-w-[90%] sm:max-w-[60%]' src='/Laptop.jpg' alt="Landing" data-aos="fade-up" data-aos-delay="320" />
+            </div>
+            {/* right side */}
+            <div className="flex flex-col items-center justify-center gap-4 sm:gap-6 h-full min-h-0 overflow-hidden" data-aos="fade-left" data-aos-delay="200">
+                <img src='/humen.jpg' alt="humen" className="w-full h-full min-h-[16rem] sm:min-h-[20rem] object-cover" />
+            </div>
+        </div>
+
+        <div className='px-4 sm:px-6 md:px-8 lg:pl-[20%] lg:pr-[20%] w-full text-center text-black mt-12 sm:mt-16 md:mt-20 border-t border-black pt-8 sm:pt-10' data-aos="fade-up">
+            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 data-aos="fade-right" data-aos-delay="0"   data-aos-offset="100"'>About Us</h1>
+            <h2 className='text-2xl sm:text-3xl font-medium mb-4 data-aos="fade-right" data-aos-delay="0"   data-aos-offset="100"'>Our Mission</h2>
+            <p className='text-sm sm:text-md'>
+                American Medical Billing and Coding is dedicated to providing high-quality medical billing services to 
+                healthcare professionals. We provide comprehensive revenue cycle solutions for healthcare practices that
+                 want accuracy, transparency, and control over their financial operations. Our services combine expert billing 
+                 and coding, strategic practice consulting, and proprietary software that tracks claims, payments, 
+                and revenue in real time—so you can focus on patient care while we optimize your financial performance.
+            </p>
+        </div>
+
+        <div className='border-t border-black mt-12 sm:mt-16 md:mt-20' data-aos="fade-up" data-aos-delay="100">
+            <img className='w-full' src='/display.png' alt="Display" />
+        </div>
+
+        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3'>
+            <div className='flex flex-col items-start justify-center gap-2 text-center p-6 sm:p-8 md:p-10 pl-6 sm:pl-10 md:pl-20' data-aos="fade-up" data-aos-delay="0">
+                <h1 className='text-3xl sm:text-4xl md:text-5xl font-bold mb-4 fade-left' data-aos="fade-right" data-aos-delay="0">Our Services</h1>
+                <div className='flex items-center justify-center mb-6 sm:mb-10 fade-left' data-aos="fade-right" data-aos-delay="0">
+                    <h2 className='text-2xl sm:text-3xl font-medium mb-4'>Medical Billing</h2>
+                    <img src='/BillingTag.png' alt="Billing Tag" className="w-12 h-12 sm:w-16 sm:h-16 ml-2" />
+                </div>
+                <p className='text-md '>
+                    Accurate, compliant, and efficient billing is the foundation of sustainable revenue.
+                </p>
+{/* 
+                
+                <div className='grid grid-cols-2'>
+                    <div className='grid-cols-[15%]'> <Circle size={8} className="inline-block mr-2 bg-black rounded-full" /> </div>
+                    <div className='text-left grid-cols-[85%]'> <p className='text-md '>Certified medical coding and charge capture</p></div>
+                </div> */}
+
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Insurance and patient billing management
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Certified medical coding and charge capture
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Claims submission, tracking, and follow-up
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Denial management and appeals
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Payment posting and reconciliation
+                </p>
+                <p className='text-md pl-4 text-left'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Compliance-focused processes aligned with payer 
+                    &nbsp;&nbsp;&nbsp;&nbsp;and regulatory requirements
+                </p>
+
+                <p className='text-md pl-4 text-left mt-10'>
+                    Faster reimbursements, fewer denials, and improved collections.
+                </p>
+                
+            </div>
+
+            <div className='flex flex-col gap-4 text-center items-start p-6 sm:p-8 md:p-10 pl-6 sm:pl-10 md:pl-20 pt-10 sm:pt-16 md:pt-20' data-aos="fade-up" data-aos-delay="150">
+                <div className='flex items-start justify-start mb-6 sm:mb-10 mt-6 data-aos="fade-right" data-aos-delay="0"'>
+                    <h2 className='text-2xl sm:text-3xl font-medium mb-4 data-aos="fade-right" data-aos-delay="0"'>Proprietary Revenue Tracking Software</h2>
+                    <img src='/Revenue.png' alt='Revenue Tracking Software" className="w-12 h-12 sm:w-16 sm:h-16 -ml-3 flex-shrink-0 data-aos="fade-right" data-aos-delay="0"' />
+                </div>
+                <p className='text-md -mt-5'>
+                    Our proprietary platform delivers full visibility into your practice&apos;s financial health.
+                </p>
+                
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Claims status tracking
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Patient payment monitoring
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Revenue, adjustment, and aging analytics
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Centralized reporting and performance dashboards
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Data-driven insights to support faster decisions
+                </p>
+
+                <p className='text-md pl-4 text-left mt-10'>
+                    Transparency, accountability, and actionable financial intelligence—without relying on fragmented systems.
+                </p>
+            </div>
+
+            <div className='flex flex-col items-start justify-start gap-4 text-center p-6 sm:p-8 md:p-10 pt-10 sm:pt-16 md:pt-20 pl-6 sm:pl-10 md:pl-20' data-aos="fade-up" data-aos-delay="300">
+
+                <div className='flex items-start justify-start mb-6 sm:mb-10 mt-6 data-aos="fade-right" data-aos-delay="0"'>
+                    <h2 className='text-2xl sm:text-3xl font-medium mb-4 data-aos="fade-right" data-aos-delay="0"   data-aos-offset="100"'>Practice Consultation</h2>
+                    <img src='/consultation.png' alt='consultation" className="w-12 h-12 sm:w-16 sm:h-16 -mt-3 ml-2 flex-shrink-0 data-aos="fade-right" data-aos-delay="0"' />
+                </div>
+                <p className='text-md mt-5'>
+                    We help practices identify revenue gaps, operational inefficiencies, and growth opportunities.
+                </p>
+                
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Claims status tracking
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Claims status tracking
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Claims status tracking
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Claims status tracking
+                </p>
+                <p className='text-md pl-4'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Claims status tracking
+                </p>
+
+
+                <p className='text-md pl-4 text-left mt-10'>
+                    Stronger financial controls and smarter operational decisions.
+                </p>
+            </div>
+        </div>
+
+        <div className='w-full text-gray-900 mt-12 sm:mt-16 md:mt-20 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
+            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 ml-0 sm:ml-10 md:ml-20 data-aos="fade-right" data-aos-delay="0"   data-aos-offset="100"'>Why Choose Us</h1>
+            <div className='w-full max-w-[95%] sm:max-w-[85%] md:max-w-[70%] lg:w-[50%] mx-auto text-left pt-6 sm:pt-10'>
+                
+                <p className='text-base sm:text-lg md:text-xl'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Integrated approach: Services and technology working together
+                </p>
+                <p className='text-base sm:text-lg md:text-xl'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Transparency: Clear reporting and measurable outcomes
+                </p>
+                <p className='text-base sm:text-lg md:text-xl'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Transparency: Clear reporting and measurable outcomes
+                </p>
+                <p className='text-base sm:text-lg md:text-xl'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Scalability: Solutions that grow with your practice
+                </p>
+                <p className='text-base sm:text-lg md:text-xl'>
+                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
+                    Results-driven: Designed to improve cash flow and reduce administrative burden
+                </p>
+            </div>
+        </div>
+
+        <div className='w-full text-gray-900 mt-12 sm:mt-16 md:mt-20 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
+            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 ml-0 sm:ml-10 md:ml-20 data-aos="fade-right" data-aos-delay="0"   data-aos-offset="100"'>Contact Us</h1>
+            <div className='mt-6 sm:mt-10 w-full max-w-[95%] sm:max-w-[85%] md:max-w-[60%] lg:w-[40%] ml-0 sm:ml-10 md:ml-20'>
+                <h3 className='text-lg sm:text-xl text-gray-700 pb-4 sm:pb-6'>Get in Touch</h3>
+                <p className='text-sm sm:text-md mb-4 text-gray-600'>
+                    Reach out to us today to elevate your practice's financial 
+                    performance with our cutting-edge medical billing solutions. Let's work together to
+                     streamline your revenue cycle and optimize your practice's profitability.
+                </p>
+            </div>
+        </div>
+
+        <div className='pb-20 sm:pb-30 pt-8 sm:pt-10 px-4' data-aos="fade-up">
+            <img src='/AMBC logo update.png' alt='' className='w-full max-w-[400px] sm:max-w-[440px] md:w-140 h-24 sm:h-32 md:h-40 mx-auto object-contain' />
+            <p className='text-base sm:text-lg md:text-xl text-blue-600 text-center mt-2'>Call/Text: <span className='font-bold'>725-346-5009</span></p>
+            <p className='text-base sm:text-lg md:text-xl text-blue-600 text-center mt-1 pb-12 sm:pb-20'>office@amerbilling.com</p>
+        </div>
+
+        {/* Scroll to top - visible when scrolled more than 300px */}
+        {showScrollToTop && (
+          <button
+            type="button"
+            onClick={scrollToTop}
+            className="fixed bottom-6 right-6 z-50 p-3 rounded-full bg-gray-900 text-white hover:bg-white hover:text-black border-2 border-gray-900 shadow-lg transition-all duration-500 hover:scale-110"
+            aria-label="Scroll to top"
+          >
+            <ArrowUp className="w-6 h-6" />
+          </button>
+        )}
+    </div>
+  )
+}

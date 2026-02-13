@@ -74,6 +74,8 @@ export interface Provider {
   active: boolean
   /** Provider access level: 1 or 2 (default 1). Set by super admin in User Management. */
   level?: 1 | 2
+  /** Provider cut percent 0–1 (default 0.7). Provider Cut = Total Payments × this. Set in Super Admin Settings. */
+  provider_cut_percent?: number
   created_at: string
   updated_at: string
 }
@@ -223,6 +225,8 @@ export interface ProviderPay {
   month: number
   pay_date: string | null
   pay_period: string | null
+  /** Freeform notes/description for the Provider Pay sheet (shown on the right side). */
+  notes?: string | null
   created_at: string
   updated_at: string
 }

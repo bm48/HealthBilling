@@ -46,10 +46,12 @@ export default function ClinicDetail() {
   
   // Split screen state
   const [splitScreen, setSplitScreen] = useState<{ left: TabType; right: TabType } | null>(null)
-  const [splitScreenLeftWidth, setSplitScreenLeftWidth] = useState<number>(50) // Percentage
+  // Default split: left 67%, right 33%
+  const [splitScreenLeftWidth, setSplitScreenLeftWidth] = useState<number>(67) // Percentage
   const [isResizing, setIsResizing] = useState(false)
   const splitScreenContainerRef = useRef<HTMLDivElement>(null)
   const billingTodoExportRef = useRef<{ exportToCSV: () => void } | null>(null)
+
   
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ 
@@ -75,6 +77,7 @@ export default function ClinicDetail() {
   const [currentProvider, setCurrentProvider] = useState<Provider | null>(null)
   const [currentSheet, setCurrentSheet] = useState<ProviderSheet | null>(null)
   const providerRowsRef = useRef<Array<{ id: string; cpt_code: string; appointment_status: string; sheetId: string; rowId: string }>>([])
+
 
   // Billing staff and official staff may only access clinics permitted by super admin / admin
   const isBillingStaff = userProfile?.role === 'billing_staff'
@@ -1911,7 +1914,7 @@ export default function ClinicDetail() {
           <ProviderPayTab
             clinicId={clinicId!}
             providerId={providerId ?? undefined}
-            providers={providers}
+            providers={providers.filter((p): p is Provider => p.level === 2)}
             canEdit={canEdit}
             isInSplitScreen={!!splitScreen}
             selectedMonth={selectedMonth}
@@ -1933,7 +1936,7 @@ export default function ClinicDetail() {
         return (
           <ProvidersTab
             clinicId={clinicId}
-            canAddComment={userProfile?.role === 'super_admin'}
+            canAddComment={userProfile?.role === 'super_admin' || userProfile?.role === 'billing_staff' || userProfile?.role === 'provider'}
             providers={providers}
             providerSheetRows={providerSheetRows}
             providerRowsVersion={providerRowsVersion}
@@ -1979,11 +1982,16 @@ export default function ClinicDetail() {
   const canUnlock = userProfile?.role === 'super_admin'
   const showBillingTodoTab = userProfile?.role !== 'admin'
   const canLockColumns = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
-  const showPatientTab = !isOfficialStaff
+  const showPatientTab = true
   // const showProvidersTab = userProfile?.role !== 'billing_staff' && userProfile?.role !== 'office_staff'
-  const showProvidersTab = userProfile?.role !== 'billing_staff' && userProfile?.role !== 'office_staff'
-  const showAccountsReceivableTab = !isBillingStaff && !isOfficialStaff
-  const showProviderPayTab = !isBillingStaff && !isOfficialStaff
+  const showProvidersTab = false
+  // Hide AR and Provider Pay tabs when viewing Patient Info or Billing To-Do
+  const hideFinanceTabsForTopLevel =
+    activeTab === 'patients' || activeTab === 'todo'
+  const showAccountsReceivableTab =
+    !isBillingStaff && !isOfficeStaff && !hideFinanceTabsForTopLevel
+  const showProviderPayTab =
+    !isBillingStaff && !isOfficeStaff && !hideFinanceTabsForTopLevel
   /** Official staff and office staff can edit only patient_id through date_of_service on the provider sheet; other columns read-only */
   const restrictProviderSheetEditToScheduling = isOfficialStaff || isOfficeStaff
 
@@ -2022,12 +2030,24 @@ export default function ClinicDetail() {
   const getTabLabel = (tab: TabType) =>
     tab === 'patients' ? 'Patient Info' : tab === 'todo' ? 'Billing To-Do' : tab === 'providers' ? 'Providers' : tab === 'provider_pay' ? 'Provider Pay' : 'Accounts Receivable'
 
-  // Open split screen: current tab on left, next tab on right
+  // Open split screen: provider billing sheet on the left, current tab (or next) on the right
   const openSplitScreen = () => {
-    const leftTab = activeTab
-    const rightTab = activeTab === 'patients' ? 'providers' : getNextTab(activeTab)
+    // Provider billing sheet should always be the left side in split view
+    const leftTab: TabType = 'providers'
+    // Prefer to keep the user's current context on the right when possible
+    let rightTab: TabType
+    if (activeTab && activeTab !== 'providers') {
+      rightTab = activeTab
+    } else {
+      // Fallback: use the next non-provider tab
+      rightTab = getNextTab('providers')
+      if (rightTab === 'providers') {
+        rightTab = showBillingTodoTab ? 'todo' : 'accounts_receivable'
+      }
+    }
     setSplitScreen({ left: leftTab, right: rightTab })
-    setSplitScreenLeftWidth(50)
+    // Default to 67% / 33% split
+    setSplitScreenLeftWidth(67)
   }
   
   // Exit split screen
@@ -2101,9 +2121,9 @@ export default function ClinicDetail() {
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-white mb-2">{clinic?.name || 'Clinic Details'}</h1>
-          {clinic?.address && <p className="text-white/70">{clinic.address}</p>}
+          {/* {clinic?.address && <p className="text-white/70">{clinic.address}</p>} */}
         </div>
-        {(!providerId || userProfile?.role !== 'office_staff') && (showPatientTab || showBillingTodoTab || !splitScreen) && (
+        {((!providerId || userProfile?.role !== 'office_staff') || userProfile?.role === 'office_staff') && (showPatientTab || showBillingTodoTab || !splitScreen) && (
           <div className="flex items-center gap-2 shrink-0">
             {showPatientTab && (
               <button
@@ -2119,7 +2139,7 @@ export default function ClinicDetail() {
                 Patient Info
               </button>
             )}
-            {showBillingTodoTab && (
+            {showBillingTodoTab && userProfile?.role !== 'office_staff' && (
               <button
                 type="button"
                 onClick={() => handleTabChange('todo')}
@@ -2133,7 +2153,7 @@ export default function ClinicDetail() {
                 Billing To-Do
               </button>
             )}
-            {!splitScreen && (
+            {!splitScreen && userProfile?.role !== 'office_staff' && (
               <button
                 type="button"
                 onClick={openSplitScreen}
@@ -2148,7 +2168,7 @@ export default function ClinicDetail() {
         )}
       </div>
 
-      {(!providerId || userProfile?.role !== 'office_staff') && (
+      {(!providerId || userProfile?.role !== 'office_staff') &&  (
       <div className="flex gap-2 mb-6 border-b border-white/20 justify-between items-center">
         <div className="flex gap-2">
           {showProvidersTab && (
@@ -2207,12 +2227,12 @@ export default function ClinicDetail() {
       )}
 
       <div
-        className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20"
-        style={
-          !splitScreen && activeTab === 'provider_pay'
-            ? { width: 'fit-content', maxWidth: '50vw', minWidth: '22rem' }
-            : undefined
-        }
+        className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20 relative"
+        // style={
+        //   !splitScreen && activeTab === 'provider_pay'
+        //     ? { width: 'fit-content', maxWidth: '50vw', minWidth: '22rem' }
+        //     : undefined
+        // }
       >
         {splitScreen ? (
           <div 
@@ -2231,17 +2251,17 @@ export default function ClinicDetail() {
                 minHeight: 0
               }}
             >
-              <div className="p-2 border-b border-white/20 flex justify-between items-center">
-                <div className="flex items-center gap-3">
+              <div className="p-2 border-white/20 flex justify-between items-center -mb-[3.4rem]">
+                <div className="flex items-center gap-3 ">
                   <span className="text-white font-medium">
                     {getTabLabel(splitScreen.left)}
                   </span>
                   {splitScreen.left === 'providers' && currentProvider && (
                     <span className="text-white/90 text-sm text-[#ffd600]">
                       {currentProvider.first_name} {currentProvider.last_name}
-                      {currentProvider.specialty && (
+                      {/* {currentProvider.specialty && (
                         <span className="text-white/70 ml-1 text-[#ffd600]">({currentProvider.specialty})</span>
-                      )}
+                      )} */}
                     </span>
                   )}
                 </div>
@@ -2294,9 +2314,9 @@ export default function ClinicDetail() {
                   height: '100%'
                 }}
               />
-                              </div>
+            </div>
             
-            {/* Right side - any tab (Patient Info, Billing To-Do, Providers, Accounts Receivable) */}
+            {/* Right side - any tab except Providers (provider billing sheet only appears on the left in split view) */}
             <div 
               className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20 flex flex-col" 
               style={{ 
@@ -2312,14 +2332,6 @@ export default function ClinicDetail() {
                   <span className="text-white font-medium">
                     {getTabLabel(splitScreen.right)}
                   </span>
-                  {splitScreen.right === 'providers' && currentProvider && (
-                    <span className="text-white/90 text-sm text-[#ffd600]">
-                      {currentProvider.first_name} {currentProvider.last_name}
-                      {currentProvider.specialty && (
-                        <span className="text-white/70 ml-1 text-[#ffd600]">({currentProvider.specialty})</span>
-                      )}
-                    </span>
-                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {splitScreen.right === 'todo' && (
@@ -2333,7 +2345,14 @@ export default function ClinicDetail() {
                     </button>
                   )}
                   <button
-                    onClick={() => setSplitScreen({ ...splitScreen, right: getNextTab(splitScreen.right, splitScreen.left) })}
+                    onClick={() => {
+                      // When cycling the right tab, skip 'providers' so provider billing only appears on the left
+                      let next = getNextTab(splitScreen.right, splitScreen.left)
+                      if (next === 'providers') {
+                        next = getNextTab(next, 'providers')
+                      }
+                      setSplitScreen({ ...splitScreen, right: next })
+                    }}
                     className="text-white/70 hover:text-white text-sm px-2"
                     title="Switch right tab"
                   >

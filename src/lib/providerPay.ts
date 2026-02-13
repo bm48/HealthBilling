@@ -10,10 +10,10 @@ export async function fetchProviderPay(
   providerId: string,
   year: number,
   month: number
-): Promise<{ payDate: string; payPeriod: string; rows: string[][] } | null> {
+): Promise<{ payDate: string; payPeriod: string; notes: string; rows: string[][] } | null> {
   const { data: header, error: headerError } = await supabase
     .from('provider_pay')
-    .select('id, pay_date, pay_period')
+    .select('id, pay_date, pay_period, notes')
     .eq('clinic_id', clinicId)
     .eq('provider_id', providerId)
     .eq('year', year)
@@ -37,6 +37,7 @@ export async function fetchProviderPay(
     return {
       payDate: header.pay_date ?? '',
       payPeriod: header.pay_period ?? '',
+      notes: header.notes ?? '',
       rows: buildEmptyRows(),
     }
   }
@@ -45,6 +46,7 @@ export async function fetchProviderPay(
   return {
     payDate: header.pay_date ?? '',
     payPeriod: header.pay_period ?? '',
+    notes: header.notes ?? '',
     rows,
   }
 }
@@ -60,7 +62,8 @@ export async function saveProviderPay(
   month: number,
   payDate: string,
   payPeriod: string,
-  tableData: string[][]
+  tableData: string[][],
+  notes: string
 ): Promise<void> {
   const { data: existing, error: fetchError } = await supabase
     .from('provider_pay')
@@ -83,6 +86,7 @@ export async function saveProviderPay(
       .update({
         pay_date: payDate || null,
         pay_period: payPeriod || null,
+        notes: notes || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', existing.id)
@@ -98,6 +102,7 @@ export async function saveProviderPay(
         month,
         pay_date: payDate || null,
         pay_period: payPeriod || null,
+        notes: notes || null,
       })
       .select('id')
       .single()

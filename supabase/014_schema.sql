@@ -79,6 +79,11 @@ CREATE TABLE IF NOT EXISTS providers (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE providers
+ADD COLUMN IF NOT EXISTS provider_cut_percent NUMERIC DEFAULT 0.7;
+
+COMMENT ON COLUMN providers.provider_cut_percent IS 'Provider cut percent 0–1 (default 0.7). Provider Cut = Total Payments × this. Set in Super Admin Settings.';
+
 -- Provider sheets table
 CREATE TABLE IF NOT EXISTS provider_sheets (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -227,7 +227,7 @@ export default function SuperAdminSettings() {
     }
   }
 
-  const handleSaveUser = async (userData: Partial<User>, providerLevel?: number) => {
+  const handleSaveUser = async (userData: Partial<User>, providerLevel?: number, providerCutPercent?: number) => {
     try {
       if (editingUser) {
         const { error } = await supabase
@@ -237,16 +237,24 @@ export default function SuperAdminSettings() {
 
         if (error) throw error
 
-        console.log('providers', providers)
-        // Super admin: update provider level on providers table
-        if (variant === 'super_admin' && editingUser.role === 'provider' && providerLevel !== undefined && (providerLevel === 1 || providerLevel === 2)) {
+        // Super admin: update provider level and provider_cut_percent on providers table
+        if (variant === 'super_admin' && editingUser.role === 'provider') {
           const providersForEmail = providers.filter(p => p.email === editingUser.email)
           for (const p of providersForEmail) {
-            const { error: levelError } = await supabase
+            const updatePayload: { level?: number; provider_cut_percent?: number; updated_at: string } = {
+              updated_at: new Date().toISOString(),
+            }
+            if (providerLevel !== undefined && (providerLevel === 1 || providerLevel === 2)) {
+              updatePayload.level = providerLevel
+            }
+            if (providerCutPercent !== undefined && providerCutPercent >= 0 && providerCutPercent <= 1) {
+              updatePayload.provider_cut_percent = providerCutPercent
+            }
+            const { error: providerError } = await supabase
               .from('providers')
-              .update({ level: providerLevel, updated_at: new Date().toISOString() })
+              .update(updatePayload)
               .eq('id', p.id)
-            if (levelError) throw levelError
+            if (providerError) throw providerError
           }
         }
         await fetchUsers()
@@ -478,6 +486,10 @@ export default function SuperAdminSettings() {
                           const displayLevel = providersForUser.length > 0
                             ? (levelInMap ?? (providerLevelsLoadError ? null : 1))
                             : null
+                          const providerCutPercent = providersForUser.length > 0 ? (providersForUser[0].provider_cut_percent ?? 0.7) : 0.7
+                          const levelAndPercent = displayLevel != null
+                            ? `${displayLevel === 1 ? 'Partial' : 'Full'}, ${Math.round(providerCutPercent * 100)}%`
+                            : null
                           return (
                             <tr key={user.id}>
                               <td>{user.email}</td>
@@ -489,7 +501,7 @@ export default function SuperAdminSettings() {
                               </td>
                               {variant === 'super_admin' && (
                                 <td>
-                                  {user.role === 'provider' ? (displayLevel != null ? String(displayLevel) : <span title={providerLevelsLoadError ? 'Level could not be loaded' : undefined}>—</span>) : <span className="text-white/50">—</span>}
+                                  {user.role === 'provider' ? (levelAndPercent != null ? levelAndPercent : <span title={providerLevelsLoadError ? 'Level could not be loaded' : undefined}>—</span>) : <span className="text-white/50">—</span>}
                                 </td>
                               )}
                               <td>
@@ -909,23 +921,29 @@ function UserFormModal({
   providers: Provider[]
   providerLevelsMap: Record<string, number>
   variant: Variant | null
-  onSave: (data: Partial<User>, providerLevel?: number) => Promise<void>
+  onSave: (data: Partial<User>, providerLevel?: number, providerCutPercent?: number) => Promise<void>
   onClose: () => void
 }) {
   const providersForUser = user?.role === 'provider' && user?.email ? providers.filter(p => p.email === user.email) : []
   const initialLevel = providersForUser.length > 0 ? (providerLevelsMap[providersForUser[0].id] ?? 1) : 1
+  const initialCutPercent = providersForUser.length > 0 ? (providersForUser[0].provider_cut_percent ?? 0.7) : 0.7
   const [formData, setFormData] = useState({
     full_name: user?.full_name || '',
     role: user?.role || 'provider',
     clinic_ids: user?.clinic_ids || [],
     highlight_color: user?.highlight_color || '#3b82f6',
     provider_level: initialLevel as 1 | 2,
+    provider_cut_percent: initialCutPercent,
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { provider_level, ...userData } = formData
-    await onSave(userData, formData.role === 'provider' ? provider_level : undefined)
+    const { provider_level, provider_cut_percent, ...userData } = formData
+    await onSave(
+      userData,
+      formData.role === 'provider' ? provider_level : undefined,
+      formData.role === 'provider' ? provider_cut_percent : undefined
+    )
   }
 
   return (
@@ -970,18 +988,33 @@ function UserFormModal({
           </div>
 
           {variant === 'super_admin' && formData.role === 'provider' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Provider Level</label>
-              <select
-                value={formData.provider_level}
-                onChange={(e) => setFormData({ ...formData, provider_level: Number(e.target.value) as 1 | 2 })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-              >
-                <option value={1}>1</option>
-                <option value={2}>2</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-1">Level can be 1 or 2 (default is 1).</p>
-            </div>
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Provider Level</label>
+                <select
+                  value={formData.provider_level}
+                  onChange={(e) => setFormData({ ...formData, provider_level: Number(e.target.value) as 1 | 2 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                >
+                  <option value={1}>Partial</option>
+                  <option value={2}>Full</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Partial or Full (default is Partial).</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Provider cut %</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={formData.provider_cut_percent}
+                  onChange={(e) => setFormData({ ...formData, provider_cut_percent: Number(e.target.value) })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                />
+                <p className="text-xs text-gray-500 mt-1">Decimal 0–1 (e.g. 0.7 = 70%). Default 0.7. Provider Cut = Total Payments × this.</p>
+              </div>
+            </>
           )}
 
           {/* <div>

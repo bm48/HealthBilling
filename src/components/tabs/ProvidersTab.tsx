@@ -587,9 +587,9 @@ export default function ProvidersTab({
     if (isProviderView && providerLevel === 2) {
       const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
       return [
-        { data: 0, title: 'Patient ID', type: 'text' as const, width: 100, readOnly: getReadOnlyProviderView(0) },
-        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
-        { data: 2, title: 'Last Initial', type: 'text' as const, width: 40, readOnly: getReadOnlyProviderView(2) },
+        { data: 0, title: 'Patient ID', type: 'text' as const, width: 100,  },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 120,  },
+        { data: 2, title: 'Last Initial', type: 'text' as const, width: 40, },
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
         { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(4) },
         { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyProviderView(5) },
@@ -1028,12 +1028,12 @@ export default function ProvidersTab({
 
   const handleProviderRowsHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
     event.preventDefault()
-    if (isProviderView || !canEdit || !activeProvider) return
+    if (!canEdit || !activeProvider) return
     const sheetRow = activeProviderRows[row]
     if (sheetRow) {
       setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row })
     }
-  }, [activeProvider, activeProviderRows, canEdit, isProviderView])
+  }, [activeProvider, activeProviderRows, canEdit])
 
   const handleContextMenuAddRowBelow = useCallback(() => {
     if (tableContextMenu == null || !activeProvider || !onAddRowBelow) return
@@ -1128,9 +1128,9 @@ export default function ProvidersTab({
         <div className="mb-2 pb-4 border-b border-white/20">
           <h2 className="text-xl font-semibold text-white">
             {currentProvider.first_name} {currentProvider.last_name}
-            {currentProvider.specialty && (
+            {/* {currentProvider.specialty && (
               <span className="text-white/70 text-sm font-normal ml-2">({currentProvider.specialty})</span>
-            )}
+            )} */}
           </h2>
         </div>
       )}

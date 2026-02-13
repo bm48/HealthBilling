@@ -1,5 +1,6 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import 'aos/dist/aos.css'
 import { 
   LayoutDashboard, 
   Users, 
@@ -299,8 +300,14 @@ export default function Layout({ children }: LayoutProps) {
       }`}>
         <div className="flex flex-col h-full">
           {/* Logo/Header */}
-          <div className="flex items-center justify-between h-16 border-b border-white/10 px-4">
-            {!sidebarCollapsed && <h1 className="text-xl font-bold text-white">Health Billing</h1>}
+          <div className="flex items-center justify-between pt-2 gap-2 h-[110px]">
+            {!sidebarCollapsed && (
+              <img
+                src="/Logo.png"
+                alt="Logo"
+                className="w-full h-full object-contain"
+              />
+            )}
             <button
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
               className="text-white/70 hover:text-white hover:bg-white/10 p-2 rounded-lg transition-colors"
@@ -1080,7 +1087,7 @@ export default function Layout({ children }: LayoutProps) {
           </nav>
 
           {/* User Info & Sign Out */}
-          <div className="border-t border-white/10 p-4">
+          <div className="border-white/10 p-4">
             {!sidebarCollapsed && (
               <div className="mb-3">
                 <div className="text-sm font-medium text-white truncate">
