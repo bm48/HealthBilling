@@ -18,7 +18,17 @@ export default function Landing() {
       once: true,
       offset: 40,
     })
+    // In production build, below-the-fold elements may not be observed when init runs.
+    // Refresh after layout/paint so AOS attaches observers to all [data-aos] elements.
+    const rafId = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        AOS.refresh()
+      })
+    })
+    const fallbackTimer = setTimeout(() => AOS.refresh(), 300)
     return () => {
+      cancelAnimationFrame(rafId)
+      clearTimeout(fallbackTimer)
       AOS.refresh()
     }
   }, [])
