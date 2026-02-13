@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { useAuth } from '@/contexts/AuthContext'
 
 import { Circle, ArrowUp } from 'lucide-react'
 import AOS from 'aos'
@@ -9,7 +8,6 @@ import 'aos/dist/aos.css'
 const SCROLL_THRESHOLD_PX = 300
 
 export default function Landing() {
-  const { user } = useAuth()
   const lastScrollY = useRef(0)
   const [headerVisible, setHeaderVisible] = useState(true)
   const [showScrollToTop, setShowScrollToTop] = useState(false)
