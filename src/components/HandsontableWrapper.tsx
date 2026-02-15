@@ -133,6 +133,8 @@ interface HandsontableWrapperProps {
   onAfterRowMove?: (movedRows: number[], finalIndex: number) => void
   /** When set to a row index (0-based), the grid will scroll to that row after the next data/version update, then clear the ref */
   scrollToRowAfterUpdateRef?: React.MutableRefObject<number | null>
+  /** Called after each table render (e.g. to inject custom header buttons) */
+  afterRenderCallback?: (hot: Handsontable) => void
 }
 
 export default function HandsontableWrapper({
@@ -160,6 +162,7 @@ export default function HandsontableWrapper({
   dataVersion = 0,
   onAfterRowMove,
   scrollToRowAfterUpdateRef,
+  afterRenderCallback,
 }: HandsontableWrapperProps) {
   const hotTableRef = useRef<any>(null)
   const hyperformulaInstanceRef = useRef<HyperFormula | null>(null)
@@ -425,12 +428,9 @@ export default function HandsontableWrapper({
     manualColumnResize: true,
     manualRowResize: true,
     
-    // Column sorting: show sort icon in headers, click header to sort
-    columnSorting: {
-      indicator: true,
-      headerAction: true,
-    },
-    
+    // Column sorting disabled – preserve table order
+    columnSorting: false,
+
     // Auto column width
     autoColumnSize: {
       syncLimit: 50,
@@ -615,6 +615,7 @@ export default function HandsontableWrapper({
           }
         }
       }
+      afterRenderCallback?.(this)
     },
     afterScrollVertically: function (this: Handsontable) {
       syncRowHeaderHeightsToClone(this)

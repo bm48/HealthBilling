@@ -1969,6 +1969,7 @@ export default function ClinicDetail() {
             isProviderColumnLocked={isProviderColumnLocked}
             onReorderProviderRows={handleReorderProviderRows}
             restrictEditToSchedulingColumns={restrictProviderSheetEditToScheduling}
+            officeStaffView={isOfficeStaff}
           />
         )
       default:
@@ -2153,6 +2154,18 @@ export default function ClinicDetail() {
                 Billing To-Do
               </button>
             )}
+            <div className="flex items-center gap-2">
+              {activeTab === 'todo' && !splitScreen && (
+                <button
+                  type="button"
+                  onClick={() => billingTodoExportRef.current?.exportToCSV()}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-colors mb-1"
+                >
+                  <Download size={18} />
+                  Export CSV
+                </button>
+              )}
+            </div>
             {!splitScreen && userProfile?.role !== 'office_staff' && (
               <button
                 type="button"
@@ -2211,7 +2224,7 @@ export default function ClinicDetail() {
           </button>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* <div className="flex items-center gap-2">
           {activeTab === 'todo' && !splitScreen && (
             <button
               type="button"
@@ -2222,7 +2235,7 @@ export default function ClinicDetail() {
               Export CSV
             </button>
           )}
-        </div>
+        </div> */}
       </div>
       )}
 

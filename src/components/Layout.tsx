@@ -143,7 +143,6 @@ export default function Layout({ children }: LayoutProps) {
       const { data, error } = await query
       if (error) throw error
       setClinics(data || [])
-      
       // Fetch providers for all clinics immediately
       if (data && data.length > 0) {
         await fetchAllProviders(data.map(c => c.id))
@@ -300,17 +299,17 @@ export default function Layout({ children }: LayoutProps) {
       }`}>
         <div className="flex flex-col h-full">
           {/* Logo/Header */}
-          <div className="flex items-center justify-between pt-2 gap-2 h-[110px]">
+          <div className={`flex items-center pt-2 gap-2 h-[110px] ${sidebarCollapsed ? 'justify-center px-4' : 'justify-between'}`}>
             {!sidebarCollapsed && (
               <img
-                src="/Logo.png"
+                src="/Matrix logo.png"
                 alt="Logo"
                 className="w-full h-full object-contain"
               />
             )}
             <button
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="text-white/70 hover:text-white hover:bg-white/10 p-2 rounded-lg transition-colors"
+              className="text-white/70 hover:text-white hover:bg-white/10 p-2 rounded-lg transition-colors shrink-0"
               title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
               {sidebarCollapsed ? <Menu size={20} /> : <ArrowLeft size={20} />}
@@ -1021,7 +1020,9 @@ export default function Layout({ children }: LayoutProps) {
                         <ChevronRight size={16} />
                       )}
                       <FileText size={20} />
-                      <span>Provider Sheet</span>
+                      <span>
+                        {userProfile?.role === 'office_staff' ? `${clinics[0]?.name}` : 'Provider Sheet'}
+                      </span>
                     </button>
                     {expandedProviderSheetSection && (
                       <div className="ml-6 mt-1 space-y-1">

@@ -44,6 +44,8 @@ interface ProvidersTabProps {
   onReorderProviderRows?: (providerId: string, movedRows: number[], finalIndex: number) => void
   /** When true (e.g. official_staff), only columns Patient ID through Date of Service are editable; rest read-only */
   restrictEditToSchedulingColumns?: boolean
+  /** When true (office_staff), show only columns Patient ID through Appt/Note Status and Collected from PT through PT Payment AR Ref Date */
+  officeStaffView?: boolean
   /** When true (super_admin only), show "Add comment" in cell context menu */
   canAddComment?: boolean
 }
@@ -77,6 +79,7 @@ export default function ProvidersTab({
   isProviderColumnLocked,
   onReorderProviderRows,
   restrictEditToSchedulingColumns = false,
+  officeStaffView = false,
   canAddComment = false,
 }: ProvidersTabProps) {
   
@@ -87,6 +90,9 @@ export default function ProvidersTab({
   const [commentModal, setCommentModal] = useState<{ row: number; col: number; rowId: string; colKey: string } | null>(null)
   const [commentText, setCommentText] = useState('')
   const [commentModalLoading, setCommentModalLoading] = useState(false)
+  const [isCondensed, setIsCondensed] = useState(false)
+
+  const showCondenseButton = !officeStaffView && !isProviderView
 
   const providersToShow = providerId 
     ? providers.filter(p => p.id === providerId)
@@ -166,10 +172,27 @@ export default function ProvidersTab({
 
   // Map rows to Handsontable 2D array format (shared by getProviderRowsHandsontableData and change handler); never show "null"
   // When isProviderView and providerLevel 2, show full columns; when providerLevel 1, show only up to Appt/Note Status
+  // When officeStaffView, show Patient ID through Appt/Note Status (0-8) and Collected from PT through PT Payment AR Ref Date (14-16)
   const getTableDataFromRows = useCallback((rows: SheetRow[]) => {
     return rows.map(row => {
       const patient = patients.find(p => p.patient_id === row.patient_id)
       const patientDisplay = patient ? toDisplayValue(patient.patient_id) : toDisplayValue(row.patient_id)
+      if (officeStaffView) {
+        return [
+          patientDisplay,
+          toDisplayValue(row.patient_first_name),
+          toDisplayValue(row.last_initial),
+          toDisplayValue(row.patient_insurance),
+          toDisplayValue(row.patient_copay),
+          toDisplayValue(row.patient_coinsurance),
+          toDisplayDate(row.appointment_date),
+          toDisplayValue(row.cpt_code),
+          toDisplayValue(row.appointment_status),
+          toDisplayValue(row.collected_from_patient),
+          toDisplayValue(row.patient_pay_status),
+          toDisplayValue(row.ar_date),
+        ]
+      }
       if (isProviderView && providerLevel !== 2) {
         return [
           patientDisplay,
@@ -206,7 +229,7 @@ export default function ProvidersTab({
           toDisplayValue(row.notes),
         ]
       }
-      return [
+      const fullRow = [
         patientDisplay,
         toDisplayValue(row.patient_first_name),
         toDisplayValue(row.last_initial),
@@ -227,8 +250,10 @@ export default function ProvidersTab({
         toDisplayValue(row.total),
         toDisplayValue(row.notes),
       ]
+      if (showCondenseButton && isCondensed) return fullRow.slice(0, 9)
+      return fullRow
     })
-  }, [patients, isProviderView, providerLevel])
+  }, [patients, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed])
 
   // Convert rows to Handsontable data format; prefer latest from change handler to avoid stale data on re-render
   const getProviderRowsHandsontableData = useCallback(() => {
@@ -280,12 +305,26 @@ export default function ProvidersTab({
   ]
   const columnFieldsProviderView = ['patient_id', 'first_name', 'last_initial', 'insurance', 'copay', 'coinsurance', 'date_of_service', 'cpt_code', 'appointment_note_status'] as const
   const columnTitlesProviderView = ['Patient ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins', 'Date of Service', 'CPT Code', 'Appt/Note Status']
-  const columnFields = isProviderView
-    ? (providerLevel === 2 ? columnFieldsFull : columnFieldsProviderView)
-    : columnFieldsFull
-  const columnTitles = isProviderView
-    ? (providerLevel === 2 ? columnTitlesFull : columnTitlesProviderView)
-    : columnTitlesFull
+  const columnFieldsOfficeStaff: Array<keyof IsLockProviders> = [
+    'patient_id', 'first_name', 'last_initial', 'insurance', 'copay', 'coinsurance',
+    'date_of_service', 'cpt_code', 'appointment_note_status',
+    'collected_from_pt', 'pt_pay_status', 'pt_payment_ar_ref_date'
+  ]
+  const columnTitlesOfficeStaff = [
+    'Patient ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins',
+    'Date of Service', 'CPT Code', 'Appt/Note Status',
+    'Collected from PT', 'PT Pay Status', 'PT Payment AR Ref Date'
+  ]
+  const columnFields = officeStaffView
+    ? columnFieldsOfficeStaff
+    : isProviderView
+      ? (providerLevel === 2 ? columnFieldsFull : columnFieldsProviderView)
+      : (showCondenseButton && isCondensed ? columnFieldsFull.slice(0, 9) : columnFieldsFull)
+  const columnTitles = officeStaffView
+    ? columnTitlesOfficeStaff
+    : isProviderView
+      ? (providerLevel === 2 ? columnTitlesFull : columnTitlesProviderView)
+      : (showCondenseButton && isCondensed ? columnTitlesFull.slice(0, 9) : columnTitlesFull)
   /** In provider view, only CPT Code (7) and Appt/Note Status (8) are editable */
   const isProviderEditableColumn = (dataIndex: number) => dataIndex === 7 || dataIndex === 8
   const getReadOnlyProviderView = (dataIndex: number) => !canEdit || !isProviderEditableColumn(dataIndex)
@@ -571,6 +610,22 @@ export default function ProvidersTab({
     
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
     
+    if (officeStaffView) {
+      return [
+        { data: 0, title: 'Patient ID', type: 'text' as const, width: 100, readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id')) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name')) },
+        { data: 2, title: 'Last Initial', type: 'text' as const, width: 40, readOnly: getReadOnlyForColumn(2, !canEdit || getReadOnly('last_initial')) },
+        { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance')) },
+        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay')) },
+        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance')) },
+        { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyForColumn(6, !canEdit || getReadOnly('date_of_service')) },
+        { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyForColumn(7, !canEdit || getReadOnly('cpt_code')) },
+        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 150, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyForColumn(8, !canEdit || getReadOnly('appointment_note_status')) },
+        { data: 9, title: 'Collected from PT', type: 'numeric' as const, width: 120, renderer: currencyCellRenderer, readOnly: getReadOnlyForColumn(9, !canEdit || getReadOnly('collected_from_pt')) },
+        { data: 10, title: 'PT Pay Status', type: 'dropdown' as const, width: 120, selectOptions: ['Paid', 'CC declined', 'Secondary', 'Refunded', 'Payment Plan', 'Waiting on Claim', 'Collections'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'patient_pay')) as any, readOnly: getReadOnlyForColumn(10, !canEdit || getReadOnly('pt_pay_status')) },
+        { data: 11, title: 'PT Payment AR Ref Date', type: 'dropdown' as const, width: 120, selectOptions: months, renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any, readOnly: getReadOnlyForColumn(11, !canEdit || getReadOnly('pt_payment_ar_ref_date')) },
+      ]
+    }
     if (isProviderView && providerLevel !== 2) {
       return [
         { data: 0, title: 'Patient ID', type: 'text' as const, width: 180, readOnly: getReadOnlyProviderView(0) },
@@ -609,7 +664,7 @@ export default function ProvidersTab({
       ]
     }
     
-    return [
+    const fullProviderColumns = [
       { 
         data: 0, 
         title: 'Patient ID', 
@@ -763,7 +818,8 @@ export default function ProvidersTab({
         readOnly: getReadOnlyForColumn(18, !canEdit || getReadOnly('notes'))
       },
     ]
-  }, [activeProvider, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView, providerLevel, restrictEditToSchedulingColumns])
+    return (showCondenseButton && isCondensed) ? fullProviderColumns.slice(0, 9) : fullProviderColumns
+  }, [activeProvider, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, restrictEditToSchedulingColumns])
 
   const handleProviderRowsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData' || !activeProvider) return
@@ -778,7 +834,15 @@ export default function ProvidersTab({
       'patient_id', 'patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance',
       'appointment_date', 'cpt_code', 'appointment_status'
     ]
-    const fields: Array<keyof SheetRow> = isProviderView ? (providerLevel === 2 ? fieldsFull : fieldsProviderView) : fieldsFull
+    const fieldsOfficeStaff: Array<keyof SheetRow> = [
+      'patient_id', 'patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance',
+      'appointment_date', 'cpt_code', 'appointment_status', 'collected_from_patient', 'patient_pay_status', 'ar_date'
+    ]
+    const fields: Array<keyof SheetRow> = officeStaffView
+      ? fieldsOfficeStaff
+      : isProviderView
+        ? (providerLevel === 2 ? fieldsFull : fieldsProviderView)
+        : (showCondenseButton && isCondensed ? fieldsFull.slice(0, 9) : fieldsFull)
     
     const dateFields: (keyof SheetRow)[] = ['appointment_date', 'submit_date', 'payment_date', 'ar_date']
     // Compute all changes locally first
@@ -1005,7 +1069,7 @@ export default function ProvidersTab({
     if (hadPatientIdMerge || hadDateColumnEdit) {
       setStructureVersion((v) => v + 1)
     }
-  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, providerLevel, patients, getTableDataFromRows])
+  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, patients, getTableDataFromRows])
 
   const handleDeleteProviderSheetRow = useCallback((providerId: string, rowId: string) => {
     if (onDeleteRow) onDeleteRow(providerId, rowId)
@@ -1070,17 +1134,20 @@ export default function ProvidersTab({
   useEffect(() => {
     if (hotTableRef.current?.hotInstance) {
       const hotInstance = hotTableRef.current.hotInstance
-      const headerColors = isProviderView
-        ? ['#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#fce5cd', '#fce5cd', '#ead1dd'] // Patient info (pink), Date/CPT (orange/beige), Appt/Note Status (purple/pink)
-        : [
-            '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', // Patient info columns
-            '#fce5cd', '#fce5cd', // CPT and Appointment status
-            '#ead1dd', '#ead1dd', // Claim status columns
-            '#d9d2e9', '#d9d2e9', '#d9d2e9', // Insurance payment columns
-            '#b191cd', '#b191cd', '#b191cd', // Patient payment columns
-            '#d9d2e9', // Total
-            '#5d9f5d' // Notes
-          ]
+      const fullHeaderColors = [
+        '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', // Patient info columns
+        '#fce5cd', '#fce5cd', // CPT and Appointment status
+        '#ead1dd', '#ead1dd', // Claim status columns
+        '#d9d2e9', '#d9d2e9', '#d9d2e9', // Insurance payment columns
+        '#b191cd', '#b191cd', '#b191cd', // Patient payment columns
+        '#d9d2e9', // Total
+        '#5d9f5d' // Notes
+      ]
+      const headerColors = officeStaffView
+        ? ['#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#fce5cd', '#fce5cd', '#ead1dd', '#b191cd', '#b191cd', '#b191cd'] // Patient through Appt/Note Status, then PT payment columns
+        : isProviderView
+          ? ['#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#fce5cd', '#fce5cd', '#ead1dd'] // Patient info (pink), Date/CPT (orange/beige), Appt/Note Status (purple/pink)
+          : (showCondenseButton && isCondensed ? [fullHeaderColors[0], ...fullHeaderColors.slice(0, 9)] : [fullHeaderColors[0], ...fullHeaderColors])
       
       // Apply header colors
       setTimeout(() => {
@@ -1093,7 +1160,7 @@ export default function ProvidersTab({
         })
       }, 100)
     }
-  }, [activeProvider, providerColumnsWithLocks, isProviderView])
+  }, [activeProvider, providerColumnsWithLocks, isProviderView, officeStaffView, showCondenseButton, isCondensed])
 
   if (providersToShow.length === 0) {
     return (
@@ -1168,6 +1235,20 @@ export default function ProvidersTab({
         )
       })()}
 
+      {showCondenseButton && (
+        <div className="flex justify-end mb-1">
+          <button
+            type="button"
+            onClick={() => setIsCondensed(prev => !prev)}
+            className="w-7 h-6 flex items-center justify-center rounded border border-white/30 bg-white/10 text-white hover:bg-white/20 font-bold text-sm"
+            title={isCondensed ? 'Show all columns' : 'Condense (hide Claim Status through Notes)'}
+            aria-label={isCondensed ? 'Show all columns' : 'Condense columns'}
+          >
+            {isCondensed ? '+' : '−'}
+          </button>
+        </div>
+      )}
+
       <div 
         ref={tableContainerRef}
         className="table-container dark-theme" 
@@ -1175,8 +1256,7 @@ export default function ProvidersTab({
           maxHeight: isInSplitScreen ? undefined : '600px',
           flex: isInSplitScreen ? 1 : undefined,
           minHeight: isInSplitScreen ? 0 : undefined,
-          overflowX: 'auto', 
-          overflowY: 'auto',
+          overflow: 'hidden',
           border: '1px solid rgba(255, 255, 255, 0.1)',
           borderRadius: '8px',
           width: '100%',

@@ -461,8 +461,7 @@ export default function ProviderSchedulePage() {
         className="table-container dark-theme"
         style={{
           maxHeight: '600px',
-          overflowX: 'auto',
-          overflowY: 'auto',
+          overflow: 'hidden',
           border: '1px solid rgba(255, 255, 255, 0.1)',
           borderRadius: '8px',
           backgroundColor: '#d2dbe5',

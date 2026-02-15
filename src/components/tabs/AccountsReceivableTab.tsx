@@ -909,8 +909,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           maxHeight: isInSplitScreen ? undefined : 'calc(100vh - 300px)',
           flex: isInSplitScreen ? 1 : undefined,
           minHeight: isInSplitScreen ? 0 : undefined,
-          overflowY: 'auto',
-          overflowX: 'auto',
+          overflow: 'hidden',
           border: '1px solid rgba(255, 255, 255, 0.1)',
           borderRadius: '8px',
           backgroundColor: '#d2dbe5'

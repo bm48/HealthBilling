@@ -635,8 +635,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           maxHeight: isInSplitScreen ? undefined : '600px',
           flex: isInSplitScreen ? 1 : undefined,
           minHeight: isInSplitScreen ? 0 : undefined,
-          overflowX: 'auto', 
-          overflowY: 'auto',
+          overflow: 'hidden',
           border: '1px solid rgba(255, 255, 255, 0.1)',
           borderRadius: '8px',
           backgroundColor: '#d2dbe5'

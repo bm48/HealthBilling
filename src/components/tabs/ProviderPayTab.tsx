@@ -531,7 +531,7 @@ export default function ProviderPayTab({
             maxHeight: isInSplitScreen ? undefined : '50vh',
             flex: isInSplitScreen ? 1 : undefined,
             minHeight: isInSplitScreen ? 0 : undefined,
-            overflow: 'auto',
+            overflow: 'hidden',
             border: '1px solid rgba(0,0,0,0.2)',
             borderTop: 'none',
             borderRadius: '0 0 8px 8px',
