@@ -29,8 +29,8 @@ export default function ClinicDetail() {
 
   // Providers data - editable provider records from providers table
   const [providers, setProviders] = useState<Provider[]>([])
-  const [providerSheets, setProviderSheets] = useState<Record<string, ProviderSheet>>({})
-  const [providerSheetRows, setProviderSheetRows] = useState<Record<string, SheetRow[]>>({})
+  const [providerSheetsByMonth, setProviderSheetsByMonth] = useState<Record<string, Record<string, ProviderSheet>>>({})
+  const [providerSheetRowsByMonth, setProviderSheetRowsByMonth] = useState<Record<string, Record<string, SheetRow[]>>>({})
   const [providerRowsVersion, setProviderRowsVersion] = useState(0)
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])
   const [statusColors, setStatusColors] = useState<StatusColor[]>([])
@@ -65,6 +65,9 @@ export default function ClinicDetail() {
   
   // Month filter for provider tab
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
+  const selectedMonthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+  const providerSheets = providerSheetsByMonth[selectedMonthKey] ?? {}
+  const providerSheetRows = providerSheetRowsByMonth[selectedMonthKey] ?? {}
   const providersRef = useRef<Provider[]>([])
   // Provider sheet rows for editable view (when viewing a specific provider's sheet via providerId param)
   const [providerRows, setProviderRows] = useState<Array<{
@@ -132,9 +135,7 @@ export default function ClinicDetail() {
     if (clinicId) {
       fetchClinic()
       if (providerId) {
-        // When providerId is in URL, fetch that specific provider's sheet data
-        fetchProviderSheetData()
-        // Also ensure we have providers list for the tab
+        // Provider sheet data for current month is fetched by the selectedMonth effect below
         if (activeTab === 'providers') {
           fetchPatients() // Need patients for displaying patient info
           fetchBillingCodes()
@@ -150,15 +151,29 @@ export default function ClinicDetail() {
         fetchData()
       }
     }
-  }, [clinicId, activeTab, providerId, selectedMonth])
+  }, [clinicId, activeTab, providerId])
 
-  // Refetch provider sheets when selectedMonth changes (for non-providerId view)
+  const prevMonthKeyRef = useRef<string | null>(null)
+  // When month changes: use cached data if available, otherwise fetch (no full-page loading when only month changed)
   useEffect(() => {
-    if (clinicId && !providerId && (activeTab === 'providers' || activeTab === 'provider_pay')) {
-      console.log('Selected month changed, refetching provider sheets:', selectedMonth)
-      fetchProviderSheets()
+    const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+    const isInitialLoad = prevMonthKeyRef.current === null
+    const monthChanged = prevMonthKeyRef.current !== null && prevMonthKeyRef.current !== monthKey
+    prevMonthKeyRef.current = monthKey
+
+    if (!monthChanged && !isInitialLoad) return
+    const hasCached = providerSheetRowsByMonth[monthKey] != null && Object.keys(providerSheetRowsByMonth[monthKey]).length > 0
+    if (hasCached && monthChanged) return
+
+    const isMonthChangeOnly = monthChanged && !isInitialLoad
+    if (providerId && clinicId && (activeTab === 'providers' || activeTab === 'provider_pay')) {
+      fetchProviderSheetData(isMonthChangeOnly)
+      return
     }
-  }, [selectedMonth, activeTab])
+    if (clinicId && !providerId && (activeTab === 'providers' || activeTab === 'provider_pay')) {
+      fetchProviderSheets(isMonthChangeOnly)
+    }
+  }, [selectedMonth, activeTab, clinicId, providerId, providerSheetRowsByMonth])
 
   const fetchClinic = async () => {
     try {
@@ -1041,7 +1056,7 @@ export default function ClinicDetail() {
   // Removed unused functions: saveAccountsReceivable, handleUpdateAR, handleAddARRow, handleDeleteAR
   // These are now handled by AccountsReceivableTab component
 
-  const fetchProviderSheetData = async () => {
+  const fetchProviderSheetData = async (isMonthChange = false) => {
     if (!clinicId || !providerId) {
       // Clear current provider data if providerId is removed
       setCurrentProvider(null)
@@ -1051,7 +1066,7 @@ export default function ClinicDetail() {
     }
 
     try {
-      setLoading(true)
+      if (!isMonthChange) setLoading(true)
       
       // Fetch provider info from providers table (not users table)
       const { data: providerData, error: providerError } = await supabase
@@ -1068,10 +1083,12 @@ export default function ClinicDetail() {
         setCurrentProvider(null)
         setCurrentSheet(null)
         setProviderRows([])
-        setProviderSheetRows(prev => {
-          const updated = { ...prev }
+        const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+        setProviderSheetRowsByMonth(prev => {
+          const cur = prev[monthKey] ?? {}
+          const updated = { ...cur }
           delete updated[providerId]
-          return updated
+          return { ...prev, [monthKey]: updated }
         })
         return
       }
@@ -1199,18 +1216,9 @@ export default function ClinicDetail() {
         createEmptyProviderSheetRow(i)
       )
       const allRows = [...sheetRows, ...emptyRows]
-      
-      // Update providerSheetRows to only show this provider's data
-      setProviderSheetRows(prev => ({
-        ...prev,
-        [providerId]: allRows
-      }))
-      
-      // Update providerSheets map
-      setProviderSheets(prev => ({
-        ...prev,
-        [providerId]: sheet
-      }))
+      const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+      setProviderSheetRowsByMonth(prev => ({ ...prev, [monthKey]: { ...(prev[monthKey] ?? {}), [providerId]: allRows } }))
+      setProviderSheetsByMonth(prev => ({ ...prev, [monthKey]: { ...(prev[monthKey] ?? {}), [providerId]: sheet } }))
     } catch (error) {
       console.error('Error fetching provider sheet data:', error)
     } finally {
@@ -1316,10 +1324,11 @@ export default function ClinicDetail() {
     }
   }
 
-  const fetchProviderSheets = async () => {
+  const fetchProviderSheets = async (isMonthChange = false) => {
     if (!clinicId || !userProfile) return
 
     try {
+      if (!isMonthChange) setLoading(true)
       // Use selected month/year instead of current date
       const month = selectedMonth.getMonth() + 1
       const year = selectedMonth.getFullYear()
@@ -1436,10 +1445,13 @@ export default function ClinicDetail() {
         rowsMap[providerId] = [...sheetRows, ...emptyRows]
       }
 
-      setProviderSheets(sheetsMap)
-      setProviderSheetRows(rowsMap)
+      const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+      setProviderSheetsByMonth(prev => ({ ...prev, [monthKey]: sheetsMap }))
+      setProviderSheetRowsByMonth(prev => ({ ...prev, [monthKey]: rowsMap }))
     } catch (error) {
       console.error('Error fetching provider sheets:', error)
+    } finally {
+      if (!isMonthChange) setLoading(false)
     }
   }
 
@@ -1452,7 +1464,7 @@ export default function ClinicDetail() {
     if (!sheet) return
 
     // Optimistic update: apply full rows to state immediately so the row (e.g. patient fill) appears right away
-    setProviderSheetRows(prev => ({ ...prev, [providerId]: rowsToSave }))
+    setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: rowsToSave } }))
 
     // Filter out only truly empty rows (empty- rows with no data)
     // Allow empty- rows that have data to be saved
@@ -1477,8 +1489,9 @@ export default function ClinicDetail() {
       })
 
       // Update rows in place without reordering - preserve exact row positions
-      setProviderSheetRows(prev => {
-        const currentRows = prev[providerId] || []
+      setProviderSheetRowsByMonth(prev => {
+        const current = prev[selectedMonthKey] ?? {}
+        const currentRows = current[providerId] || []
         const savedRowsMap = new Map<string, SheetRow>()
         currentRows.forEach(cr => {
           const savedRow = oldIdToSaved.get(cr.id)
@@ -1496,6 +1509,7 @@ export default function ClinicDetail() {
         const nonEmptyRows = updatedRows.filter(r => !r.id.startsWith('empty-'))
         const emptyRowsNeeded = Math.max(0, 200 - nonEmptyRows.length)
         const existingEmptyCount = updatedRows.filter(r => r.id.startsWith('empty-')).length
+        let nextMonthRows: Record<string, SheetRow[]> = { ...current, [providerId]: updatedRows }
         if (emptyRowsNeeded > existingEmptyCount) {
         const createEmptyRow = (index: number): SheetRow => ({
           id: `empty-${providerId}-${index}`,
@@ -1543,25 +1557,19 @@ export default function ClinicDetail() {
           const newEmptyRows = Array.from({ length: emptyRowsNeeded - existingEmptyCount }, (_, i) => 
             createEmptyRow(existingEmptyCount + i)
         )
-        return {
-          ...prev,
-            [providerId]: [...updatedRows, ...newEmptyRows]
-          }
+        nextMonthRows = { ...current, [providerId]: [...updatedRows, ...newEmptyRows] }
         }
-        
-        return {
-          ...prev,
-          [providerId]: updatedRows
-        }
+        return { ...prev, [selectedMonthKey]: nextMonthRows } as Record<string, Record<string, SheetRow[]>>
       })
     } catch (error) {
       console.error('Error saving provider sheet rows:', error)
     }
-  }, [clinicId, userProfile, providerSheets])
+  }, [clinicId, userProfile, providerSheets, selectedMonthKey])
 
   const handleUpdateProviderSheetRow = useCallback((providerId: string, rowId: string, field: string, value: any) => {
-    setProviderSheetRows(prev => {
-      const rows = prev[providerId] || []
+    setProviderSheetRowsByMonth(prev => {
+      const current = prev[selectedMonthKey] ?? {}
+      const rows = current[providerId] || []
       const updatedRows = rows.map(row => {
         if (row.id === rowId) {
           // If updating an empty row, convert it to a new- prefixed row
@@ -1642,7 +1650,7 @@ export default function ClinicDetail() {
         }
         return row
       })
-      
+      let nextMonthRows: Record<string, SheetRow[]> = { ...current, [providerId]: updatedRows }
       // Ensure we maintain 200 rows total per provider
       const nonEmptyRows = updatedRows.filter(r => !r.id.startsWith('empty-'))
       const emptyRowsNeeded = Math.max(0, 200 - nonEmptyRows.length)
@@ -1694,22 +1702,23 @@ export default function ClinicDetail() {
         const newEmptyRows = Array.from({ length: emptyRowsNeeded - existingEmptyCount }, (_, i) => 
           createEmptyRow(existingEmptyCount + i)
         )
-        return { ...prev, [providerId]: [...updatedRows, ...newEmptyRows] }
+        nextMonthRows = { ...current, [providerId]: [...updatedRows, ...newEmptyRows] }
       }
-      return { ...prev, [providerId]: updatedRows }
+      return { ...prev, [selectedMonthKey]: nextMonthRows } as Record<string, Record<string, SheetRow[]>>
     })
-  }, [billingCodes, statusColors])
+  }, [billingCodes, statusColors, selectedMonthKey])
 
 
   const handleDeleteProviderSheetRow = useCallback(async (providerId: string, rowId: string) => {
     let rowsAfterDelete: SheetRow[] = []
-    setProviderSheetRows(prev => {
-      const rows = prev[providerId] || []
+    setProviderSheetRowsByMonth(prev => {
+      const current = prev[selectedMonthKey] ?? {}
+      const rows = current[providerId] || []
       rowsAfterDelete = rows.filter(r => r.id !== rowId)
-      return { ...prev, [providerId]: rowsAfterDelete }
+      return { ...prev, [selectedMonthKey]: { ...current, [providerId]: rowsAfterDelete } }
     })
     await saveProviderSheetRows(providerId, rowsAfterDelete)
-  }, [saveProviderSheetRows])
+  }, [saveProviderSheetRows, selectedMonthKey])
 
   const handleAddProviderRowAbove = useCallback((providerId: string, beforeRowId: string) => {
     const rows = providerSheetRows[providerId] || []
@@ -1760,9 +1769,9 @@ export default function ClinicDetail() {
     })
     const newRow = createEmptyRow()
     const newRows = [...rows.slice(0, idx), newRow, ...rows.slice(idx)]
-    setProviderSheetRows(prev => ({ ...prev, [providerId]: newRows }))
+    setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: newRows } }))
     saveProviderSheetRows(providerId, newRows).catch(err => console.error('Failed to save after add row', err))
-  }, [providerSheetRows, saveProviderSheetRows])
+  }, [providerSheetRows, saveProviderSheetRows, selectedMonthKey])
 
   const handleAddProviderRowBelow = useCallback((providerId: string, afterRowId: string) => {
     const rows = providerSheetRows[providerId] || []
@@ -1813,9 +1822,9 @@ export default function ClinicDetail() {
     })
     const newRow = createEmptyRow()
     const newRows = [...rows.slice(0, idx + 1), newRow, ...rows.slice(idx + 1)]
-    setProviderSheetRows(prev => ({ ...prev, [providerId]: newRows }))
+    setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: newRows } }))
     saveProviderSheetRows(providerId, newRows).catch(err => console.error('Failed to save after add row', err))
-  }, [providerSheetRows, saveProviderSheetRows])
+  }, [providerSheetRows, saveProviderSheetRows, selectedMonthKey])
 
   // Direct save function that accepts providerId and rows - for use when we have computed updated data
   const saveProviderSheetRowsDirect = useCallback(async (providerId: string, rowsToSave: SheetRow[]) => {
@@ -1831,10 +1840,10 @@ export default function ClinicDetail() {
     const insertAt = Math.min(finalIndex, arr.length)
     toMove.forEach((item, i) => arr.splice(insertAt + i, 0, item))
     const newRows = arr
-    setProviderSheetRows(prev => ({ ...prev, [providerId]: newRows }))
+    setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: newRows } }))
     setProviderRowsVersion(v => v + 1)
     saveProviderSheetRows(providerId, newRows).catch(err => console.error('Failed to persist provider row order', err))
-  }, [providerSheetRows, saveProviderSheetRows])
+  }, [providerSheetRows, saveProviderSheetRows, selectedMonthKey])
 
   const handleTabChange = (tab: TabType) => {
     if (splitScreen) {

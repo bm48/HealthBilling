@@ -1266,9 +1266,9 @@ export default function ProvidersTab({
       >
         {activeProvider && (
           <HandsontableWrapper
-            key={`providers-${activeProvider?.id ?? ''}-${selectedMonth.getTime()}`}
+            key={`providers-${activeProvider?.id ?? ''}`}
             data={getProviderRowsHandsontableData()}
-            dataVersion={(providerRowsVersion ?? 0) + structureVersion}
+            dataVersion={(providerRowsVersion ?? 0) + structureVersion + selectedMonth.getTime()}
             columns={providerColumnsWithLocks}
             colHeaders={columnTitles}
             rowHeaders={true}

@@ -125,6 +125,9 @@ export default function ProviderPayTab({
   const [providerPayDataVersion, setProviderPayDataVersion] = useState(0)
   const [sideNotes, setSideNotes] = useState('')
 
+  type CachedPay = { payDate: string; payPeriodFrom: string; payPeriodTo: string; sideNotes: string; tableData: string[][] }
+  const [providerPayCache, setProviderPayCache] = useState<Record<string, CachedPay>>({})
+
   /** Serialize pay period for DB (single string). */
   const payPeriod = useMemo(
     () => [payPeriodFrom, payPeriodTo].filter(Boolean).join(' to ') || '',
@@ -134,6 +137,7 @@ export default function ProviderPayTab({
     providerIdProp ?? providers[0]?.id ?? ''
   )
   const [loading, setLoading] = useState(false)
+  const hasLoadedOnceRef = useRef(false)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lockData = isLockProviderPay || null
 
@@ -155,68 +159,85 @@ export default function ProviderPayTab({
     }
   }, [providerIdProp, providers, selectedProviderId])
 
-  // Fetch from DB when clinicId, effectiveProviderId, and selectedMonth are set
+  // Fetch from DB when clinicId, effectiveProviderId, and selectedMonth are set. Use cache for instant display when switching month/provider.
   useEffect(() => {
     if (!clinicId || !effectiveProviderId) {
       setLoading(false)
       return
     }
-    setLoading(true)
+    const cacheKey = `${year}-${month}-${effectiveProviderId}`
+
+    const applyDataToState = (payDateVal: string, payPeriodFromVal: string, payPeriodToVal: string, notesVal: string, rows: string[][]) => {
+      setPayDate(payDateVal)
+      setPayPeriodFrom(payPeriodFromVal)
+      setPayPeriodTo(payPeriodToVal)
+      setSideNotes(notesVal)
+      setTableData(rows)
+      setProviderPayDataVersion((v) => v + 1)
+    }
+
+    const processFetchResult = (data: { payDate: string; payPeriod: string; notes: string; rows: string[][] } | null): CachedPay => {
+      if (data) {
+        let payPeriodFromVal = ''
+        let payPeriodToVal = ''
+        const raw = (data.payPeriod ?? '').trim()
+        const datePart = /^\d{4}-\d{2}-\d{2}$/
+        if (raw.includes(' to ')) {
+          const [a, b] = raw.split(' to ').map((s) => s.trim())
+          payPeriodFromVal = datePart.test(a) ? a : ''
+          payPeriodToVal = datePart.test(b) ? b : ''
+        } else if (raw.includes(' - ')) {
+          const [a, b] = raw.split(' - ').map((s) => s.trim())
+          payPeriodFromVal = datePart.test(a) ? a : ''
+          payPeriodToVal = datePart.test(b) ? b : ''
+        } else if (datePart.test(raw)) {
+          payPeriodFromVal = raw
+        }
+        const rows = data.rows.map((r) => [...r])
+        if (rows.length > ROW_TOTAL_PAYMENTS) {
+          rows[ROW_TOTAL_PAYMENTS][1] = formatAmount(computeTotalPayments(rows))
+        }
+        if (rows.length > ROW_PROVIDER_CUT) {
+          rows[ROW_PROVIDER_CUT][1] = formatAmount(computeProviderCut(parseAmount(rows[ROW_TOTAL_PAYMENTS][1]), providerCutPercent))
+        }
+        for (const r of [1, 2, 3]) {
+          if (rows[r]?.[1] != null && rows[r][1] !== '') rows[r][1] = formatAmount(rows[r][1])
+        }
+        return { payDate: data.payDate, payPeriodFrom: payPeriodFromVal, payPeriodTo: payPeriodToVal, sideNotes: data.notes ?? '', tableData: rows }
+      }
+      const initial = INITIAL_TABLE_DATA.map((r) => [...r])
+      if (initial.length > ROW_TOTAL_PAYMENTS) {
+        initial[ROW_TOTAL_PAYMENTS][1] = formatAmount(computeTotalPayments(initial))
+      }
+      if (initial.length > ROW_PROVIDER_CUT) {
+        initial[ROW_PROVIDER_CUT][1] = formatAmount(computeProviderCut(parseAmount(initial[ROW_TOTAL_PAYMENTS][1]), providerCutPercent))
+      }
+      for (const r of [1, 2, 3]) {
+        if (initial[r]?.[1] != null && initial[r][1] !== '') initial[r][1] = formatAmount(initial[r][1])
+      }
+      return { payDate: '', payPeriodFrom: '', payPeriodTo: '', sideNotes: '', tableData: initial }
+    }
+
+    const cached = providerPayCache[cacheKey]
+    if (cached) {
+      applyDataToState(cached.payDate, cached.payPeriodFrom, cached.payPeriodTo, cached.sideNotes, cached.tableData.map((r) => [...r]))
+      setLoading(false)
+    } else {
+      // Only show full-page loading on very first load; when switching month, fetch in background without replacing content
+      if (!hasLoadedOnceRef.current) setLoading(true)
+    }
+
     fetchProviderPay(clinicId, effectiveProviderId, year, month)
       .then((data) => {
-        if (data) {
-          setPayDate(data.payDate)
-          setSideNotes(data.notes ?? '')
-          const raw = (data.payPeriod ?? '').trim()
-          const datePart = /^\d{4}-\d{2}-\d{2}$/
-          if (raw.includes(' to ')) {
-            const [a, b] = raw.split(' to ').map((s) => s.trim())
-            setPayPeriodFrom(datePart.test(a) ? a : '')
-            setPayPeriodTo(datePart.test(b) ? b : '')
-          } else if (raw.includes(' - ')) {
-            const [a, b] = raw.split(' - ').map((s) => s.trim())
-            setPayPeriodFrom(datePart.test(a) ? a : '')
-            setPayPeriodTo(datePart.test(b) ? b : '')
-          } else if (datePart.test(raw)) {
-            setPayPeriodFrom(raw)
-            setPayPeriodTo('')
-          } else {
-            setPayPeriodFrom('')
-            setPayPeriodTo('')
-          }
-          const rows = data.rows.map((r) => [...r])
-          if (rows.length > ROW_TOTAL_PAYMENTS) {
-            rows[ROW_TOTAL_PAYMENTS][1] = formatAmount(computeTotalPayments(rows))
-          }
-          if (rows.length > ROW_PROVIDER_CUT) {
-            rows[ROW_PROVIDER_CUT][1] = formatAmount(computeProviderCut(parseAmount(rows[ROW_TOTAL_PAYMENTS][1]), providerCutPercent))
-          }
-          for (const r of [1, 2, 3]) {
-            if (rows[r]?.[1] != null && rows[r][1] !== '') rows[r][1] = formatAmount(rows[r][1])
-          }
-          setTableData(rows)
-          setProviderPayDataVersion((v) => v + 1)
-        } else {
-          setPayDate('')
-          setPayPeriodFrom('')
-          setPayPeriodTo('')
-          setSideNotes('')
-          const initial = INITIAL_TABLE_DATA.map((r) => [...r])
-          if (initial.length > ROW_TOTAL_PAYMENTS) {
-            initial[ROW_TOTAL_PAYMENTS][1] = formatAmount(computeTotalPayments(initial))
-          }
-          if (initial.length > ROW_PROVIDER_CUT) {
-            initial[ROW_PROVIDER_CUT][1] = formatAmount(computeProviderCut(parseAmount(initial[ROW_TOTAL_PAYMENTS][1]), providerCutPercent))
-          }
-          for (const r of [1, 2, 3]) {
-            if (initial[r]?.[1] != null && initial[r][1] !== '') initial[r][1] = formatAmount(initial[r][1])
-          }
-          setTableData(initial)
-          setProviderPayDataVersion((v) => v + 1)
-        }
+        const entry = processFetchResult(data)
+        applyDataToState(entry.payDate, entry.payPeriodFrom, entry.payPeriodTo, entry.sideNotes, entry.tableData.map((r) => [...r]))
+        setProviderPayCache((prev) => ({ ...prev, [cacheKey]: entry }))
       })
       .catch((err) => console.error('[ProviderPayTab] fetchProviderPay error:', err))
-      .finally(() => setLoading(false))
+      .finally(() => {
+        setLoading(false)
+        hasLoadedOnceRef.current = true
+      })
   }, [clinicId, effectiveProviderId, year, month, providerCutPercent])
 
   // Debounced save when payDate, payPeriod, tableData, or sideNotes change (only when effectiveProviderId is set and not loading)
@@ -539,9 +560,9 @@ export default function ProviderPayTab({
           }}
         >
           <HandsontableWrapper
-            key={`provider-pay-${clinicId}-${selectedMonth.getTime()}-${JSON.stringify(lockData)}`}
+            key={`provider-pay-${clinicId}-${effectiveProviderId}-${JSON.stringify(lockData)}`}
             data={tableData}
-            dataVersion={providerPayDataVersion}
+            dataVersion={providerPayDataVersion + selectedMonth.getTime()}
             columns={columns}
             colHeaders={false}
             rowHeaders={false}
