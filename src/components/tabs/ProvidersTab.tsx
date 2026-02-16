@@ -21,7 +21,8 @@ interface ProvidersTabProps {
   patients: Patient[]
   selectedMonth: Date
   providerId?: string
-  currentProvider: Provider | null
+  /** Current provider (for context); optional, passed by ClinicDetail and ProviderSheetPage */
+  currentProvider?: Provider | null
   canEdit: boolean
   isInSplitScreen: boolean
   /** When true, show provider columns. providerLevel 1 = columns up to Appt/Note Status; providerLevel 2 = all columns. */
@@ -60,7 +61,7 @@ export default function ProvidersTab({
   patients,
   selectedMonth,
   providerId,
-  currentProvider,
+  currentProvider: _currentProvider,
   canEdit,
   isInSplitScreen,
   isProviderView = false,
