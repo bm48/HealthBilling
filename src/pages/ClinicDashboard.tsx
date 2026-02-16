@@ -323,7 +323,7 @@ export default function ClinicDashboard() {
                 className="block bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20 p-5 hover:border-primary-400/50 transition-colors"
               >
                 <div className="space-y-2">
-                  <div className="font-semibold text-yellow-500 italic">
+                  <div className="font-semibold text-white italic">
                     {provider.first_name} {provider.last_name}
                   </div>
                   <div className="text-white/80 text-sm">
@@ -337,11 +337,12 @@ export default function ClinicDashboard() {
                   </div>
                   <div className="text-white/80 text-sm">
                     Total $ for current month: {formatCurrency(ps?.currentMonthTotal ?? 0)}
+                    
+                    <span className="ml-8">Paid: {ps?.metrics?.paidClaims ?? 0}</span>
                   </div>
                   <div className="text-white/80 text-sm flex flex-wrap gap-x-4 gap-y-0.5 mt-1 border-t border-white/20 pt-2">
                     <span>Visits: {ps?.metrics?.visits ?? 0}</span>
                     <span>No Shows: {ps?.metrics?.noShows ?? 0}</span>
-                    <span>Paid: {ps?.metrics?.paidClaims ?? 0}</span>
                     <span>PP: {ps?.metrics?.privatePay ?? 0}</span>
                     <span>Secondary: {ps?.metrics?.secondary ?? 0}</span>
                     <span>CC Declines: {ps?.metrics?.ccDeclines ?? 0}</span>

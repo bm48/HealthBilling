@@ -1162,16 +1162,6 @@ export default function ProvidersTab({
     }
   }, [activeProvider, providerColumnsWithLocks, isProviderView, officeStaffView, showCondenseButton, isCondensed])
 
-  if (providersToShow.length === 0) {
-    return (
-      <div className="p-6">
-        <div className="text-center text-white/70 py-8">
-          {providerId ? 'Provider not found' : 'No providers found for this clinic'}
-        </div>
-      </div>
-    )
-  }
-
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const [tableHeight, setTableHeight] = useState(isInSplitScreen ? 400 : 600)
   useEffect(() => {
@@ -1185,6 +1175,16 @@ export default function ProvidersTab({
     setTableHeight(el.clientHeight)
     return () => ro.disconnect()
   }, [isInSplitScreen])
+
+  if (providersToShow.length === 0) {
+    return (
+      <div className="p-6">
+        <div className="text-center text-white/70 py-8">
+          {providerId ? 'Provider not found' : 'No providers found for this clinic'}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div 

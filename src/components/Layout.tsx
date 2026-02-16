@@ -317,7 +317,7 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto scrollbar-hide">
+          <nav className="flex-1 px-4 space-y-1 overflow-y-auto scrollbar-hide">
             {userProfile?.role === 'provider' ? (
               <>
                 <Link
@@ -559,9 +559,9 @@ export default function Layout({ children }: LayoutProps) {
                                           >
                                             <FileText size={14} />
                                             <span>{provider.first_name} {provider.last_name}</span>
-                                            {provider.specialty && (
+                                            {/* {provider.specialty && (
                                               <span className="text-xs text-white/40">({provider.specialty})</span>
-                                            )}
+                                            )} */}
                                           </Link>
                                         ))
                                       } else {
@@ -923,9 +923,9 @@ export default function Layout({ children }: LayoutProps) {
                                             >
                                               <FileText size={14} />
                                               <span>{provider.first_name} {provider.last_name}</span>
-                                              {provider.specialty && (
+                                              {/* {provider.specialty && (
                                                 <span className="text-xs text-white/40">({provider.specialty})</span>
-                                              )}
+                                              )} */}
                                             </Link>
                                           ))
                                         } else {
@@ -1049,9 +1049,9 @@ export default function Layout({ children }: LayoutProps) {
                                   >
                                     <FileText size={14} />
                                     <span>{provider.first_name} {provider.last_name}</span>
-                                    {provider.specialty && (
+                                    {/* {provider.specialty && (
                                       <span className="text-xs text-white/40">({provider.specialty})</span>
-                                    )}
+                                    )} */}
                                   </Link>
                                 ))}
                               </div>
@@ -1101,12 +1101,12 @@ export default function Layout({ children }: LayoutProps) {
             )}
             <button
               onClick={handleSignOut}
-              className={`w-full flex items-center gap-2 px-4 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white rounded-lg transition-colors ${
+              className={`w-full h-50 flex items-center gap-2 px-4 py-2 text-xl text-white/70 hover:bg-white/10 hover:text-white rounded-lg transition-colors ${
                 sidebarCollapsed ? 'justify-center' : ''
               }`}
               title="Sign Out"
             >
-              <LogOut size={16} />
+              <LogOut size={32} />
               {!sidebarCollapsed && <span>Sign Out</span>}
             </button>
           </div>

@@ -161,8 +161,18 @@ export default function ClinicDetail() {
     const monthChanged = prevMonthKeyRef.current !== null && prevMonthKeyRef.current !== monthKey
     prevMonthKeyRef.current = monthKey
 
-    if (!monthChanged && !isInitialLoad) return
-    const hasCached = providerSheetRowsByMonth[monthKey] != null && Object.keys(providerSheetRowsByMonth[monthKey]).length > 0
+    const cacheForMonth = providerSheetRowsByMonth[monthKey]
+    const hasCached = cacheForMonth != null && Object.keys(cacheForMonth).length > 0
+    // When month didn't change and not initial load: only skip fetch if we have data for current context
+    if (!monthChanged && !isInitialLoad) {
+      if (providerId) {
+        // Single-provider view: skip only if we already have rows for this provider
+        if (cacheForMonth?.[providerId]?.length) return
+      } else {
+        // Clinic view: skip if we have any cache for this month
+        if (hasCached) return
+      }
+    }
     if (hasCached && monthChanged) return
 
     const isMonthChangeOnly = monthChanged && !isInitialLoad

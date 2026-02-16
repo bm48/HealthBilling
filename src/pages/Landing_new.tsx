@@ -81,14 +81,14 @@ export default function Landing() {
             to="/login"
             className="px-4 sm:px-6 py-2 bg-gray-200 text-black font-medium hover:bg-gray-300 rounded-lg transition-colors text-sm sm:text-base"
           >
-            Login
+            Login to Matrix
           </Link>
-          <Link
+          {/* <Link
             to="/signup"
             className="px-4 sm:px-6 py-2 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg transition-colors text-sm sm:text-base"
           >
             Sign Up
-          </Link>
+          </Link> */}
         </header>
 
         {/* Main Content */}
