@@ -131,151 +131,145 @@ export default function Landing() {
             <img className='w-full' src='/display.png' alt="Display" />
         </div>
 
-        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3'>
-            <div className='flex flex-col items-start justify-center gap-2 text-center p-6 sm:p-8 md:p-10 pl-6 sm:pl-10 md:pl-20' data-aos="fade-up" data-aos-delay="0">
-                <h1 className='text-3xl sm:text-4xl md:text-5xl font-bold mb-4'>Our Services</h1>
-                <div className='flex items-center justify-center mb-6 sm:mb-10'>
-                    <h2 className='text-2xl sm:text-3xl font-medium mb-4'>Medical Billing</h2>
-                    <img src='/BillingTag.png' alt="Billing Tag" className="w-12 h-12 sm:w-16 sm:h-16 ml-2" />
+        <div className='w-full py-8 sm:py-10 md:py-12 px-6 sm:px-8 md:px-10 mt-8 sm:mt-12 md:mt-16'>
+            <h1 className='text-3xl sm:text-4xl md:text-5xl font-bold mb-6 sm:mb-8 md:mb-10 px-6 sm:px-8 md:px-10' data-aos="fade-up" data-aos-delay="0">Our Services</h1>
+            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 md:gap-10 w-full'>
+                <div className='flex flex-col items-start gap-2 text-left w-full min-w-0' data-aos="fade-up" data-aos-delay="0">
+                    <div className='flex items-start justify-start mb-6 sm:mb-10 min-h-[5rem] sm:min-h-[6rem]'>
+                        <h2 className='text-2xl sm:text-3xl font-medium mb-0'>Medical Billing</h2>
+                        <img src='/BillingTag.png' alt="Billing Tag" className="w-12 h-12 sm:w-16 sm:h-16 ml-2 flex-shrink-0 -mt-1" />
+                    </div>
+                    <p className='text-md'>
+                        Accurate, compliant, and efficient billing is the foundation of sustainable revenue.
+                    </p>
+
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Insurance and patient billing management</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Certified medical coding and charge capture</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Claims submission, tracking, and follow-up</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Denial management and appeals</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Payment posting and reconciliation</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2 text-left'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Compliance-focused processes aligned with payer and regulatory requirements</span>
+                    </p>
+
+                    <p className='text-md text-left mt-10'>
+                        Faster reimbursements, fewer denials, and improved collections.
+                    </p>
+                    
                 </div>
-                <p className='text-md '>
-                    Accurate, compliant, and efficient billing is the foundation of sustainable revenue.
-                </p>
-{/* 
-                
-                <div className='grid grid-cols-2'>
-                    <div className='grid-cols-[15%]'> <Circle size={8} className="inline-block mr-2 bg-black rounded-full" /> </div>
-                    <div className='text-left grid-cols-[85%]'> <p className='text-md '>Certified medical coding and charge capture</p></div>
-                </div> */}
 
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Insurance and patient billing management
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Certified medical coding and charge capture
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Claims submission, tracking, and follow-up
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Denial management and appeals
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Payment posting and reconciliation
-                </p>
-                <p className='text-md pl-4 text-left'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Compliance-focused processes aligned with payer 
-                    &nbsp;&nbsp;&nbsp;&nbsp;and regulatory requirements
-                </p>
+                <div className='flex flex-col gap-2 text-left items-start w-full min-w-0' data-aos="fade-up" data-aos-delay="150">
+                    <div className='flex items-start justify-start mb-6 sm:mb-10 min-h-[5rem] sm:min-h-[6rem]'>
+                        <h2 className='text-2xl sm:text-3xl font-medium mb-0'>Proprietary Revenue Tracking Software</h2>
+                        <img src='/Revenue.png' alt="Revenue Tracking Software" className="w-12 h-12 sm:w-16 sm:h-16 -ml-3 flex-shrink-0 -mt-1" />
+                    </div>
+                    <p className='text-md'>
+                        Our proprietary platform delivers full visibility into your practice&apos;s financial health.
+                    </p>
+                    
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Claims status tracking</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Patient payment monitoring</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Revenue, adjustment, and aging analytics</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Centralized reporting and performance dashboards</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Data-driven insights to support faster decisions</span>
+                    </p>
 
-                <p className='text-md pl-4 text-left mt-10'>
-                    Faster reimbursements, fewer denials, and improved collections.
-                </p>
-                
-            </div>
-
-            <div className='flex flex-col gap-4 text-center items-start p-6 sm:p-8 md:p-10 pl-6 sm:pl-10 md:pl-20 pt-10 sm:pt-16 md:pt-20' data-aos="fade-up" data-aos-delay="150">
-                <div className='flex items-start justify-start mb-6 sm:mb-10 mt-6'>
-                    <h2 className='text-2xl sm:text-3xl font-medium mb-4'>Proprietary Revenue Tracking Software</h2>
-                    <img src='/Revenue.png' alt="Revenue Tracking Software" className="w-12 h-12 sm:w-16 sm:h-16 -ml-3 flex-shrink-0" />
+                    <p className='text-md text-left mt-10'>
+                        Transparency, accountability, and actionable financial intelligence—without relying on fragmented systems.
+                    </p>
                 </div>
-                <p className='text-md -mt-5'>
-                    Our proprietary platform delivers full visibility into your practice&apos;s financial health.
-                </p>
-                
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Claims status tracking
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Patient payment monitoring
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Revenue, adjustment, and aging analytics
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Centralized reporting and performance dashboards
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Data-driven insights to support faster decisions
-                </p>
 
-                <p className='text-md pl-4 text-left mt-10'>
-                    Transparency, accountability, and actionable financial intelligence—without relying on fragmented systems.
-                </p>
-            </div>
+                <div className='flex flex-col items-start justify-start gap-2 text-left w-full min-w-0' data-aos="fade-up" data-aos-delay="300">
+                    <div className='flex items-start justify-start mb-6 sm:mb-10 min-h-[5rem] sm:min-h-[6rem]'>
+                        <h2 className='text-2xl sm:text-3xl font-medium mb-0'>Practice Consultation</h2>
+                        <img src='/consultation.png' alt="consultation" className="w-12 h-12 sm:w-16 sm:h-16 ml-2 flex-shrink-0 -mt-2" />
+                    </div>
+                    <p className='text-md'>
+                        We help practices identify revenue gaps, operational inefficiencies, and growth opportunities.
+                    </p>
+                    
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Revenue cycle assessments and workflow optimization</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Financial performance analysis and benchmarking</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Payer mix and reimbursement strategy guidance</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Process improvement and staff training support</span>
+                    </p>
+                    <p className='text-md flex items-start gap-2'>
+                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="min-w-0">Scalable solutions for growing or transitioning practices</span>
+                    </p>
 
-            <div className='flex flex-col items-start justify-start gap-4 text-center p-6 sm:p-8 md:p-10 pt-10 sm:pt-16 md:pt-20 pl-6 sm:pl-10 md:pl-20' data-aos="fade-up" data-aos-delay="300">
 
-                <div className='flex items-start justify-start mb-6 sm:mb-10 mt-6'>
-                    <h2 className='text-2xl sm:text-3xl font-medium mb-4'>Practice Consultation</h2>
-                    <img src='/consultation.png' alt="consultation" className="w-12 h-12 sm:w-16 sm:h-16 -mt-3 ml-2 flex-shrink-0" />
+                    <p className='text-md text-left mt-10'>
+                        Stronger financial controls and smarter operational decisions.
+                    </p>
                 </div>
-                <p className='text-md mt-5'>
-                    We help practices identify revenue gaps, operational inefficiencies, and growth opportunities.
-                </p>
-                
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Claims status tracking
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Claims status tracking
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Claims status tracking
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Claims status tracking
-                </p>
-                <p className='text-md pl-4'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Claims status tracking
-                </p>
-
-
-                <p className='text-md pl-4 text-left mt-10'>
-                    Stronger financial controls and smarter operational decisions.
-                </p>
             </div>
         </div>
 
-        <div className='w-full text-gray-900 mt-12 sm:mt-16 md:mt-20 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
+        <div className='w-full text-gray-900 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
             <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 ml-0 sm:ml-10 md:ml-20'>Why Choose Us</h1>
             <div className='w-full max-w-[95%] sm:max-w-[85%] md:max-w-[70%] lg:w-[50%] mx-auto text-left pt-6 sm:pt-10'>
                 
-                <p className='text-base sm:text-lg md:text-xl'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Integrated approach: Services and technology working together
+                <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
+                    <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                    <span className="min-w-0">Integrated approach: Services and technology working together</span>
                 </p>
-                <p className='text-base sm:text-lg md:text-xl'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Transparency: Clear reporting and measurable outcomes
+                <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
+                    <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                    <span className="min-w-0">Healthcare-focused expertise: Built specifically for medical practices</span>
                 </p>
-                <p className='text-base sm:text-lg md:text-xl'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Transparency: Clear reporting and measurable outcomes
+                <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
+                    <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                    <span className="min-w-0">Transparency: Clear reporting and measurable outcomes</span>
                 </p>
-                <p className='text-base sm:text-lg md:text-xl'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Scalability: Solutions that grow with your practice
+                <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
+                    <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                    <span className="min-w-0">Scalability: Solutions that grow with your practice</span>
                 </p>
-                <p className='text-base sm:text-lg md:text-xl'>
-                    <Circle size={8} className="inline-block mr-2 bg-black rounded-full" />
-                    Results-driven: Designed to improve cash flow and reduce administrative burden
+                <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
+                    <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                    <span className="min-w-0">Results-driven: Designed to improve cash flow and reduce administrative burden</span>
                 </p>
             </div>
         </div>
