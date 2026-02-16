@@ -329,12 +329,12 @@ export default function ClinicDashboard() {
                   <div className="text-white/80 text-sm">
                     {provider.npi ? ` NPI : ${provider.npi}` : ''}
                   </div>
-                  <div className="text-white/80 text-sm">
+                  {/* <div className="text-white/80 text-sm">
                     {ps?.claimsCount ?? 0} claims · {ps?.unpaidClaimsCount ?? 0} unpaid claims
                   </div>
                   <div className="text-white/80 text-sm">
                     {ps?.todoCount ?? 0} to-do items
-                  </div>
+                  </div> */}
                   <div className="text-white/80 text-sm">
                     Total $ for current month: {formatCurrency(ps?.currentMonthTotal ?? 0)}
                     
