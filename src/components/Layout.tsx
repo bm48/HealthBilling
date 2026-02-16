@@ -996,6 +996,7 @@ export default function Layout({ children }: LayoutProps) {
                 {/* Provider Sheet: expandable list of providers; click header = expand + go to first provider (office_staff only) */}
                 {!sidebarCollapsed && (
                   <div className="mb-1">
+                    
                     <button
                       type="button"
                       onClick={() => {
@@ -1031,9 +1032,21 @@ export default function Layout({ children }: LayoutProps) {
                         ) : (
                           clinics.map((clinic) => {
                             const providers = clinicProviders[clinic.id]
+                            const clinicPatientsPath = `/clinic/${clinic.id}/patients`
                             if (!providers || providers.length === 0) return null
                             return (
                               <div key={clinic.id} className="mb-2">
+                              <Link
+                                to={clinicPatientsPath}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                                  location.pathname === clinicPatientsPath
+                                    ? 'bg-primary-600 text-white font-medium'
+                                    : 'text-white/60 hover:bg-white/10 hover:text-white'
+                                }`}
+                              >
+                                <Users size={16} />
+                                <span>Patient Info</span>
+                              </Link>
                                 <div className="px-4 py-1 text-xs font-semibold text-white/40 uppercase tracking-wider">
                                   {clinic.name}
                                 </div>

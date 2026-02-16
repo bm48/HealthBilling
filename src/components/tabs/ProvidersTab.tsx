@@ -262,9 +262,9 @@ export default function ProvidersTab({
     return getTableDataFromRows(activeProviderRows)
   }, [activeProvider, activeProviderRows, getTableDataFromRows])
 
-  // Sum of Ins Pay, Collected from PT, Total (computed from current rows; not stored in DB)
+  // Sum of Ins Pay, Collected from PT, AR, Total (computed from current rows; not stored in DB)
+  // For provider level 2 (full) we show full tally; for admin/billing we show insPay, collectedFromPt, total; AR only for provider level 2
   const providerSums = useMemo(() => {
-    if (isProviderView) return { insPay: 0, collectedFromPt: 0, total: 0 }
     const parse = (v: unknown): number => {
       if (v == null || v === '' || v === 'null') return 0
       const n = typeof v === 'number' ? v : parseFloat(String(v))
@@ -272,14 +272,16 @@ export default function ProvidersTab({
     }
     let insPay = 0
     let collectedFromPt = 0
+    let arTotal = 0
     let total = 0
     activeProviderRows.forEach((row) => {
       insPay += parse(row.insurance_payment)
       collectedFromPt += parse(row.collected_from_patient)
+      arTotal += parse(row.ar_amount)
       total += parse(row.total)
     })
-    return { insPay, collectedFromPt, total }
-  }, [activeProviderRows, isProviderView])
+    return { insPay, collectedFromPt, arTotal, total }
+  }, [activeProviderRows])
 
   // Billing metrics (visits, no shows, paid claims, etc.) for the selected month – admin/billing only
   const billingMetrics = useMemo(() => {
@@ -1191,16 +1193,7 @@ export default function ProvidersTab({
       className="p-6" 
       style={isInSplitScreen ? { width: '100%', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
     >
-      {providerId && currentProvider && !isInSplitScreen && (
-        <div className="mb-2 pb-4 border-b border-white/20">
-          <h2 className="text-xl font-semibold text-white">
-            {currentProvider.first_name} {currentProvider.last_name}
-            {/* {currentProvider.specialty && (
-              <span className="text-white/70 text-sm font-normal ml-2">({currentProvider.specialty})</span>
-            )} */}
-          </h2>
-        </div>
-      )}
+      
       {/* month selector - background color from status_colors (month type), like Ins Pay Date column */}
       {(() => {
         const monthName = selectedMonth.toLocaleString('en-US', { month: 'long' })
@@ -1292,27 +1285,52 @@ export default function ProvidersTab({
         )}
       </div>
 
-      {activeProvider && !isProviderView && (
+      {/* Sum tally for provider with full access (level 2) only */}
+      {activeProvider && isProviderView && providerLevel === 2 && (
         <div
           className="mt-3 flex flex-col gap-2 px-4 py-3 rounded-lg border border-white/20 bg-slate-800/80 text-white"
           style={{ width: '100%', maxWidth: '100%' }}
         >
           <div className="flex items-center gap-6 flex-wrap">
             <span className="font-medium text-red-500">Sums:</span>
-            <span className="ml-2"><strong>Ins Pay:</strong> {formatCurrency(providerSums.insPay)}</span>
-            <span className="ml-2"><strong>Collected from PT:</strong> {formatCurrency(providerSums.collectedFromPt)}</span>
-            <span className="ml-2"><strong>Total:</strong> {formatCurrency(providerSums.total)}</span>
+            <span className="ml-2"><strong>Insurance Pay Total:</strong> {formatCurrency(providerSums.insPay)}</span>
+            <span className="ml-2"><strong>Patient Payment Total:</strong> {formatCurrency(providerSums.collectedFromPt)}</span>
+            <span className="ml-2"><strong>Accounts Receivable Total:</strong> {formatCurrency(providerSums.arTotal)}</span>
+            {/* <span className="ml-2"><strong>Total:</strong> {formatCurrency(providerSums.total)}</span> */}
           </div>
-          {billingMetrics && (
-            <div className="flex items-center gap-4 flex-wrap text-sm border-t border-white/20 pt-2">
-              <span className="font-medium text-red-500/90">Metrics:</span>
-              <span>Visits: <strong>{billingMetrics.visits}</strong></span>
-              <span>No Shows: <strong>{billingMetrics.noShows}</strong></span>
-              <span>Paid claims: <strong>{billingMetrics.paidClaims}</strong></span>
-              <span>Private Pay: <strong>{billingMetrics.privatePay}</strong></span>
-              <span>Secondary: <strong>{billingMetrics.secondary}</strong></span>
-              <span>CC Declines: <strong>{billingMetrics.ccDeclines}</strong></span>
+        </div>
+      )}
+
+      {activeProvider && !isProviderView && (
+        <div
+          className="mt-3 flex flex-col gap-2 px-4 py-3 rounded-lg border border-white/20 bg-slate-800/80 text-white"
+          style={{ width: '100%', maxWidth: '100%' }}
+        >
+          {officeStaffView ? (
+            <div className="flex items-center gap-4 flex-wrap text-sm">
+              <span className="font-medium text-red-500/90">CC Declines:</span>
+              <span><strong>{billingMetrics?.ccDeclines ?? 0}</strong></span>
             </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-6 flex-wrap">
+                <span className="font-medium text-red-500">Sums:</span>
+                <span className="ml-2"><strong>Ins Pay:</strong> {formatCurrency(providerSums.insPay)}</span>
+                <span className="ml-2"><strong>Collected from PT:</strong> {formatCurrency(providerSums.collectedFromPt)}</span>
+                <span className="ml-2"><strong>Total:</strong> {formatCurrency(providerSums.total)}</span>
+              </div>
+              {billingMetrics && (
+                <div className="flex items-center gap-4 flex-wrap text-sm border-t border-white/20 pt-2">
+                  <span className="font-medium text-red-500/90">Metrics:</span>
+                  <span>Visits: <strong>{billingMetrics.visits}</strong></span>
+                  <span>No Shows: <strong>{billingMetrics.noShows}</strong></span>
+                  <span>Paid claims: <strong>{billingMetrics.paidClaims}</strong></span>
+                  <span>Private Pay: <strong>{billingMetrics.privatePay}</strong></span>
+                  <span>Secondary: <strong>{billingMetrics.secondary}</strong></span>
+                  <span>CC Declines: <strong>{billingMetrics.ccDeclines}</strong></span>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

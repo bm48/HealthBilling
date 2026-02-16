@@ -54,20 +54,21 @@ export default function Login() {
       </div>
 
       <div className="relative z-10 max-w-md w-full space-y-8">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 text-white/70 hover:text-white transition-colors mb-4"
-        >
-          <ArrowLeft size={20} />
-          <span>Back to Home</span>
-        </Link>
         
         <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20 shadow-2xl">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full mb-4">
+          <div className="text-center mb-8 relative">
+            {/* <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full mb-4">
               <LogIn className="text-white" size={32} />
-            </div>
-            <h2 className="text-3xl font-extrabold text-white mb-2">
+            </div> */}
+            
+            <Link
+              to="/"
+              className="absolute -top-6 -left-6 inline-flex items-center gap-2 text-white/70 hover:text-white transition-colors mb-4"
+            >
+              <ArrowLeft size={20} />
+              <span>Back to Home</span>
+            </Link>
+            <h2 className="text-3xl font-extrabold text-white mb-2 pt-4">
               Welcome Back
             </h2>
             <p className="text-sm text-white/70">
