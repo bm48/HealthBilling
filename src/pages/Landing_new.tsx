@@ -144,27 +144,27 @@ export default function Landing() {
                     </p>
 
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Insurance and patient billing management</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Certified medical coding and charge capture</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Claims submission, tracking, and follow-up</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Denial management and appeals</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Payment posting and reconciliation</span>
                     </p>
                     <p className='text-md flex items-start gap-2 text-left'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Compliance-focused processes aligned with payer and regulatory requirements</span>
                     </p>
 
@@ -184,23 +184,23 @@ export default function Landing() {
                     </p>
                     
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Claims status tracking</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Patient payment monitoring</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Revenue, adjustment, and aging analytics</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Centralized reporting and performance dashboards</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Data-driven insights to support faster decisions</span>
                     </p>
 
@@ -219,23 +219,23 @@ export default function Landing() {
                     </p>
                     
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Revenue cycle assessments and workflow optimization</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Financial performance analysis and benchmarking</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Payer mix and reimbursement strategy guidance</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Process improvement and staff training support</span>
                     </p>
                     <p className='text-md flex items-start gap-2'>
-                        <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                        <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                         <span className="min-w-0">Scalable solutions for growing or transitioning practices</span>
                     </p>
 
@@ -252,23 +252,23 @@ export default function Landing() {
             <div className='w-full max-w-[95%] sm:max-w-[85%] md:max-w-[70%] lg:w-[50%] mx-auto text-left pt-6 sm:pt-10'>
                 
                 <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
-                    <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                    <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                     <span className="min-w-0">Integrated approach: Services and technology working together</span>
                 </p>
                 <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
-                    <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                    <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                     <span className="min-w-0">Healthcare-focused expertise: Built specifically for medical practices</span>
                 </p>
                 <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
-                    <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                    <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                     <span className="min-w-0">Transparency: Clear reporting and measurable outcomes</span>
                 </p>
                 <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
-                    <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                    <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                     <span className="min-w-0">Scalability: Solutions that grow with your practice</span>
                 </p>
                 <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
-                    <Circle size={8} className="flex-shrink-0 mt-1.5 bg-black rounded-full" />
+                    <span className="flex items-center shrink-0 h-[1.25em] mt-1"><Circle size={8} className="flex-shrink-0 bg-black rounded-full" /></span>
                     <span className="min-w-0">Results-driven: Designed to improve cash flow and reduce administrative burden</span>
                 </p>
             </div>
