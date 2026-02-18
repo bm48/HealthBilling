@@ -1955,7 +1955,6 @@ export default function ClinicDetail() {
         return (
           <ProvidersTab
             clinicId={clinicId}
-            canAddComment={!!clinicId}
             canEditComment={userProfile?.role === 'super_admin'}
             providers={providers}
             providerSheetRows={providerSheetRows}

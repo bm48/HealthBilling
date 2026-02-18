@@ -47,9 +47,7 @@ interface ProvidersTabProps {
   restrictEditToSchedulingColumns?: boolean
   /** When true (office_staff), show only columns Patient ID through Appt/Note Status and Collected from PT through PT Payment AR Ref Date */
   officeStaffView?: boolean
-  /** When true, show "See comment" in cell context menu (everyone can see; edit only when canEditComment) */
-  canAddComment?: boolean
-  /** When true (super_admin only), user can edit/remove/resolve comments in the modal */
+  /** When true (super_admin only), user can edit/remove/resolve comments in the modal and "See comment" context menu is shown */
   canEditComment?: boolean
 }
 
@@ -83,7 +81,6 @@ export default function ProvidersTab({
   onReorderProviderRows,
   restrictEditToSchedulingColumns = false,
   officeStaffView = false,
-  canAddComment = false,
   canEditComment = false,
 }: ProvidersTabProps) {
   
@@ -484,17 +481,6 @@ export default function ProvidersTab({
       if (!colKey) return undefined
       const key = `${sheetRow?.id ?? `row-${row}`}:${colKey}`
       return commentsMap.get(key) ?? undefined
-    },
-    [activeProviderRows, columnFields, commentsMap]
-  )
-
-  const getCellHasComment = useCallback(
-    (row: number, col: number) => {
-      const sheetRow = activeProviderRows[row]
-      const colKey = columnFields[col]
-      if (!colKey) return false
-      const key = `${sheetRow?.id ?? `row-${row}`}:${colKey}`
-      return commentsMap.has(key)
     },
     [activeProviderRows, columnFields, commentsMap]
   )

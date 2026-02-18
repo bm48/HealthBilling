@@ -520,7 +520,7 @@ export default function ProviderSheetPage() {
         <ProvidersTab
           clinicId={clinicId}
           providers={[provider]}
-          canAddComment={userProfile?.role === 'provider'}
+          canEditComment={false}
           providerSheetRows={providerSheetRows}
           billingCodes={billingCodes}
           statusColors={statusColors}
