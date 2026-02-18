@@ -882,6 +882,7 @@ export default function SuperAdminSettings() {
                                           <span className="text-red-400 ml-2 text-xs">(Inactive)</span>
                                         )}
                                       </div>
+                                      
                                     ))}
                                   </div>
                                 ) : (
