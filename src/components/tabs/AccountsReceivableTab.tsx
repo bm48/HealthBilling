@@ -897,6 +897,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
     )
   }
 
+  
   return (
     <div 
       className="p-6" 
