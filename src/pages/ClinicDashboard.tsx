@@ -76,11 +76,8 @@ export default function ClinicDashboard() {
       const now = new Date()
       const y = now.getFullYear()
       const m = now.getMonth() + 1
-      const currentMonthStart = `${y}-${String(m).padStart(2, '0')}-01`
-      const nextMonth = m === 12 ? [y + 1, 1] : [y, m + 1]
-      const nextMonthStart = `${nextMonth[0]}-${String(nextMonth[1]).padStart(2, '0')}-01`
 
-      const [providersRes, patientsRes, todosRes, arRes, sheetsRes, allSheetsRes] = await Promise.all([
+      const [providersRes, patientsRes, todosRes, sheetsRes, allSheetsRes] = await Promise.all([
         supabase
           .from('providers')
           .select('*')
@@ -89,12 +86,6 @@ export default function ClinicDashboard() {
           .order('first_name'),
         supabase.from('patients').select('id', { count: 'exact', head: true }).eq('clinic_id', clinicId),
         supabase.from('todo_lists').select('id', { count: 'exact', head: true }).eq('clinic_id', clinicId),
-        supabase
-          .from('accounts_receivables')
-          .select('amount')
-          .eq('clinic_id', clinicId)
-          .gte('date_recorded', currentMonthStart)
-          .lt('date_recorded', nextMonthStart),
         supabase
           .from('provider_sheets')
           .select('id, provider_id')
@@ -110,19 +101,11 @@ export default function ClinicDashboard() {
       const providersList = (providersRes.data || []) as Provider[]
       setProviders(providersList)
 
-      let currentMonthTotal: number | null = null
-      if (arRes.data?.length) {
-        currentMonthTotal = arRes.data.reduce(
-          (s: number, row: { amount: number | null }) => s + Number(row.amount ?? 0),
-          0
-        )
-      }
-
       setStats({
         patientCount: patientsRes.count ?? 0,
         providerCount: providersList.length,
         todoCount: todosRes.count ?? 0,
-        currentMonthTotal,
+        currentMonthTotal: null,
       })
 
       const sheets = (sheetsRes.data || []) as { id: string; provider_id: string }[]
@@ -214,16 +197,17 @@ export default function ClinicDashboard() {
           }
         })
 
-        setProviderStats(
-          providersList.map((p) => ({
-            providerId: p.id,
-            claimsCount: byProvider[p.id]?.claims ?? 0,
-            unpaidClaimsCount: byProvider[p.id]?.unpaid ?? 0,
-            todoCount: todosRes.count ?? 0,
-            currentMonthTotal: byProvider[p.id]?.total ?? 0,
-            metrics: byProvider[p.id]?.metrics ?? { visits: visitsByProvider[p.id] ?? 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
-          }))
-        )
+        const providerStatsList = providersList.map((p) => ({
+          providerId: p.id,
+          claimsCount: byProvider[p.id]?.claims ?? 0,
+          unpaidClaimsCount: byProvider[p.id]?.unpaid ?? 0,
+          todoCount: todosRes.count ?? 0,
+          currentMonthTotal: byProvider[p.id]?.total ?? 0,
+          metrics: byProvider[p.id]?.metrics ?? { visits: visitsByProvider[p.id] ?? 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
+        }))
+        setProviderStats(providerStatsList)
+        const grandTotalPaid = providersList.reduce((s, p) => s + (byProvider[p.id]?.total ?? 0), 0)
+        setStats((prev) => (prev ? { ...prev, currentMonthTotal: grandTotalPaid } : prev))
       }
     } catch (error) {
       console.error('Error fetching clinic dashboard:', error)
@@ -281,6 +265,26 @@ export default function ClinicDashboard() {
         </div>
       </div>
 
+
+      {/* Section 3b: Total $ paid (current month) per provider – summary at top */}
+      {providers.length > 0 && (
+        <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20 p-5">
+          <h2 className="text-lg font-semibold text-white mb-3">Total $ paid (current month) by provider</h2>
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            {providers.map((provider) => {
+              const ps = providerStats.find((s) => s.providerId === provider.id)
+              return (
+                <div key={provider.id} className="text-white/90 text-sm">
+                  <span className="font-medium">{provider.first_name} {provider.last_name}:</span>
+                  <span className="ml-1">{formatCurrency(ps?.currentMonthTotal ?? 0)}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+
       {/* Section 3: Summary cards */}
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
@@ -308,20 +312,19 @@ export default function ClinicDashboard() {
           <div className="flex items-center justify-between mb-2">
             <DollarSign className="text-purple-400" size={24} />
             <span className="text-3xl font-bold text-white">
-              {formatCurrency(stats?.currentMonthTotal ?? null)}
+              {formatCurrency(stats?.currentMonthTotal ?? 0)}
             </span>
           </div>
-          <h3 className="text-sm font-medium text-white/70">Current Month Total</h3>
+          <h3 className="text-sm font-medium text-white/70">Total $ paid (current month)</h3>
         </div>
       </div>
-
+      
       {/* Section 4: Provider summary cards – dashboard style (one per row) */}
       <div>
         <h2 className="text-xl font-semibold text-white mb-4">Providers</h2>
         <div className="space-y-4">
           {providers.map((provider) => {
             const ps = providerStats.find((s) => s.providerId === provider.id)
-            console.log('ps', ps)
             return (
               <Link
                 key={provider.id}
@@ -335,20 +338,10 @@ export default function ClinicDashboard() {
                   <div className="text-white/80 text-sm">
                     {provider.npi ? ` NPI : ${provider.npi}` : ''}
                   </div>
-                  {/* <div className="text-white/80 text-sm">
-                    {ps?.claimsCount ?? 0} claims · {ps?.unpaidClaimsCount ?? 0} unpaid claims
-                  </div>
-                  <div className="text-white/80 text-sm">
-                    {ps?.todoCount ?? 0} to-do items
-                  </div> */}
-                  <div className="text-white/80 text-sm">
-                    Total $ for current month: {formatCurrency(ps?.currentMonthTotal ?? 0)}
-                    
-                    <span className="ml-8">Paid: {ps?.metrics?.paidClaims ?? 0}</span>
-                  </div>
                   <div className="text-white/80 text-sm flex flex-wrap gap-x-4 gap-y-0.5 mt-1 border-t border-white/20 pt-2">
                     <span>Visits: {ps?.metrics?.visits ?? 0}</span>
                     <span>No Shows: {ps?.metrics?.noShows ?? 0}</span>
+                    <span>Paid claims: {ps?.metrics?.paidClaims ?? 0}</span>
                     <span>PP: {ps?.metrics?.privatePay ?? 0}</span>
                     <span>Secondary: {ps?.metrics?.secondary ?? 0}</span>
                     <span>CC Declines: {ps?.metrics?.ccDeclines ?? 0}</span>

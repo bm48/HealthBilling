@@ -457,6 +457,7 @@ export default function SuperAdminSettings() {
             fax: clinicData.fax ?? editingClinic.fax ?? null,
             npi: clinicData.npi ?? editingClinic.npi ?? null,
             ein: clinicData.ein ?? editingClinic.ein ?? null,
+            payroll: clinicData.payroll ?? editingClinic.payroll ?? 1,
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingClinic.id)
@@ -473,6 +474,7 @@ export default function SuperAdminSettings() {
             fax: clinicData.fax ?? null,
             npi: clinicData.npi ?? null,
             ein: clinicData.ein ?? null,
+            payroll: clinicData.payroll ?? 1,
           })
 
         if (error) throw error
@@ -854,6 +856,7 @@ export default function SuperAdminSettings() {
                           <th>Address</th>
                           <th>Phone</th>
                           <th>Providers</th>
+                          <th>Payroll</th>
                           <th>Created</th>
                           <th style={{ width: '80px' }}>Actions</th>
                         </tr>
@@ -885,6 +888,7 @@ export default function SuperAdminSettings() {
                                   <span className="text-white/50">No providers</span>
                                 )}
                               </td>
+                              <td>{clinic.payroll === 1 ? 'Once' : 'Twice'}</td>
                               <td>{formatDateTime(clinic.created_at)}</td>
                               <td>
                                 <div className="flex items-center gap-1">
@@ -1541,6 +1545,7 @@ function ClinicFormModal({
     fax: clinic?.fax ?? '',
     npi: clinic?.npi ?? '',
     ein: clinic?.ein ?? '',
+    payroll: (clinic?.payroll ?? 1) as 1 | 2,
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1557,6 +1562,7 @@ function ClinicFormModal({
       fax: formData.fax.trim() || null,
       npi: formData.npi.trim() || null,
       ein: formData.ein.trim() || null,
+      payroll: formData.payroll,
     })
   }
 
@@ -1638,6 +1644,18 @@ function ClinicFormModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
               placeholder="Employer Identification Number"
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Payroll</label>
+            <select
+              value={formData.payroll}
+              onChange={(e) => setFormData({ ...formData, payroll: Number(e.target.value) as 1 | 2 })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+            >
+              <option value={1}>Once per month</option>
+              <option value={2}>Twice per month</option>
+            </select>
+            <p className="text-xs text-gray-500 mt-1">1 = default; 2 = two pay periods per month (24-item date dropdowns, dual AR/Provider Pay tables)</p>
           </div>
 
           <div className="flex justify-end gap-3 pt-4">

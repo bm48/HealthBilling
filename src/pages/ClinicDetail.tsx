@@ -1914,6 +1914,7 @@ export default function ClinicDetail() {
         return (
           <AccountsReceivableTab
             clinicId={clinicId!}
+            clinicPayroll={clinic?.payroll ?? 1}
             canEdit={canEdit}
             isInSplitScreen={!!splitScreen}
             isLockAccountsReceivable={isLockAccountsReceivable}
@@ -1932,6 +1933,7 @@ export default function ClinicDetail() {
         return (
           <ProviderPayTab
             clinicId={clinicId!}
+            clinicPayroll={clinic?.payroll ?? 1}
             providerId={providerId ?? undefined}
             providers={providers.filter((p): p is Provider => p.level === 2)}
             canEdit={canEdit}
@@ -1955,6 +1957,7 @@ export default function ClinicDetail() {
         return (
           <ProvidersTab
             clinicId={clinicId}
+            clinicPayroll={clinic?.payroll ?? 1}
             canEditComment={userProfile?.role === 'super_admin'}
             providers={providers}
             providerSheetRows={providerSheetRows}

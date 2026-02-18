@@ -4,12 +4,14 @@ import { supabase } from '@/lib/supabase'
  * Fetch Provider Pay for a given clinic, provider, and month.
  * Returns { payDate, payPeriod, rows } or null if none exists.
  * rows is a 2D array [row_index][0=description, 1=amount, 2=notes]; row 0 is the header row.
+ * payroll: 1 or 2 when clinic has two pay periods; default 1.
  */
 export async function fetchProviderPay(
   clinicId: string,
   providerId: string,
   year: number,
-  month: number
+  month: number,
+  payroll: number = 1
 ): Promise<{ payDate: string; payPeriod: string; notes: string; rows: string[][] } | null> {
   const { data: header, error: headerError } = await supabase
     .from('provider_pay')
@@ -18,6 +20,7 @@ export async function fetchProviderPay(
     .eq('provider_id', providerId)
     .eq('year', year)
     .eq('month', month)
+    .eq('payroll', payroll)
     .maybeSingle()
 
   if (headerError) {
@@ -54,6 +57,7 @@ export async function fetchProviderPay(
 /**
  * Save Provider Pay for a given clinic, provider, and month.
  * Upserts the header and replaces all rows for that header.
+ * payroll: 1 or 2 when clinic has two pay periods; default 1.
  */
 export async function saveProviderPay(
   clinicId: string,
@@ -63,7 +67,8 @@ export async function saveProviderPay(
   payDate: string,
   payPeriod: string,
   tableData: string[][],
-  notes: string
+  notes: string,
+  payroll: number = 1
 ): Promise<void> {
   const { data: existing, error: fetchError } = await supabase
     .from('provider_pay')
@@ -72,6 +77,7 @@ export async function saveProviderPay(
     .eq('provider_id', providerId)
     .eq('year', year)
     .eq('month', month)
+    .eq('payroll', payroll)
     .maybeSingle()
 
   if (fetchError) {
@@ -100,6 +106,7 @@ export async function saveProviderPay(
         provider_id: providerId,
         year,
         month,
+        payroll,
         pay_date: payDate || null,
         pay_period: payPeriod || null,
         notes: notes || null,

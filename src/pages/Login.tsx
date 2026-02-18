@@ -68,12 +68,21 @@ export default function Login() {
               <ArrowLeft size={20} />
               <span>Back to Home</span>
             </Link>
-            <h2 className="text-3xl font-extrabold text-white mb-2 pt-4">
+
+            <img
+              src="/AMBC%20logo%20update.png"
+              alt="AMBC Logo"
+              width={150}
+              height={150}
+              className="mx-auto mb-4 max-h-48 w-auto object-contain"
+            />
+
+            {/* <h2 className="text-3xl font-extrabold text-white mb-2 pt-4 -mt-20">
               Welcome Back
             </h2>
             <p className="text-sm text-white/70">
               Sign in to your account to continue
-            </p>
+            </p> */}
           </div>
           <form className="space-y-6" onSubmit={handleSubmit}>
           {error && (
@@ -81,7 +90,7 @@ export default function Login() {
               <div className="text-sm text-red-200">{error}</div>
             </div>
           )}
-          <div className="space-y-4">
+          <div className="space-y-4 -mt-[3rem]">
             <div>
               <label htmlFor="email-address" className="block text-sm font-medium text-white/90 mb-2 flex items-center gap-2">
                 <Mail size={16} />

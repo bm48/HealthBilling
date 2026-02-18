@@ -12,6 +12,8 @@ import { computeBillingMetrics } from '@/lib/billingMetrics'
 interface ProvidersTabProps {
   /** Required for loading/saving cell highlights and comments; from URL on provider side when they click a clinic */
   clinicId?: string
+  /** 1 = default (12 month options); 2 = two pay periods per month (24 options: 1st/2nd January, ...) */
+  clinicPayroll?: 1 | 2
   providers: Provider[]
   providerSheetRows: Record<string, SheetRow[]>
   /** Bumped by parent on row reorder so grid refreshes with new order */
@@ -53,6 +55,7 @@ interface ProvidersTabProps {
 
 export default function ProvidersTab({
   clinicId,
+  clinicPayroll = 1,
   providers,
   providerSheetRows,
   providerRowsVersion,
@@ -93,6 +96,7 @@ export default function ProvidersTab({
   const [commentText, setCommentText] = useState('')
   const [commentModalLoading, setCommentModalLoading] = useState(false)
   const [isCondensed, setIsCondensed] = useState(false)
+  const [arSumFromDb, setArSumFromDb] = useState<number | null>(null)
   const commentTextareaRef = useRef<HTMLTextAreaElement>(null)
   const commentModalContainerRef = useRef<HTMLDivElement>(null)
   const hotInstanceRef = useRef<Handsontable | null>(null)
@@ -169,7 +173,9 @@ export default function ProvidersTab({
 
   const getMonthColor = useCallback((month: string): { color: string; textColor: string } | null => {
     if (!month) return null
-    const monthColor = statusColors.find(s => s.status === month && s.type === 'month')
+    // Support "1st January" / "2nd January" (payroll 2) by normalizing to month name for status_colors lookup
+    const monthName = month.replace(/^(1st|2nd)\s+/i, '').trim()
+    const monthColor = statusColors.find(s => s.status === monthName && s.type === 'month')
     if (monthColor) {
       return { color: monthColor.color, textColor: monthColor.text_color || '#000000' }
     }
@@ -288,6 +294,37 @@ export default function ProvidersTab({
     })
     return { insPay, collectedFromPt, arTotal, total }
   }, [activeProviderRows])
+
+  // Accounts receivable total from accounts_receivables table for the selected month (clinic-level)
+  useEffect(() => {
+    if (!clinicId) {
+      setArSumFromDb(null)
+      return
+    }
+    const y = selectedMonth.getFullYear()
+    const m = selectedMonth.getMonth()
+    const firstDay = `${y}-${String(m + 1).padStart(2, '0')}-01`
+    const lastDay = new Date(y, m + 1, 0)
+    const lastDayStr = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`
+
+    let cancelled = false
+    setArSumFromDb(null)
+    supabase
+      .from('accounts_receivables')
+      .select('amount')
+      .eq('clinic_id', clinicId)
+      .gte('date_recorded', firstDay)
+      .lte('date_recorded', lastDayStr)
+      .then(({ data, error }) => {
+        if (cancelled || error) {
+          if (!cancelled && error) console.error('Fetch accounts_receivables sum:', error)
+          return
+        }
+        const sum = (data || []).reduce((acc, row) => acc + (Number(row?.amount) || 0), 0)
+        if (!cancelled) setArSumFromDb(sum)
+      })
+    return () => { cancelled = true }
+  }, [clinicId, selectedMonth])
 
   // Billing metrics (visits, no shows, paid claims, etc.) for the selected month – admin/billing only
   const billingMetrics = useMemo(() => {
@@ -681,8 +718,11 @@ export default function ProvidersTab({
   const providerColumnsWithLocks = useMemo(() => {
     if (!activeProvider) return []
     
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-    
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+    const months = clinicPayroll === 2
+      ? monthNames.flatMap(m => [`1st ${m}`, `2nd ${m}`])
+      : monthNames
+
     if (officeStaffView) {
       return [
         { data: 0, title: 'Patient ID', type: 'text' as const, width: 100, readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id')) },
@@ -713,7 +753,6 @@ export default function ProvidersTab({
       ]
     }
     if (isProviderView && providerLevel === 2) {
-      const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
       return [
         { data: 0, title: 'Patient ID', type: 'text' as const, width: 100,  },
         { data: 1, title: 'First Name', type: 'text' as const, width: 120,  },
@@ -892,7 +931,7 @@ export default function ProvidersTab({
       },
     ]
     return (showCondenseButton && isCondensed) ? fullProviderColumns.slice(0, 9) : fullProviderColumns
-  }, [activeProvider, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, restrictEditToSchedulingColumns])
+  }, [activeProvider, clinicPayroll, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, restrictEditToSchedulingColumns])
 
   const handleProviderRowsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData' || !activeProvider) return
@@ -1365,7 +1404,7 @@ export default function ProvidersTab({
             <span className="font-medium text-red-500">Sums:</span>
             <span className="ml-2"><strong>Insurance Pay Total:</strong> {formatCurrency(providerSums.insPay)}</span>
             <span className="ml-2"><strong>Patient Payment Total:</strong> {formatCurrency(providerSums.collectedFromPt)}</span>
-            <span className="ml-2"><strong>Accounts Receivable Total:</strong> {formatCurrency(providerSums.arTotal)}</span>
+            <span className="ml-2"><strong>AR Total:</strong> {arSumFromDb === null ? '—' : formatCurrency(arSumFromDb)}</span>
             {/* <span className="ml-2"><strong>Total:</strong> {formatCurrency(providerSums.total)}</span> */}
           </div>
         </div>
@@ -1388,6 +1427,7 @@ export default function ProvidersTab({
                 <span className="ml-2"><strong>Ins Pay:</strong> {formatCurrency(providerSums.insPay)}</span>
                 <span className="ml-2"><strong>Collected from PT:</strong> {formatCurrency(providerSums.collectedFromPt)}</span>
                 <span className="ml-2"><strong>Total:</strong> {formatCurrency(providerSums.total)}</span>
+                <span className="ml-2"><strong>AR Total:</strong> {arSumFromDb === null ? '—' : formatCurrency(arSumFromDb)}</span>
               </div>
               {billingMetrics && (
                 <div className="flex items-center gap-4 flex-wrap text-sm border-t border-white/20 pt-2">

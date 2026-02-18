@@ -519,6 +519,7 @@ export default function ProviderSheetPage() {
       {providerViewTab === 'sheet' && (
         <ProvidersTab
           clinicId={clinicId}
+          clinicPayroll={clinic?.payroll ?? 1}
           providers={[provider]}
           canEditComment={false}
           providerSheetRows={providerSheetRows}
@@ -547,6 +548,7 @@ export default function ProviderSheetPage() {
       {providerViewTab === 'accounts_receivable' && showARTab && clinicId && (
         <AccountsReceivableTab
           clinicId={clinicId}
+          clinicPayroll={clinic?.payroll ?? 1}
           canEdit={false}
           isInSplitScreen={false}
         />
@@ -555,6 +557,7 @@ export default function ProviderSheetPage() {
       {providerViewTab === 'provider_pay' && showProviderPayTab && clinicId && provider && (
         <ProviderPayTab
           clinicId={clinicId}
+          clinicPayroll={clinic?.payroll ?? 1}
           providerId={provider.id}
           providers={[provider]}
           canEdit={false}

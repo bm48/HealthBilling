@@ -11,6 +11,8 @@ import { toDisplayValue, toDisplayDate, toStoredString } from '@/lib/utils'
 
 interface AccountsReceivableTabProps {
   clinicId: string
+  /** 1 = default; 2 = clinic has two pay periods, show Payroll 1/2 selector */
+  clinicPayroll?: 1 | 2
   canEdit: boolean
   onDelete?: (arId: string) => void
   isLockAccountsReceivable?: IsLockAccountsReceivable | null
@@ -19,12 +21,14 @@ interface AccountsReceivableTabProps {
   isInSplitScreen?: boolean
 }
 
-export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen }: AccountsReceivableTabProps) {
+export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, canEdit, onDelete, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen }: AccountsReceivableTabProps) {
   const { userProfile } = useAuth()
   const [accountsReceivable, setAccountsReceivable] = useState<AccountsReceivable[]>([])
   const [statusColors, setStatusColors] = useState<StatusColor[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState<Date>(() => new Date())
+  const [selectedPayroll, setSelectedPayroll] = useState<1 | 2>(1)
+  const fetchIdRef = useRef(0)
   const accountsReceivableRef = useRef<AccountsReceivable[]>([])
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const [tableHeight, setTableHeight] = useState(600)
@@ -61,8 +65,14 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
   }, [])
 
   const filteredAR = useMemo(() => {
-    return accountsReceivable.filter(ar => isARInMonth(ar, selectedMonth))
-  }, [accountsReceivable, selectedMonth, isARInMonth])
+    let list = accountsReceivable.filter(ar => isARInMonth(ar, selectedMonth))
+    // When clinic has payroll 2, only show rows that match the selected payroll (safeguard if backend returns wrong rows)
+    if (clinicPayroll === 2) {
+      const payrollForFilter = selectedPayroll
+      list = list.filter(ar => (ar.payroll ?? 1) === payrollForFilter)
+    }
+    return list
+  }, [accountsReceivable, selectedMonth, isARInMonth, clinicPayroll, selectedPayroll])
 
   // Display list: allow more than 200 rows. Pad to 200 only when filtered has fewer than 200.
   const displayAR = useMemo(() => {
@@ -80,15 +90,17 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
       date_recorded: null,
       type: null,
       notes: null,
+      payroll: clinicPayroll === 2 ? selectedPayroll : 1,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }))
     return [...list, ...placeholders]
-  }, [filteredAR, selectedMonth.getTime(), clinicId])
+  }, [filteredAR, selectedMonth.getTime(), clinicId, clinicPayroll, selectedPayroll])
 
   // Use isLockAccountsReceivable from props directly - it will update when parent refreshes
   const lockData = isLockAccountsReceivable || null
 
+  const currentPayrollForAR = clinicPayroll === 2 ? selectedPayroll : 1
   const createEmptyAR = useCallback((index: number): AccountsReceivable => ({
     id: `empty-${index}`,
     clinic_id: clinicId,
@@ -99,9 +111,10 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
     date_recorded: null,
     type: null,
     notes: null,
+    payroll: currentPayrollForAR,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  }), [clinicId])
+  }), [clinicId, currentPayrollForAR])
 
   const fetchStatusColors = useCallback(async () => {
     try {
@@ -118,82 +131,105 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
   }, [])
 
   const fetchAccountsReceivable = useCallback(async () => {
+    const payrollFilter = clinicPayroll === 2 ? selectedPayroll : 1
+    const thisFetchId = ++fetchIdRef.current
     try {
       const { data, error } = await supabase
         .from('accounts_receivables')
         .select('*')
         .eq('clinic_id', clinicId)
+        .eq('payroll', payrollFilter)
         .order('created_at', { ascending: false })
-        // No sorting - preserve exact order from database (typically creation order)
 
       if (error) throw error
-      const fetchedAR = data || []
+      let fetchedAR = data || []
+      if (clinicPayroll === 2) {
+        fetchedAR = fetchedAR.filter((row: { payroll?: number }) => (row.payroll ?? 1) === payrollFilter)
+      }
 
-      setAccountsReceivable(currentAR => {
-        // Map of fetched AR by ID for lookups
-        const fetchedARMap = new Map<string, AccountsReceivable>()
-        fetchedAR.forEach(ar => {
-          fetchedARMap.set(ar.id, ar)
-        })
+      // Only apply if no newer fetch started (user may have switched payroll before we completed)
+      if (fetchIdRef.current !== thisFetchId) return
 
-        // Preserve visual table order: walk current rows in order.
-        // For each row: keep unsaved (new-/empty-) in place; replace real IDs with fresh data; skip deleted (real but not in fetched).
-        const preservedOrder: AccountsReceivable[] = []
-        currentAR.forEach(ar => {
-          if (ar.id.startsWith('new-') || ar.id.startsWith('empty-')) {
-            preservedOrder.push(ar)
-          } else {
-            const freshData = fetchedARMap.get(ar.id)
-            if (freshData) {
-              preservedOrder.push({
-                ...freshData,
-                name: (freshData.name != null && freshData.name !== 'null') ? freshData.name : null,
-                date_of_service: (freshData.date_of_service != null && freshData.date_of_service !== 'null') ? freshData.date_of_service : null,
-                date_recorded: (freshData.date_recorded != null && freshData.date_recorded !== 'null') ? freshData.date_recorded : null,
-                type: (freshData.type != null && (freshData.type as unknown) !== 'null') ? freshData.type : null,
-                notes: (freshData.notes != null && freshData.notes !== 'null') ? freshData.notes : null,
-              })
-              fetchedARMap.delete(ar.id)
+      const fetchedARMap = new Map<string, AccountsReceivable>()
+      fetchedAR.forEach((ar: AccountsReceivable) => {
+        fetchedARMap.set(ar.id, ar)
+      })
+
+      const newFetchedAR = Array.from(fetchedARMap.values()).map(ax => ({
+        ...ax,
+        name: (ax.name != null && ax.name !== 'null') ? ax.name : null,
+        date_of_service: (ax.date_of_service != null && ax.date_of_service !== 'null') ? ax.date_of_service : null,
+        date_recorded: (ax.date_recorded != null && ax.date_recorded !== 'null') ? ax.date_recorded : null,
+        type: (ax.type != null && (ax.type as unknown) !== 'null') ? ax.type : null,
+        notes: (ax.notes != null && ax.notes !== 'null') ? ax.notes : null,
+      }))
+
+      if (clinicPayroll === 1) {
+        setAccountsReceivable(currentAR => {
+          const preservedOrder: AccountsReceivable[] = []
+          currentAR.forEach(ar => {
+            if (ar.id.startsWith('new-') || ar.id.startsWith('empty-')) {
+              preservedOrder.push(ar)
+            } else {
+              const freshData = fetchedARMap.get(ar.id)
+              if (freshData) {
+                preservedOrder.push({
+                  ...freshData,
+                  name: (freshData.name != null && freshData.name !== 'null') ? freshData.name : null,
+                  date_of_service: (freshData.date_of_service != null && freshData.date_of_service !== 'null') ? freshData.date_of_service : null,
+                  date_recorded: (freshData.date_recorded != null && freshData.date_recorded !== 'null') ? freshData.date_recorded : null,
+                  type: (freshData.type != null && (freshData.type as unknown) !== 'null') ? freshData.type : null,
+                  notes: (freshData.notes != null && freshData.notes !== 'null') ? freshData.notes : null,
+                })
+                fetchedARMap.delete(ar.id)
+              }
             }
-            // Deleted AR (real id but not in fetched): skip, so row is effectively removed
-          }
+          })
+          const remainingFetched = Array.from(fetchedARMap.values()).map(ax => ({
+            ...ax,
+            name: (ax.name != null && ax.name !== 'null') ? ax.name : null,
+            date_of_service: (ax.date_of_service != null && ax.date_of_service !== 'null') ? ax.date_of_service : null,
+            date_recorded: (ax.date_recorded != null && ax.date_recorded !== 'null') ? ax.date_recorded : null,
+            type: (ax.type != null && (ax.type as unknown) !== 'null') ? ax.type : null,
+            notes: (ax.notes != null && ax.notes !== 'null') ? ax.notes : null,
+          }))
+          const updated = [...preservedOrder, ...remainingFetched]
+          const emptyRowsNeeded = Math.max(0, 200 - updated.length)
+          const existingEmptyCount = updated.filter(ar => ar.id.startsWith('empty-')).length
+          const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) =>
+            createEmptyAR(existingEmptyCount + i)
+          )
+          accountsReceivableRef.current = fetchedAR
+          return [...updated, ...newEmptyRows]
         })
-
-        // Add any fetched AR not in current state (e.g. created elsewhere); normalize string "null"
-        const newFetchedAR = Array.from(fetchedARMap.values()).map(ax => ({
-          ...ax,
-          name: (ax.name != null && ax.name !== 'null') ? ax.name : null,
-          date_of_service: (ax.date_of_service != null && ax.date_of_service !== 'null') ? ax.date_of_service : null,
-          date_recorded: (ax.date_recorded != null && ax.date_recorded !== 'null') ? ax.date_recorded : null,
-          type: (ax.type != null && (ax.type as unknown) !== 'null') ? ax.type : null,
-          notes: (ax.notes != null && ax.notes !== 'null') ? ax.notes : null,
-        }))
-        const updated = [...preservedOrder, ...newFetchedAR]
-
-        const totalRows = updated.length
-        const emptyRowsNeeded = Math.max(0, 200 - totalRows)
+      } else {
+        const updated = [...newFetchedAR]
+        const emptyRowsNeeded = Math.max(0, 200 - updated.length)
         const existingEmptyCount = updated.filter(ar => ar.id.startsWith('empty-')).length
         const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) =>
           createEmptyAR(existingEmptyCount + i)
         )
-        const finalUpdated = [...updated, ...newEmptyRows]
-
         accountsReceivableRef.current = fetchedAR
-        return finalUpdated
-      })
+        setAccountsReceivable([...updated, ...newEmptyRows])
+      }
     } catch (error) {
       console.error('Error fetching accounts receivable:', error)
     } finally {
-      setLoading(false)
+      if (fetchIdRef.current === thisFetchId) {
+        setLoading(false)
+      }
     }
-  }, [clinicId, createEmptyAR])
+  }, [clinicId, clinicPayroll, selectedPayroll, createEmptyAR])
 
   useEffect(() => {
-    if (clinicId) {
-      fetchStatusColors()
-      fetchAccountsReceivable()
+    if (!clinicId) return
+    if (clinicPayroll === 2) {
+      setAccountsReceivable([])
+      setLoading(true)
     }
-  }, [clinicId, fetchStatusColors, fetchAccountsReceivable])
+    fetchStatusColors()
+    fetchAccountsReceivable()
+  }, [clinicId, clinicPayroll, selectedPayroll, fetchStatusColors, fetchAccountsReceivable])
 
   const saveAccountsReceivable = useCallback(async (arToSave: AccountsReceivable[]) => {
     if (!clinicId || !userProfile) {
@@ -227,6 +263,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           finalArId = `AR-${Date.now()}-${i}`
         }
 
+        const payrollValue = clinicPayroll === 2 ? selectedPayroll : 1
         const arData: any = {
           clinic_id: clinicId,
           ar_id: finalArId.trim(),
@@ -236,6 +273,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           date_recorded: (ar.date_recorded != null && ar.date_recorded !== 'null') ? ar.date_recorded : null,
           type: (ar.type != null && (ar.type as unknown) !== 'null') ? ar.type : null,
           notes: (ar.notes != null && ar.notes !== 'null') ? ar.notes : null,
+          payroll: payrollValue,
           updated_at: new Date().toISOString(),
         }
 
@@ -300,7 +338,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
       if (error?.stack) console.error('[saveAR] stack:', error.stack)
       alert(error?.message || 'Failed to save accounts receivable. Please try again.')
     }
-  }, [clinicId, userProfile])
+  }, [clinicId, userProfile, clinicPayroll, selectedPayroll])
 
   const handleDeleteAR = useCallback(async (arId: string) => {
     if (arId.startsWith('new-')) {
@@ -869,6 +907,19 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
           <h2 className="text-2xl font-bold text-white">ACCOUNTS RECEIVABLE</h2>
         </div>
       )}
+      {clinicPayroll === 2 && (
+        <div className="flex items-center gap-3 mb-3">
+          <label className="text-white font-medium">Payroll:</label>
+          <select
+            value={selectedPayroll}
+            onChange={(e) => setSelectedPayroll(Number(e.target.value) as 1 | 2)}
+            className="px-3 py-2 rounded-lg border border-slate-600 bg-slate-800 text-white"
+          >
+            <option value={1}>Payroll 1</option>
+            <option value={2}>Payroll 2</option>
+          </select>
+        </div>
+      )}
       {/* Month selector - colors from status_colors (type 'month') like Providers tab */}
       {(() => {
         const monthName = selectedMonth.toLocaleString('en-US', { month: 'long' })
@@ -916,7 +967,7 @@ export default function AccountsReceivableTab({ clinicId, canEdit, onDelete, isL
         }}
       >
         <HandsontableWrapper
-          key={`ar-${selectedMonth.getTime()}-${JSON.stringify(lockData)}`}
+          key={`ar-${selectedMonth.getTime()}-${selectedPayroll}-${JSON.stringify(lockData)}`}
           data={getARHandsontableData()}
           dataVersion={structureVersion}
           scrollToRowAfterUpdateRef={scrollToRowAfterUpdateRef}

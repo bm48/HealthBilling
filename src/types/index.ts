@@ -59,6 +59,8 @@ export interface Clinic {
   fax?: string | null
   npi?: string | null
   ein?: string | null
+  /** 1 = default/original; 2 = two pay periods per month (24-item date dropdowns, dual AR/Provider Pay tables) */
+  payroll?: 1 | 2
   created_at: string
   updated_at: string
 }
@@ -213,6 +215,8 @@ export interface AccountsReceivable {
   date_recorded: string | null
   type: ARType | null
   notes: string | null
+  /** 1 or 2 when clinic has payroll 2; otherwise 1 */
+  payroll?: 1 | 2
   created_at: string
   updated_at: string
 }

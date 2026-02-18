@@ -14,14 +14,6 @@ export type IsLockProviderPay = {
   notes_comment?: string | null
 }
 
-const DESCRIPTION_LABELS: Record<number, string> = {
-  1: 'Patient Payments',
-  2: 'Insurance Payments',
-  3: 'A/R Payments',
-  7: 'Total Payments',
-  8: 'Provider Cut',
-}
-
 /** Row indices for amount rows used to compute Total Payments. */
 const ROWS_FOR_TOTAL = [1, 2, 3] as const // Patient Payments, Insurance Payments, A/R Payments
 const ROW_TOTAL_PAYMENTS = 5
@@ -85,6 +77,8 @@ const INITIAL_TABLE_DATA: string[][] = (() => {
 
 export interface ProviderPayTabProps {
   clinicId: string
+  /** 1 = default; 2 = clinic has two pay periods, show Payroll 1/2 selector */
+  clinicPayroll?: 1 | 2
   /** When set, data is loaded and saved to the provider_pay database tables. */
   providerId?: string
   /** List of providers in the clinic for the provider dropdown. When provided, a select is shown and the chosen provider is used for load/save. */
@@ -103,6 +97,7 @@ export interface ProviderPayTabProps {
 
 export default function ProviderPayTab({
   clinicId,
+  clinicPayroll = 1,
   providerId: providerIdProp,
   providers = [],
   canEdit,
@@ -124,6 +119,7 @@ export default function ProviderPayTab({
   const [tableData, setTableData] = useState<string[][]>(() => INITIAL_TABLE_DATA.map(row => [...row]))
   const [providerPayDataVersion, setProviderPayDataVersion] = useState(0)
   const [sideNotes, setSideNotes] = useState('')
+  const [selectedPayroll, setSelectedPayroll] = useState<1 | 2>(1)
 
   type CachedPay = { payDate: string; payPeriodFrom: string; payPeriodTo: string; sideNotes: string; tableData: string[][] }
   const [providerPayCache, setProviderPayCache] = useState<Record<string, CachedPay>>({})
@@ -165,7 +161,8 @@ export default function ProviderPayTab({
       setLoading(false)
       return
     }
-    const cacheKey = `${year}-${month}-${effectiveProviderId}`
+    const payrollForFetch = clinicPayroll === 2 ? selectedPayroll : 1
+    const cacheKey = `${year}-${month}-${effectiveProviderId}-${payrollForFetch}`
 
     const applyDataToState = (payDateVal: string, payPeriodFromVal: string, payPeriodToVal: string, notesVal: string, rows: string[][]) => {
       setPayDate(payDateVal)
@@ -227,7 +224,7 @@ export default function ProviderPayTab({
       if (!hasLoadedOnceRef.current) setLoading(true)
     }
 
-    fetchProviderPay(clinicId, effectiveProviderId, year, month)
+    fetchProviderPay(clinicId, effectiveProviderId, year, month, payrollForFetch)
       .then((data) => {
         const entry = processFetchResult(data)
         applyDataToState(entry.payDate, entry.payPeriodFrom, entry.payPeriodTo, entry.sideNotes, entry.tableData.map((r) => [...r]))
@@ -238,7 +235,7 @@ export default function ProviderPayTab({
         setLoading(false)
         hasLoadedOnceRef.current = true
       })
-  }, [clinicId, effectiveProviderId, year, month, providerCutPercent])
+  }, [clinicId, effectiveProviderId, year, month, providerCutPercent, clinicPayroll, selectedPayroll])
 
   // Debounced save when payDate, payPeriod, tableData, or sideNotes change (only when effectiveProviderId is set and not loading)
   useEffect(() => {
@@ -246,14 +243,15 @@ export default function ProviderPayTab({
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     saveTimeoutRef.current = setTimeout(() => {
       saveTimeoutRef.current = null
-      saveProviderPay(clinicId, effectiveProviderId, year, month, payDate, payPeriod, tableData, sideNotes).catch((err) =>
+      const payrollForSave = clinicPayroll === 2 ? selectedPayroll : 1
+      saveProviderPay(clinicId, effectiveProviderId, year, month, payDate, payPeriod, tableData, sideNotes, payrollForSave).catch((err) =>
         console.error('[ProviderPayTab] saveProviderPay error:', err)
       )
     }, 800)
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     }
-  }, [clinicId, effectiveProviderId, year, month, canEdit, loading, payDate, payPeriod, tableData, sideNotes])
+  }, [clinicId, effectiveProviderId, year, month, canEdit, loading, payDate, payPeriod, tableData, sideNotes, clinicPayroll, selectedPayroll])
 
   const getMonthColor = useCallback(
     (month: string): { color: string; textColor: string } | null => {
@@ -300,7 +298,7 @@ export default function ProviderPayTab({
         title: 'Description',
         type: 'text' as const,
         width: 200,
-        readOnly: true,
+        readOnly: false,
       },
       {
         data: 1,
@@ -328,8 +326,8 @@ export default function ProviderPayTab({
         props.readOnly = true
         return props
       }
-      if (col === 0 && DESCRIPTION_LABELS[row] != null) {
-        props.readOnly = true
+      if (col === 0) {
+        props.readOnly = row <= 6 ? true : !canEdit
       }
       // Total Payments amount is calculated from Patient + Insurance + A/R
       if (row === ROW_TOTAL_PAYMENTS && col === 1) {
@@ -341,7 +339,7 @@ export default function ProviderPayTab({
       }
       return props
     },
-    []
+    [canEdit]
   )
 
   const afterChange = useCallback(
@@ -354,7 +352,7 @@ export default function ProviderPayTab({
           const col = typeof change[1] === 'number' ? change[1] : -1
           const newVal = change[3]
           if (row <= 0 || row >= next.length || col < 0 || col >= 3) continue
-          if (col === 0 && DESCRIPTION_LABELS[row] != null) continue
+          if (col === 0 && row <= 6) continue
           let val = newVal == null ? '' : String(newVal)
           if (col === 1 && (row === 1 || row === 2 || row === 3)) val = formatAmount(val)
           if (next[row][col] !== val) next[row][col] = val
@@ -438,6 +436,19 @@ export default function ProviderPayTab({
           : { maxWidth: '45vw', width: '100%' }
       }
     >
+      {clinicPayroll === 2 && (
+        <div className="flex items-center gap-3 mb-3">
+          <label className="text-white font-medium">Payroll:</label>
+          <select
+            value={selectedPayroll}
+            onChange={(e) => setSelectedPayroll(Number(e.target.value) as 1 | 2)}
+            className="px-3 py-2 rounded-lg border border-slate-600 bg-slate-800 text-white"
+          >
+            <option value={1}>Payroll 1</option>
+            <option value={2}>Payroll 2</option>
+          </select>
+        </div>
+      )}
       <div className="flex items-center gap-2 justify-between">
         {/* Month selector - same style as other tabs */}
         {(() => {
@@ -600,10 +611,8 @@ export default function ProviderPayTab({
 
       
         {/* Side notes/description on the right */}
-        {
-          !isInSplitScreen &&  (
 
-            <div className="w-[30rem] flex-1 flex-col absolute top-7 right-0 min-w-0">
+            {/* <div className="w-[30rem] flex-1 flex-col absolute top-7 right-0 min-w-0">
             <label className="text-sm font-semibold text-slate-100 mb-2 text-[2rem]">
               Description / Notes
             </label>
@@ -614,9 +623,8 @@ export default function ProviderPayTab({
               className="mt-8 w-full h-[29.5rem] flex-1 min-h-[200px] rounded-md border border-slate-600 bg-slate-900/60 text-slate-50 text-sm px-3 py-2 resize-vertical focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Enter overall description or notes for this provider pay period..."
             />
-          </div>
-          )
-        }
+          </div> */}
+          
     </div>
   )
 }
