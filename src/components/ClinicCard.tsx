@@ -39,8 +39,8 @@ export default function ClinicCard({ clinic, providers, stats, dashboardHref, cu
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 mb-4">
         <div className="space-y-0.5">
           <div className="font-semibold text-yellow-500 text-lg italic">{clinic.name || 'Clinic Name'}</div>
-          <div className="text-sm text-white/70">{addressLine1 || 'Address #1'}</div>
-          {addressLine2 && <div className="text-sm text-white/70">{addressLine2}</div>}
+          <div className="text-sm text-white/70">{`- ${addressLine1}`}</div>
+          {addressLine2 && <div className="text-sm text-white/70">{`- ${addressLine2}`}</div>}
         </div>
         <div className="space-y-0.5 text-right text-sm text-white/80">
           <div>{clinic.phone ?? 'Phone#'}</div>

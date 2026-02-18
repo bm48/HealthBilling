@@ -100,6 +100,8 @@ interface HandsontableWrapperProps {
     allowEmpty?: boolean
     source?: string[] | (() => string[])
     strict?: boolean
+    /** When columnSorting is enabled, set { headerAction: false } to disable sorting on this column */
+    columnSorting?: { headerAction?: boolean; indicator?: boolean; sortEmptyCells?: boolean }
   }>
   colHeaders?: boolean | string[]
   rowHeaders?: boolean | number[] | string[]
@@ -118,6 +120,8 @@ interface HandsontableWrapperProps {
   onCellHighlight?: (row: number, col: number) => void
   /** When provided, used to show "Remove highlight" vs "Highlight" when the cell is already highlighted */
   getCellIsHighlighted?: (row: number, col: number) => boolean
+  /** Called when user chooses "See comment" from cell context menu (row/col are 0-based). When provided, menu shows only "See comment". */
+  onCellSeeComment?: (row: number, col: number) => void
   /** Called when user chooses "Add comment" from cell context menu (row/col are 0-based) */
   onCellAddComment?: (row: number, col: number) => void
   /** Called when user chooses "Remove comment" from cell context menu (row/col are 0-based) */
@@ -135,6 +139,10 @@ interface HandsontableWrapperProps {
   scrollToRowAfterUpdateRef?: React.MutableRefObject<number | null>
   /** Called after each table render (e.g. to inject custom header buttons) */
   afterRenderCallback?: (hot: Handsontable) => void
+  /** Enable column sorting (default false). When true, columns are sortable unless column.allowSorting === false. */
+  columnSorting?: boolean | Record<string, unknown>
+  /** Optional ref to receive the Handsontable instance (e.g. to blur when opening a modal so focus stays in the modal). */
+  hotInstanceRef?: React.MutableRefObject<Handsontable | null>
 }
 
 export default function HandsontableWrapper({
@@ -154,6 +162,7 @@ export default function HandsontableWrapper({
   onContextMenu,
   onCellHighlight,
   getCellIsHighlighted,
+  onCellSeeComment,
   onCellAddComment,
   onCellRemoveComment,
   getCellHasComment,
@@ -163,6 +172,8 @@ export default function HandsontableWrapper({
   onAfterRowMove,
   scrollToRowAfterUpdateRef,
   afterRenderCallback,
+  columnSorting: columnSortingProp = false,
+  hotInstanceRef,
 }: HandsontableWrapperProps) {
   const hotTableRef = useRef<any>(null)
   const hyperformulaInstanceRef = useRef<HyperFormula | null>(null)
@@ -187,6 +198,21 @@ export default function HandsontableWrapper({
     return HyperFormula.buildEmpty({ licenseKey: 'gpl-v3' })
   }, [enableFormula])
   hyperformulaInstanceRef.current = hyperformulaInstance
+
+  // Expose hot instance to parent (e.g. to blur when opening comment modal)
+  useEffect(() => {
+    if (!hotInstanceRef) return
+    const sync = () => {
+      hotInstanceRef!.current = hotTableRef.current?.hotInstance ?? null
+    }
+    const id = setTimeout(sync, 0)
+    const id2 = setTimeout(sync, 150)
+    return () => {
+      clearTimeout(id)
+      clearTimeout(id2)
+      hotInstanceRef.current = null
+    }
+  }, [hotInstanceRef])
 
   useEffect(() => {
     if (dataRef.current.length > 0 && hotTableRef.current?.hotInstance) {
@@ -358,9 +384,9 @@ export default function HandsontableWrapper({
     // Delete key - Clear cell content
     // (default behavior when cell is selected)
     
-    // Cell context menu: Highlight in all tabs; Add/Remove comment when onCellAddComment provided
+    // Cell context menu: Highlight; See comment (single item) when onCellSeeComment, else Add/Remove comment when onCellAddComment
     contextMenu:
-      onCellHighlight || onCellAddComment
+      onCellHighlight || onCellSeeComment || onCellAddComment
         ? {
             callback(key: string, selection: number[][] | undefined) {
               const hot = hotTableRef.current?.hotInstance as any
@@ -378,6 +404,7 @@ export default function HandsontableWrapper({
                 return
               }
               if (key === 'highlight' && onCellHighlight) onCellHighlight(row, col)
+              if (key === 'see_comment' && onCellSeeComment) onCellSeeComment(row, col)
               if (key === 'add_comment') {
                 const hasComment = getCellHasComment?.(row, col)
                 if (hasComment && onCellRemoveComment) onCellRemoveComment(row, col)
@@ -392,18 +419,23 @@ export default function HandsontableWrapper({
                   return getCellIsHighlighted(sel[0], sel[1]) ? 'Remove highlight' : 'Highlight'
                 },
               },
-              ...(onCellAddComment
+              ...(onCellSeeComment
                 ? {
                     sep: '---------',
-                    add_comment: {
-                      name: function (this: any) {
-                        const sel = this.getSelectedLast?.()
-                        if (!sel || !getCellHasComment) return 'Add comment'
-                        return getCellHasComment(sel[0], sel[1]) ? 'Remove comment' : 'Add comment'
-                      },
-                    },
+                    see_comment: { name: 'See comment' },
                   }
-                : {}),
+                : onCellAddComment
+                  ? {
+                      sep: '---------',
+                      add_comment: {
+                        name: function (this: any) {
+                          const sel = this.getSelectedLast?.()
+                          if (!sel || !getCellHasComment) return 'Add comment'
+                          return getCellHasComment(sel[0], sel[1]) ? 'Remove comment' : 'Add comment'
+                        },
+                      },
+                    }
+                  : {}),
             },
           }
         : onContextMenu
@@ -428,8 +460,8 @@ export default function HandsontableWrapper({
     manualColumnResize: true,
     manualRowResize: true,
     
-    // Column sorting disabled – preserve table order
-    columnSorting: false,
+    // Column sorting: use prop (default false to preserve table order)
+    columnSorting: columnSortingProp,
 
     // Auto column width
     autoColumnSize: {

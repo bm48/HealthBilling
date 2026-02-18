@@ -567,19 +567,60 @@
   border-bottom: 2px solid rgba(255, 255, 255, 0.3) !important;
 }
 
-/* Column sort icon: hidden (sorting disabled) */
-.handsontable-custom table.htCore thead th span.colHeader,
-.handsontable-custom .ht_clone_top table.htCore thead th span.colHeader,
+/* Column sort icon: hidden (sorting disabled) except for billing todo which has sortable ID/Status columns */
+.handsontable-custom:not(.billing-todo-sortable) table.htCore thead th span.colHeader,
+.handsontable-custom:not(.billing-todo-sortable) .ht_clone_top table.htCore thead th span.colHeader,
 .providers-handsontable table.htCore thead th span.colHeader,
 .providers-handsontable .ht_clone_top table.htCore thead th span.colHeader {
   position: relative !important;
 }
-.handsontable-custom table.htCore thead th span.colHeader::before,
-.handsontable-custom .ht_clone_top table.htCore thead th span.colHeader::before,
+.handsontable-custom:not(.billing-todo-sortable) table.htCore thead th span.colHeader::before,
+.handsontable-custom:not(.billing-todo-sortable) .ht_clone_top table.htCore thead th span.colHeader::before,
 .providers-handsontable table.htCore thead th span.colHeader::before,
 .providers-handsontable .ht_clone_top table.htCore thead th span.colHeader::before {
   content: none !important;
   display: none !important;
+}
+
+/* Billing todo: sort icons (Lucide arrow-up-wide-narrow / arrow-down-narrow-wide) – flex layout so icon and title don't overlap */
+.handsontable-custom.billing-todo-sortable table.htCore thead th .columnSorting.sortAction,
+.handsontable-custom.billing-todo-sortable .ht_clone_top table.htCore thead th .columnSorting.sortAction {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: nowrap !important;
+}
+.handsontable-custom.billing-todo-sortable .columnSorting.sortAction::before {
+  content: "" !important;
+  display: block !important;
+  flex-shrink: 0 !important;
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+  min-height: 18px !important;
+  -webkit-mask-size: contain !important;
+  mask-size: contain !important;
+  -webkit-mask-repeat: no-repeat !important;
+  mask-repeat: no-repeat !important;
+  -webkit-mask-position: center !important;
+  mask-position: center !important;
+  background-color: currentColor !important;
+}
+/* Lucide ArrowUpWideNarrow (ascending) */
+.handsontable-custom.billing-todo-sortable .columnSorting.sortAction.ascending::before {
+  -webkit-mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27m3 8 4-4 4 4%27/%3E%3Cpath d=%27M7 4v16%27/%3E%3Cpath d=%27M11 12h10%27/%3E%3Cpath d=%27M11 16h7%27/%3E%3Cpath d=%27M11 20h4%27/%3E%3C/svg%3E") !important;
+  mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27m3 8 4-4 4 4%27/%3E%3Cpath d=%27M7 4v16%27/%3E%3Cpath d=%27M11 12h10%27/%3E%3Cpath d=%27M11 16h7%27/%3E%3Cpath d=%27M11 20h4%27/%3E%3C/svg%3E") !important;
+}
+/* Lucide ArrowDownNarrowWide (descending) */
+.handsontable-custom.billing-todo-sortable .columnSorting.sortAction.descending::before {
+  -webkit-mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27m3 16 4 4 4-4%27/%3E%3Cpath d=%27M7 20V4%27/%3E%3Cpath d=%27M11 4h4%27/%3E%3Cpath d=%27M11 8h7%27/%3E%3Cpath d=%27M11 12h10%27/%3E%3C/svg%3E") !important;
+  mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27m3 16 4 4 4-4%27/%3E%3Cpath d=%27M7 20V4%27/%3E%3Cpath d=%27M11 4h4%27/%3E%3Cpath d=%27M11 8h7%27/%3E%3Cpath d=%27M11 12h10%27/%3E%3C/svg%3E") !important;
+}
+/* Lucide ArrowUpDown (unsorted / initial load) */
+.handsontable-custom.billing-todo-sortable .columnSorting.sortAction:not(.ascending):not(.descending)::before {
+  -webkit-mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27m21 16-4 4-4-4%27/%3E%3Cpath d=%27M17 20V4%27/%3E%3Cpath d=%27m3 8 4-4 4 4%27/%3E%3Cpath d=%27M7 4v16%27/%3E%3C/svg%3E") !important;
+  mask-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2724%27 height=%2724%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpath d=%27m21 16-4 4-4-4%27/%3E%3Cpath d=%27M17 20V4%27/%3E%3Cpath d=%27m3 8 4-4 4 4%27/%3E%3Cpath d=%27M7 4v16%27/%3E%3C/svg%3E") !important;
+  opacity: 0.7;
 }
 
 /* Data cells: min-height so rows can grow when select/dropdown increases height; no max-height */
@@ -713,6 +754,24 @@
   width: 10px;
   height: 10px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%232563eb'%3E%3Cpath d='M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/* Cell comment resolved: show tick mark (overrides or supplements comment icon) */
+.handsontable-custom td.cell-comment-resolved {
+  position: relative;
+}
+.handsontable-custom td.cell-comment-resolved::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2310b981' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E");
   background-size: contain;
   background-repeat: no-repeat;
   pointer-events: none;

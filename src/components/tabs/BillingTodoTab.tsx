@@ -421,17 +421,18 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
 
   // Status color mapping (five statuses: New, Waiting, In Progress, Complete, Updated)
   const getStatusColor = useCallback((status: string): { color: string; textColor: string } | null => {
+    console.log('status color', status)
     switch (status) {
       case 'New':
-        return { color: '#3b82f6', textColor: '#ffffff' }
+        return { color: '#53d5fd', textColor: '#ffffff' }
       case 'Waiting':
-        return { color: '#f59e0b', textColor: '#ffffff' }
+        return { color: '#ff6251', textColor: '#ffffff' }
       case 'In Progress':
-        return { color: '#714ec5', textColor: '#ffffff' }
+        return { color: '#b18cfe', textColor: '#ffffff' }
       case 'Updated':
-        return { color: '#0ea5e9', textColor: '#ffffff' }
-      case 'Completed':
-        return { color: '#00bb5a', textColor: '#ffffff' }
+        return { color: '#fff76b', textColor: '#000' }
+      case 'Complete':
+        return { color: '#96d35f', textColor: '#33895f' }
       default:
         return null
     }
@@ -632,14 +633,14 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
     return Boolean(lockData[columnName])
   }
 
-  // Create columns with custom renderers
+  // Create columns with custom renderers; only ID and Status are sortable (Issue, Notes, F/u notes have headerAction: false)
   const todosColumns = useMemo(() => [
     { 
       data: 0, 
       title: 'ID', 
       type: 'text' as const, 
       width: 80,
-      readOnly: !canEdit || getReadOnly('id_column')
+      readOnly: !canEdit || getReadOnly('id_column'),
     },
     { 
       data: 1, 
@@ -649,28 +650,31 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       selectOptions: ['New', 'Waiting', 'In Progress', 'Complete', 'Updated'],
       allowEmpty: false,
       renderer: createBubbleDropdownRenderer(getStatusColor) as any,
-      readOnly: !canEdit || getReadOnly('status')
+      readOnly: !canEdit || getReadOnly('status'),
     },
     { 
       data: 2, 
       title: 'Issue', 
       type: 'text' as const, 
       width: 200,
-      readOnly: !canEdit || getReadOnly('issue')
+      readOnly: !canEdit || getReadOnly('issue'),
+      columnSorting: { headerAction: false },
     },
     { 
       data: 3, 
       title: 'Notes', 
       type: 'text' as const, 
       width: 200,
-      readOnly: !canEdit || getReadOnly('notes')
+      readOnly: !canEdit || getReadOnly('notes'),
+      columnSorting: { headerAction: false },
     },
     { 
       data: 4, 
       title: 'F/u notes', 
       type: 'text' as const, 
       width: 200,
-      readOnly: !canEdit || getReadOnly('followup_notes')
+      readOnly: !canEdit || getReadOnly('followup_notes'),
+      columnSorting: { headerAction: false },
     },
   ], [canEdit, lockData, getStatusColor])
 
@@ -716,6 +720,43 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       }
     })
 
+    // When status changes to Complete, move row to bottom of data; when changed from Complete, move to top
+    const statusChanged = changes.some(([, col]) => col === 1)
+    if (statusChanged) {
+      const isEmptyRow = (t: TodoItem) =>
+        t.id.startsWith('empty-') &&
+        !t.issue &&
+        !t.notes &&
+        !t.followup_notes &&
+        (!t.status || t.status === '' || t.status === 'Open')
+      const dataRows = updatedTodos.filter((t) => !isEmptyRow(t))
+      let incomplete = dataRows.filter((t) => t.status !== 'Complete')
+      const complete = dataRows.filter((t) => t.status === 'Complete')
+      const emptyRows = updatedTodos.filter((t) => isEmptyRow(t))
+      // Rows that were just changed from Complete to something else go to the top of incomplete
+      const movedToTopIds = new Set<string>()
+      changes.forEach(([row, , oldVal, newVal]) => {
+        if (row < updatedTodos.length && oldVal === 'Complete' && newVal !== 'Complete') {
+          movedToTopIds.add(updatedTodos[row].id)
+        }
+      })
+      if (movedToTopIds.size > 0) {
+        incomplete = [
+          ...incomplete.filter((t) => movedToTopIds.has(t.id)),
+          ...incomplete.filter((t) => !movedToTopIds.has(t.id)),
+        ]
+      }
+      const reordered = [...incomplete, ...complete, ...emptyRows]
+      // Keep length; truncate or pad to match updatedTodos length so we don't change row count here
+      while (reordered.length < updatedTodos.length) {
+        const existingEmptyCount = reordered.filter((t) => t.id.startsWith('empty-')).length
+        reordered.push(createEmptyTodo(existingEmptyCount))
+      }
+      if (reordered.length > updatedTodos.length) reordered.length = updatedTodos.length
+      updatedTodos.length = 0
+      updatedTodos.push(...reordered)
+    }
+
     // Cap at 200 rows
     if (updatedTodos.length > 200) updatedTodos.length = 200
     if (updatedTodos.length < 200) {
@@ -726,10 +767,10 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
 
     todosRef.current = updatedTodos
     setTodos(updatedTodos)
+    if (statusChanged) setStructureVersion((v) => v + 1)
 
-    // Only schedule save when at least one change touched issue, notes, or followup_notes.
-    // Avoids save (and thus insert) when grid only reports status/id changes after programmatic data load.
-    const hasMeaningfulChange = changes.some(([, col]) => col === 2 || col === 3 || col === 4)
+    // Schedule save when change touched issue, notes, followup_notes, or status (so status and order persist).
+    const hasMeaningfulChange = changes.some(([, col]) => col === 1 || col === 2 || col === 3 || col === 4)
     if (!hasMeaningfulChange) return
 
     if (saveTodosTimeoutRef.current) clearTimeout(saveTodosTimeoutRef.current)
@@ -877,9 +918,10 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
           getCellIsHighlighted={getCellIsHighlighted}
           cells={todosCellsCallback}
           enableFormula={true}
+          columnSorting={true}
           readOnly={!canEdit}
           style={{ backgroundColor: '#d2dbe5' }}
-          className="handsontable-custom"
+          className="handsontable-custom billing-todo-sortable"
         />
       </div>
 

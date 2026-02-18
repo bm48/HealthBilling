@@ -1,9 +1,9 @@
 import { Provider, SheetRow, BillingCode, StatusColor, Patient, IsLockProviders } from '@/types'
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor, currencyCellRenderer, percentCellRenderer } from '@/lib/handsontableCustomRenderers'
-import { useCallback, useMemo, useEffect, useRef, useState } from 'react'
+import { useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import { toDisplayValue, toDisplayDate } from '@/lib/utils'
@@ -47,8 +47,10 @@ interface ProvidersTabProps {
   restrictEditToSchedulingColumns?: boolean
   /** When true (office_staff), show only columns Patient ID through Appt/Note Status and Collected from PT through PT Payment AR Ref Date */
   officeStaffView?: boolean
-  /** When true (super_admin only), show "Add comment" in cell context menu */
+  /** When true, show "See comment" in cell context menu (everyone can see; edit only when canEditComment) */
   canAddComment?: boolean
+  /** When true (super_admin only), user can edit/remove/resolve comments in the modal */
+  canEditComment?: boolean
 }
 
 export default function ProvidersTab({
@@ -82,16 +84,21 @@ export default function ProvidersTab({
   restrictEditToSchedulingColumns = false,
   officeStaffView = false,
   canAddComment = false,
+  canEditComment = false,
 }: ProvidersTabProps) {
   
   // Use isLockProviders from props directly - it will update when parent refreshes
   const lockData = isLockProviders || null
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
   const [commentsMap, setCommentsMap] = useState<Map<string, string>>(new Map())
+  const [resolvedCells, setResolvedCells] = useState<Set<string>>(new Set())
   const [commentModal, setCommentModal] = useState<{ row: number; col: number; rowId: string; colKey: string } | null>(null)
   const [commentText, setCommentText] = useState('')
   const [commentModalLoading, setCommentModalLoading] = useState(false)
   const [isCondensed, setIsCondensed] = useState(false)
+  const commentTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const commentModalContainerRef = useRef<HTMLDivElement>(null)
+  const hotInstanceRef = useRef<Handsontable | null>(null)
 
   const showCondenseButton = !officeStaffView && !isProviderView
 
@@ -131,11 +138,12 @@ export default function ProvidersTab({
     const loadComments = async () => {
       const { data } = await supabase
         .from('cell_comments')
-        .select('row_id, column_key, comment')
+        .select('row_id, column_key, comment, resolved')
         .eq('clinic_id', clinicId)
         .eq('sheet_type', 'providers')
       if (data) {
         setCommentsMap(new Map(data.map((r: { row_id: string; column_key: string; comment: string }) => [`${r.row_id}:${r.column_key}`, r.comment ?? ''])))
+        setResolvedCells(new Set((data as { row_id: string; column_key: string; resolved?: boolean }[]).filter(r => r.resolved === true).map(r => `${r.row_id}:${r.column_key}`)))
       }
     }
     loadHighlights()
@@ -457,13 +465,15 @@ export default function ProvidersTab({
       const colKey = columnFields[col]
       if (!colKey) return {}
       const key = `${sheetRow?.id ?? `row-${row}`}:${colKey}`
+      const isResolved = resolvedCells.has(key)
       const classes = [
         highlightedCells.has(key) ? 'cell-highlight-yellow' : '',
-        commentsMap.has(key) ? 'cell-has-comment' : '',
+        commentsMap.has(key) && !isResolved ? 'cell-has-comment' : '',
+        isResolved ? 'cell-comment-resolved' : '',
       ].filter(Boolean).join(' ')
       return classes ? { className: classes } : {}
     },
-    [activeProviderRows, columnFields, highlightedCells, commentsMap]
+    [activeProviderRows, columnFields, highlightedCells, commentsMap, resolvedCells]
   )
 
   // Tooltip for cells with comments (e.g. on provider side when hovering)
@@ -506,6 +516,11 @@ export default function ProvidersTab({
         .eq('column_key', colKey)
       setCommentsMap((prev) => {
         const next = new Map(prev)
+        next.delete(key)
+        return next
+      })
+      setResolvedCells((prev) => {
+        const next = new Set(prev)
         next.delete(key)
         return next
       })
@@ -558,7 +573,7 @@ export default function ProvidersTab({
     }
   }, [activeProviderRows, columnFields, clinicId, highlightedCells])
 
-  const handleCellAddComment = useCallback((row: number, col: number) => {
+  const handleCellSeeComment = useCallback((row: number, col: number) => {
     if (!clinicId) return
     const sheetRow = activeProviderRows[row]
     const colKey = columnFields[col]
@@ -566,46 +581,115 @@ export default function ProvidersTab({
     const rowId = sheetRow?.id ?? `row-${row}`
     const key = `${rowId}:${colKey}`
     const existing = commentsMap.get(key)
-    if (existing !== undefined) {
-      setCommentText(existing)
-      setCommentModalLoading(false)
-    } else {
-      setCommentText('')
-      setCommentModalLoading(true)
-      supabase
-        .from('cell_comments')
-        .select('comment')
-        .eq('clinic_id', clinicId)
-        .eq('sheet_type', 'providers')
-        .eq('row_id', rowId)
-        .eq('column_key', colKey)
-        .maybeSingle()
-        .then(({ data }) => {
-          setCommentModalLoading(false)
-          if (data?.comment != null) setCommentText(data.comment)
-        })
+    // Defer opening the modal so the context menu closes first; then blur so the grid doesn't steal focus
+    const openModal = () => {
+      if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur()
+      }
+      hotInstanceRef.current?.rootElement?.blur?.()
+      if (existing !== undefined) {
+        setCommentText(existing)
+        setCommentModalLoading(false)
+      } else {
+        setCommentText('')
+        setCommentModalLoading(true)
+        supabase
+          .from('cell_comments')
+          .select('comment, resolved')
+          .eq('clinic_id', clinicId)
+          .eq('sheet_type', 'providers')
+          .eq('row_id', rowId)
+          .eq('column_key', colKey)
+          .maybeSingle()
+          .then(({ data }) => {
+            setCommentModalLoading(false)
+            if (data?.comment != null) setCommentText(data.comment)
+          })
+      }
+      setCommentModal({ row, col, rowId, colKey })
     }
-    setCommentModal({ row, col, rowId, colKey })
+    requestAnimationFrame(() => {
+      openModal()
+    })
   }, [activeProviderRows, columnFields, commentsMap, clinicId])
 
   const handleSaveComment = useCallback(async () => {
     if (!commentModal || !clinicId) return
     const key = `${commentModal.rowId}:${commentModal.colKey}`
+    const text = commentTextareaRef.current?.value ?? commentText
     await supabase.from('cell_comments').upsert(
       {
         clinic_id: clinicId,
         sheet_type: 'providers',
         row_id: commentModal.rowId,
         column_key: commentModal.colKey,
-        comment: commentText,
+        comment: text,
+        resolved: resolvedCells.has(key),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'clinic_id,sheet_type,row_id,column_key' }
     )
-    setCommentsMap((prev) => new Map(prev).set(key, commentText))
+    setCommentsMap((prev) => new Map(prev).set(key, text))
     setCommentModal(null)
     setCommentText('')
-  }, [commentModal, clinicId, commentText])
+  }, [commentModal, clinicId, commentText, resolvedCells])
+
+  const handleResolveComment = useCallback(async () => {
+    if (!commentModal || !clinicId) return
+    const key = `${commentModal.rowId}:${commentModal.colKey}`
+    const text = commentTextareaRef.current?.value ?? commentText
+    await supabase.from('cell_comments').upsert(
+      {
+        clinic_id: clinicId,
+        sheet_type: 'providers',
+        row_id: commentModal.rowId,
+        column_key: commentModal.colKey,
+        comment: text,
+        resolved: true,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'clinic_id,sheet_type,row_id,column_key' }
+    )
+    setResolvedCells((prev) => new Set(prev).add(key))
+    if (!commentsMap.has(key)) setCommentsMap((prev) => new Map(prev).set(key, text))
+    setCommentModal(null)
+    setCommentText('')
+  }, [commentModal, clinicId, commentText, commentsMap])
+
+  // When comment modal opens, focus the textarea immediately and again on delays so typing goes there
+  useLayoutEffect(() => {
+    if (commentModal && canEditComment && !commentModalLoading) {
+      commentTextareaRef.current?.focus()
+      const focus = () => commentTextareaRef.current?.focus()
+      const id1 = setTimeout(focus, 80)
+      const id2 = setTimeout(focus, 250)
+      const id3 = setTimeout(focus, 450)
+      return () => {
+        clearTimeout(id1)
+        clearTimeout(id2)
+        clearTimeout(id3)
+      }
+    }
+  }, [commentModal, canEditComment, commentModalLoading])
+
+  // Light focus trap: only refocus when focus actually moves to the Handsontable (not on every focus change, which was breaking typing)
+  useEffect(() => {
+    if (!commentModal || !canEditComment) return
+    const container = commentModalContainerRef.current
+    const tableRoot = hotInstanceRef.current?.rootElement
+    if (!container || !tableRoot) return
+    let lastRefocusAt = 0
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as Node
+      if (container.contains(target)) return
+      if (!tableRoot.contains(target)) return
+      if (Date.now() - lastRefocusAt < 400) return
+      lastRefocusAt = Date.now()
+      requestAnimationFrame(() => commentTextareaRef.current?.focus())
+    }
+    document.addEventListener('focusin', handleFocusIn, true)
+    return () => document.removeEventListener('focusin', handleFocusIn, true)
+  }, [commentModal, canEditComment])
 
   // Update columns with readOnly based on lock state
   const providerColumnsWithLocks = useMemo(() => {
@@ -1273,9 +1357,8 @@ export default function ProvidersTab({
             onContextMenu={handleProviderRowsHandsontableContextMenu}
             onCellHighlight={handleCellHighlight}
             getCellIsHighlighted={getCellIsHighlighted}
-            onCellAddComment={canAddComment ? handleCellAddComment : undefined}
-            onCellRemoveComment={canAddComment ? handleCellRemoveComment : undefined}
-            getCellHasComment={canAddComment ? getCellHasComment : undefined}
+            onCellSeeComment={clinicId && canEditComment ? handleCellSeeComment : undefined}
+            hotInstanceRef={clinicId && canEditComment ? hotInstanceRef : undefined}
             getCellTitle={getCellTitle}
             cells={providerCellsCallback}
             enableFormula={true}
@@ -1337,37 +1420,69 @@ export default function ProvidersTab({
       )}
 
       {commentModal != null && createPortal(
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[100]">
-          <div className="bg-slate-800/95 backdrop-blur-md rounded-lg p-6 w-full max-w-md border border-white/20">
-            <h2 className="text-xl font-bold text-white mb-2">Add comment for provider</h2>
+        <div
+          ref={commentModalContainerRef}
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[100]"
+          onClick={(e) => e.target === e.currentTarget && commentTextareaRef.current?.focus()}
+          onKeyDownCapture={(e) => e.stopPropagation()}
+          onKeyUpCapture={(e) => e.stopPropagation()}
+          onKeyPressCapture={(e) => e.stopPropagation()}
+        >
+          <div className="bg-slate-800/95 backdrop-blur-md rounded-lg p-6 w-full max-w-md border border-white/20 relative">
+            <button
+              type="button"
+              onClick={() => { setCommentModal(null); setCommentText('') }}
+              className="absolute top-4 right-4 p-1 rounded text-white/70 hover:text-white hover:bg-white/10"
+              aria-label="Close"
+            >
+              <X size={20} />
+            </button>
+            <h2 className="text-xl font-bold text-white mb-2 pr-8">Comment</h2>
             <p className="text-sm text-white/70 mb-4">Cell: row {commentModal.row + 1}, column &quot;{commentModal.colKey}&quot;</p>
             {commentModalLoading ? (
               <p className="text-white/80">Loading...</p>
             ) : (
               <>
                 <textarea
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder="Enter your comment..."
-                  className="w-full px-3 py-2 border border-white/20 bg-white/10 text-white rounded-md placeholder-white/50 min-h-[100px]"
+                  key={`comment-${commentModal.rowId}-${commentModal.colKey}-${commentModalLoading}`}
+                  ref={commentTextareaRef}
+                  defaultValue={commentText}
+                  placeholder={canEditComment ? 'Enter your comment...' : 'No comment'}
+                  readOnly={!canEditComment}
+                  className={`w-full px-3 py-2 border border-white/20 rounded-md placeholder-white/50 min-h-[100px] ${canEditComment ? 'bg-white/10 text-white' : 'bg-white/5 text-white/90 cursor-default'}`}
                   rows={4}
-                  autoFocus
                 />
                 <div className="mt-4 flex gap-3 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => { setCommentModal(null); setCommentText('') }}
-                    className="px-4 py-2 border border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-md"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSaveComment()}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                  >
-                    Save
-                  </button>
+                  {canEditComment && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={!commentsMap.has(`${commentModal.rowId}:${commentModal.colKey}`)}
+                        onClick={async () => {
+                          await handleCellRemoveComment(commentModal.row, commentModal.col)
+                          setCommentModal(null)
+                          setCommentText('')
+                        }}
+                        className="px-4 py-2 text-red-400 border border-red-400/50 hover:bg-red-400/20 rounded-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                      >
+                        Remove
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveComment()}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleResolveComment()}
+                        className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
+                      >
+                        Resolve
+                      </button>
+                    </>
+                  )}
                 </div>
               </>
             )}

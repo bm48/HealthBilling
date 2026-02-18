@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
-import { supabase } from '@/lib/supabase'
+import { supabase, createSupabaseClientForSignUp, createSupabaseClientWithStorageKey } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { User, BillingCode, Clinic, ProviderSheet, AuditLog, Provider } from '@/types'
 import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Calendar, Link2 } from 'lucide-react'
@@ -58,6 +58,16 @@ export default function SuperAdminSettings() {
   const [editingClinic, setEditingClinic] = useState<Clinic | null>(null)
   const [assignClinicUser, setAssignClinicUser] = useState<User | null>(null)
   const [showAssignClinicModal, setShowAssignClinicModal] = useState(false)
+  const [userToDelete, setUserToDelete] = useState<User | null>(null)
+  const [showDeleteUserModal, setShowDeleteUserModal] = useState(false)
+  const [deleteUserPassword, setDeleteUserPassword] = useState('')
+  const [deleteUserError, setDeleteUserError] = useState('')
+  const [deleteUserLoading, setDeleteUserLoading] = useState(false)
+  const [clinicToDelete, setClinicToDelete] = useState<Clinic | null>(null)
+  const [showDeleteClinicModal, setShowDeleteClinicModal] = useState(false)
+  const [deleteClinicPassword, setDeleteClinicPassword] = useState('')
+  const [deleteClinicError, setDeleteClinicError] = useState('')
+  const [deleteClinicLoading, setDeleteClinicLoading] = useState(false)
 
   useEffect(() => {
     const tab = (searchParams.get('tab') || 'users') as SettingsTabId
@@ -106,7 +116,7 @@ export default function SuperAdminSettings() {
 
   const fetchUsers = async () => {
     try {
-      const { data, error } = await supabase.from('users').select('*').order('email')
+      const { data, error } = await supabase.from('users').select('*').order('email').not('role', 'eq', 'super_admin')
       if (error) throw error
       let list = data || []
       if (variant === 'admin' && userProfile?.clinic_ids?.length) {
@@ -227,7 +237,12 @@ export default function SuperAdminSettings() {
     }
   }
 
-  const handleSaveUser = async (userData: Partial<User>, providerLevel?: number, providerCutPercent?: number) => {
+  const handleSaveUser = async (
+    userData: Partial<User>,
+    providerLevel?: number,
+    providerCutPercent?: number,
+    temporaryPassword?: string
+  ) => {
     try {
       if (editingUser) {
         const { error } = await supabase
@@ -261,6 +276,78 @@ export default function SuperAdminSettings() {
         if (variant === 'super_admin') await fetchClinics()
         setShowUserForm(false)
         setEditingUser(null)
+      } else {
+        // Add User: create auth user with a separate client so current session stays intact
+        const email = (userData.email || '').trim()
+        if (!email) {
+          alert('Email is required.')
+          return
+        }
+        if (!temporaryPassword || temporaryPassword.length < 6) {
+          alert('Please enter a temporary password (at least 6 characters).')
+          return
+        }
+        const tempClient = createSupabaseClientForSignUp()
+        const { data: authData, error: signUpError } = await tempClient.auth.signUp({
+          email,
+          password: temporaryPassword,
+          options: {
+            data: {
+              full_name: userData.full_name || '',
+              role: userData.role || 'billing_staff',
+            },
+          },
+        })
+        await tempClient.auth.signOut()
+        if (signUpError) {
+          alert(signUpError.message || 'Failed to create user. Please try again.')
+          return
+        }
+        const newUserId = authData.user?.id
+        if (!newUserId) {
+          alert('User was created but could not get user id. Please refresh the user list.')
+          await fetchUsers()
+          setShowUserForm(false)
+          setEditingUser(null)
+          return
+        }
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({
+            full_name: userData.full_name ?? null,
+            role: userData.role ?? 'billing_staff',
+            hourly_pay: userData.hourly_pay ?? null,
+            email,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', newUserId)
+        if (updateError) {
+          console.error('Error updating new user profile:', updateError)
+          alert('User was created but profile update failed. You can edit the user to set details.')
+        }
+        if (userData.hourly_pay != null && userData.hourly_pay > 0) {
+          const now = new Date()
+          const weekStart = new Date(now)
+          const day = weekStart.getDay()
+          const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1)
+          weekStart.setDate(diff)
+          weekStart.setHours(0, 0, 0, 0)
+          const { error: tcError } = await supabase.from('timecards').insert({
+            user_id: newUserId,
+            clock_in: now.toISOString(),
+            clock_out: now.toISOString(),
+            hours: 0,
+            hourly_pay: userData.hourly_pay,
+            week_start_date: weekStart.toISOString().split('T')[0],
+          })
+          if (tcError) {
+            console.error('Error saving hourly pay to timecards:', tcError)
+          }
+        }
+        await fetchUsers()
+        if (variant === 'super_admin') await fetchClinics()
+        setShowUserForm(false)
+        setEditingUser(null)
       }
     } catch (error) {
       console.error('Error saving user:', error)
@@ -283,6 +370,52 @@ export default function SuperAdminSettings() {
     } catch (error) {
       console.error('Error assigning clinics:', error)
       alert('Failed to assign clinics. Please try again.')
+    }
+  }
+
+  const handleConfirmDeleteUser = async () => {
+    if (!userToDelete || !userProfile?.email) return
+    if (userToDelete.id === userProfile.id) {
+      setDeleteUserError('You cannot delete your own account.')
+      return
+    }
+    if (!deleteUserPassword.trim()) {
+      setDeleteUserError('Please enter your password.')
+      return
+    }
+    setDeleteUserError('')
+    setDeleteUserLoading(true)
+    try {
+      const tempClient = createSupabaseClientWithStorageKey('health-billing-auth-verify-password')
+      const { error: signInError } = await tempClient.auth.signInWithPassword({
+        email: userProfile.email,
+        password: deleteUserPassword,
+      })
+      await tempClient.auth.signOut()
+      if (signInError) {
+        setDeleteUserError('Incorrect password.')
+        setDeleteUserLoading(false)
+        return
+      }
+      const { error: deleteError } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', userToDelete.id)
+      if (deleteError) {
+        setDeleteUserError(deleteError.message || 'Failed to delete user. Please try again.')
+        setDeleteUserLoading(false)
+        return
+      }
+      setShowDeleteUserModal(false)
+      setUserToDelete(null)
+      setDeleteUserPassword('')
+      await fetchUsers()
+      if (variant === 'super_admin') await fetchClinics()
+    } catch (error) {
+      console.error('Error deleting user:', error)
+      setDeleteUserError('Failed to delete user. Please try again.')
+    } finally {
+      setDeleteUserLoading(false)
     }
   }
 
@@ -350,6 +483,44 @@ export default function SuperAdminSettings() {
     } catch (error) {
       console.error('Error saving clinic:', error)
       alert('Failed to save clinic. Please try again.')
+    }
+  }
+
+  const handleConfirmDeleteClinic = async () => {
+    if (!clinicToDelete || !userProfile?.email) return
+    if (!deleteClinicPassword.trim()) {
+      setDeleteClinicError('Please enter your password.')
+      return
+    }
+    setDeleteClinicError('')
+    setDeleteClinicLoading(true)
+    try {
+      const tempClient = createSupabaseClientWithStorageKey('health-billing-auth-verify-password')
+      const { error: signInError } = await tempClient.auth.signInWithPassword({
+        email: userProfile.email,
+        password: deleteClinicPassword,
+      })
+      await tempClient.auth.signOut()
+      if (signInError) {
+        setDeleteClinicError('Incorrect password.')
+        setDeleteClinicLoading(false)
+        return
+      }
+      const { error: deleteError } = await supabase.from('clinics').delete().eq('id', clinicToDelete.id)
+      if (deleteError) {
+        setDeleteClinicError(deleteError.message || 'Failed to delete clinic. Please try again.')
+        setDeleteClinicLoading(false)
+        return
+      }
+      setShowDeleteClinicModal(false)
+      setClinicToDelete(null)
+      setDeleteClinicPassword('')
+      await fetchClinics()
+    } catch (error) {
+      console.error('Error deleting clinic:', error)
+      setDeleteClinicError('Failed to delete clinic. Please try again.')
+    } finally {
+      setDeleteClinicLoading(false)
     }
   }
 
@@ -527,16 +698,34 @@ export default function SuperAdminSettings() {
                                 )}
                               </td>
                               <td>
-                                <button
-                                  onClick={() => {
-                                    setEditingUser(user)
-                                    setShowUserForm(true)
-                                  }}
-                                  className="text-primary-400 hover:text-primary-300"
-                                  style={{ padding: '4px' }}
-                                >
-                                  <Edit size={16} />
-                                </button>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => {
+                                      setEditingUser(user)
+                                      setShowUserForm(true)
+                                    }}
+                                    className="text-primary-400 hover:text-primary-300"
+                                    style={{ padding: '4px' }}
+                                    title="Edit"
+                                  >
+                                    <Edit size={16} />
+                                  </button>
+                                  {variant === 'super_admin' && user.id !== userProfile?.id && (
+                                    <button
+                                      onClick={() => {
+                                        setUserToDelete(user)
+                                        setShowDeleteUserModal(true)
+                                        setDeleteUserPassword('')
+                                        setDeleteUserError('')
+                                      }}
+                                      className="text-red-400 hover:text-red-300"
+                                      style={{ padding: '4px' }}
+                                      title="Delete user"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           )
@@ -698,16 +887,34 @@ export default function SuperAdminSettings() {
                               </td>
                               <td>{formatDateTime(clinic.created_at)}</td>
                               <td>
-                                <button
-                                  onClick={() => {
-                                    setEditingClinic(clinic)
-                                    setShowClinicForm(true)
-                                  }}
-                                  className="text-primary-400 hover:text-primary-300"
-                                  style={{ padding: '4px' }}
-                                >
-                                  <Edit size={16} />
-                                </button>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => {
+                                      setEditingClinic(clinic)
+                                      setShowClinicForm(true)
+                                    }}
+                                    className="text-primary-400 hover:text-primary-300"
+                                    style={{ padding: '4px' }}
+                                    title="Edit"
+                                  >
+                                    <Edit size={16} />
+                                  </button>
+                                  {variant === 'super_admin' && (
+                                    <button
+                                      onClick={() => {
+                                        setClinicToDelete(clinic)
+                                        setShowDeleteClinicModal(true)
+                                        setDeleteClinicPassword('')
+                                        setDeleteClinicError('')
+                                      }}
+                                      className="text-red-400 hover:text-red-300"
+                                      style={{ padding: '4px' }}
+                                      title="Delete clinic"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           )
@@ -905,6 +1112,138 @@ export default function SuperAdminSettings() {
           onSave={(clinicIds) => handleSaveAssignClinics(assignClinicUser.id, clinicIds)}
         />
       )}
+
+      {showDeleteUserModal && userToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">Delete user</h2>
+              <button
+                onClick={() => {
+                  setShowDeleteUserModal(false)
+                  setUserToDelete(null)
+                  setDeleteUserPassword('')
+                  setDeleteUserError('')
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-gray-700">
+                Permanently delete <strong>{userToDelete.email}</strong>? This cannot be undone. Enter your password to confirm.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Your password (super admin)</label>
+                <input
+                  type="password"
+                  value={deleteUserPassword}
+                  onChange={(e) => {
+                    setDeleteUserPassword(e.target.value)
+                    setDeleteUserError('')
+                  }}
+                  placeholder="Enter your password"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                  disabled={deleteUserLoading}
+                />
+                {deleteUserError && (
+                  <p className="text-sm text-red-600 mt-1">{deleteUserError}</p>
+                )}
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteUserModal(false)
+                    setUserToDelete(null)
+                    setDeleteUserPassword('')
+                    setDeleteUserError('')
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  disabled={deleteUserLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteUser}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                  disabled={deleteUserLoading}
+                >
+                  {deleteUserLoading ? 'Deleting...' : 'Delete user'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteClinicModal && clinicToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">Delete clinic</h2>
+              <button
+                onClick={() => {
+                  setShowDeleteClinicModal(false)
+                  setClinicToDelete(null)
+                  setDeleteClinicPassword('')
+                  setDeleteClinicError('')
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-gray-700">
+                Permanently delete clinic <strong>{clinicToDelete.name}</strong>? This will remove all related data (patients, providers, sheets, etc.) and cannot be undone. Enter your password to confirm.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Your password (super admin)</label>
+                <input
+                  type="password"
+                  value={deleteClinicPassword}
+                  onChange={(e) => {
+                    setDeleteClinicPassword(e.target.value)
+                    setDeleteClinicError('')
+                  }}
+                  placeholder="Enter your password"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                  disabled={deleteClinicLoading}
+                />
+                {deleteClinicError && (
+                  <p className="text-sm text-red-600 mt-1">{deleteClinicError}</p>
+                )}
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteClinicModal(false)
+                    setClinicToDelete(null)
+                    setDeleteClinicPassword('')
+                    setDeleteClinicError('')
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  disabled={deleteClinicLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteClinic}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                  disabled={deleteClinicLoading}
+                >
+                  {deleteClinicLoading ? 'Deleting...' : 'Delete clinic'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -921,28 +1260,36 @@ function UserFormModal({
   providers: Provider[]
   providerLevelsMap: Record<string, number>
   variant: Variant | null
-  onSave: (data: Partial<User>, providerLevel?: number, providerCutPercent?: number) => Promise<void>
+  onSave: (data: Partial<User>, providerLevel?: number, providerCutPercent?: number, temporaryPassword?: string) => Promise<void>
   onClose: () => void
 }) {
   const providersForUser = user?.role === 'provider' && user?.email ? providers.filter(p => p.email === user.email) : []
   const initialLevel = providersForUser.length > 0 ? (providerLevelsMap[providersForUser[0].id] ?? 1) : 1
   const initialCutPercent = providersForUser.length > 0 ? (providersForUser[0].provider_cut_percent ?? 0.7) : 0.7
   const [formData, setFormData] = useState({
+    email: user?.email || '',
     full_name: user?.full_name || '',
     role: user?.role || 'provider',
     clinic_ids: user?.clinic_ids || [],
     highlight_color: user?.highlight_color || '#3b82f6',
     provider_level: initialLevel as 1 | 2,
     provider_cut_percent: initialCutPercent,
+    hourly_pay: user?.hourly_pay ?? '',
+    password: '',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { provider_level, provider_cut_percent, ...userData } = formData
+    const { provider_level, provider_cut_percent, hourly_pay, password, ...rest } = formData
+    const userData = {
+      ...rest,
+      hourly_pay: hourly_pay === '' || hourly_pay == null ? null : Number(hourly_pay),
+    }
     await onSave(
       userData,
       formData.role === 'provider' ? provider_level : undefined,
-      formData.role === 'provider' ? provider_cut_percent : undefined
+      formData.role === 'provider' ? provider_cut_percent : undefined,
+      user ? undefined : password
     )
   }
 
@@ -959,6 +1306,32 @@ function UserFormModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              placeholder="user@example.com"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+            />
+          </div>
+
+          {!user && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Temporary password</label>
+              <input
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder="Min 6 characters"
+                minLength={6}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              />
+              <p className="text-xs text-gray-500 mt-1">User will sign in with this password; they can change it later.</p>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
             <input
@@ -981,10 +1354,24 @@ function UserFormModal({
               {/* <option value="view_only_admin">View-Only Admin</option> */}
               <option value="billing_staff">Billing Staff</option>
               {/* <option value="view_only_billing">View-Only Billing</option> */}
-              <option value="official_staff">Official Staff</option>
+              {/* <option value="official_staff">Official Staff</option> */}
               <option value="provider">Provider</option>
               <option value="office_staff">Office Staff</option>
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Hourly pay amount</label>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              placeholder="e.g. 25.00"
+              value={formData.hourly_pay === '' ? '' : formData.hourly_pay}
+              onChange={(e) => setFormData({ ...formData, hourly_pay: e.target.value === '' ? '' : (parseFloat(e.target.value) || 0) })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+            />
+            <p className="text-xs text-gray-500 mt-1">Stored on user and applied to timecard entries.</p>
           </div>
 
           {variant === 'super_admin' && formData.role === 'provider' && (
@@ -1197,7 +1584,7 @@ function ClinicFormModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Address 1</label>
             <input
               type="text"
               value={formData.address}
@@ -1206,7 +1593,7 @@ function ClinicFormModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Address Line 2</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Address 2</label>
             <input
               type="text"
               value={formData.address_line_2}

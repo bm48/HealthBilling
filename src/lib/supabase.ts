@@ -86,6 +86,28 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 })
 
+/** Creates a separate Supabase client with its own auth storage key so the current session is not replaced (e.g. for signUp or password verification). */
+export function createSupabaseClientWithStorageKey(storageKey: string) {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: true,
+      storageKey,
+      storage: customStorage,
+    },
+    global: {
+      headers: {
+        'X-Client-Info': 'health-billing-app',
+      },
+    },
+  })
+}
+
+/** Creates a separate Supabase client with its own auth storage. Use when creating a new user via signUp so the current session is not replaced. */
+export function createSupabaseClientForSignUp() {
+  return createSupabaseClientWithStorageKey('health-billing-auth-create-user')
+}
+
 // Manual refresh handler - only refresh when absolutely necessary
 let manualRefreshInProgress = false
 let lastManualRefresh = 0

@@ -251,9 +251,15 @@ export default function ClinicDashboard() {
       <div>
         <div className="space-y-3">
           <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <span className="text-white/70 font-medium">Clinic Addresses : </span>
+            <span className="text-white/70 font-medium">Clinic Addresses 1: </span>
             <span className="text-white">
-              {[clinic.address, clinic.address_line_2].filter(Boolean).join(' ') || '—'}
+              {clinic.address}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span className="text-white/70 font-medium">Clinic Addresses 2: </span>
+            <span className="text-white">
+              {clinic.address_line_2}
             </span>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1">

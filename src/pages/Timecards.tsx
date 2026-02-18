@@ -91,6 +91,7 @@ export default function Timecards() {
         clinic_id: selectedClinic,
         clock_in: now.toISOString(),
         week_start_date: weekStart.toISOString().split('T')[0], // YYYY-MM-DD format
+        hourly_pay: userProfile?.hourly_pay ?? null,
       })
       .select()
       .maybeSingle()
@@ -145,6 +146,7 @@ export default function Timecards() {
       clock_in: formData.clock_in,
       clock_out: formData.clock_out,
       hours: Math.round(hours * 100) / 100,
+      hourly_pay: userProfile?.hourly_pay ?? null,
       notes: formData.notes || null,
       week_start_date: weekStart.toISOString().split('T')[0], // YYYY-MM-DD format
     })

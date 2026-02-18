@@ -45,6 +45,7 @@ export interface User {
   role: UserRole
   clinic_ids: string[]
   highlight_color: string | null
+  hourly_pay: number | null
   created_at: string
   updated_at: string
 }
@@ -378,6 +379,7 @@ export interface Timecard {
   clock_in: string
   clock_out: string | null
   hours: number | null
+  hourly_pay: number | null
   notes: string | null
   amount_paid: number | null
   payment_date: string | null
