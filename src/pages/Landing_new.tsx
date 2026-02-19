@@ -29,15 +29,35 @@ export default function Landing() {
     setContactError(null)
     setContactLoading(true)
     try {
-      const { data, error } = await supabase.functions.invoke('send-contact', {
-        body: {
-          name: contactName,
-          email: contactEmail,
-          phone: contactPhone || undefined,
-          content: contactContent,
-        },
-      })
-      if (error) throw error
+      const body = {
+        name: contactName,
+        email: contactEmail,
+        phone: contactPhone || undefined,
+        content: contactContent,
+      }
+      let data: { success?: boolean; error?: string } | null = null
+      if (import.meta.env.DEV) {
+        const res = await fetch('/api/send-contact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const text = await res.text()
+        if (!res.ok) {
+          try {
+            const j = JSON.parse(text)
+            throw new Error(j.error || res.statusText)
+          } catch (err) {
+            if (err instanceof Error && err.message !== res.statusText) throw err
+            throw new Error(text || res.statusText)
+          }
+        }
+        data = text ? JSON.parse(text) : {}
+      } else {
+        const result = await supabase.functions.invoke('smooth-endpoint', { body })
+        if (result.error) throw result.error
+        data = result.data as { success?: boolean; error?: string } | null
+      }
       if (data?.error) throw new Error(data.error)
       setContactSubmitted(true)
       setContactName('')
