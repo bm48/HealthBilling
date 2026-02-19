@@ -8,6 +8,7 @@
 - Workflow visualization
 - Security section
 - Responsive design
+- **Contact form**: Name, email, phone, message; submits to Supabase Edge Function and sends email to admin@amerbilling.com via Gmail SMTP (App Password). See `supabase/functions/send-contact/README.md` for Gmail and Supabase Dashboard setup.
 
 ### 2. **Authentication System** ✅
 - Login page with email/password
@@ -156,6 +157,23 @@
    - Bulk operations
    - Data import/export
    - Dashboard analytics
+
+## 📧 Contact form (send-contact) setup
+
+To have the landing page contact form send email to **admin@amerbilling.com** via Gmail:
+
+1. **Gmail**
+   - Turn on **2-Step Verification** for the sending account (e.g. the address used for GMAIL_USER).
+   - Create an **App Password**: Google Account → Security → 2-Step Verification → App passwords → generate for "Mail", copy the 16-character password.
+
+2. **Supabase Dashboard**
+   - Project → **Project Settings** → **Edge Functions**.
+   - Add **Secrets**: `GMAIL_USER` (sender email), `GMAIL_APP_PASSWORD` (the 16-character app password).
+
+3. **Deploy**
+   - From project root: `npx supabase functions deploy send-contact`
+
+More detail: `supabase/functions/send-contact/README.md`.
 
 ## 📝 Notes
 

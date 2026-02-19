@@ -4,8 +4,6 @@ import { Link } from 'react-router-dom'
 import { Circle, ArrowUp } from 'lucide-react'
 import 'aos/dist/aos.css'
 
-import { supabase } from '../lib/supabase'
-
 const SCROLL_THRESHOLD_PX = 300
 const AOS_OFFSET = 40
 const AOS_DURATION = 600
@@ -35,29 +33,22 @@ export default function Landing() {
         phone: contactPhone || undefined,
         content: contactContent,
       }
-      let data: { success?: boolean; error?: string } | null = null
-      if (import.meta.env.DEV) {
-        const res = await fetch('/api/send-contact', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-        const text = await res.text()
-        if (!res.ok) {
-          try {
-            const j = JSON.parse(text)
-            throw new Error(j.error || res.statusText)
-          } catch (err) {
-            if (err instanceof Error && err.message !== res.statusText) throw err
-            throw new Error(text || res.statusText)
-          }
+      const res = await fetch('/api/send-contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const text = await res.text()
+      if (!res.ok) {
+        try {
+          const j = JSON.parse(text)
+          throw new Error(j.error || res.statusText)
+        } catch (err) {
+          if (err instanceof Error && err.message !== res.statusText) throw err
+          throw new Error(text || res.statusText)
         }
-        data = text ? JSON.parse(text) : {}
-      } else {
-        const result = await supabase.functions.invoke('smooth-endpoint', { body })
-        if (result.error) throw result.error
-        data = result.data as { success?: boolean; error?: string } | null
       }
+      const data = text ? JSON.parse(text) : {}
       if (data?.error) throw new Error(data.error)
       setContactSubmitted(true)
       setContactName('')
