@@ -52,7 +52,7 @@ interface ProvidersTabProps {
   officeStaffView?: boolean
   /** When true (super_admin only), user can edit/remove/resolve comments in the modal and "See comment" context menu is shown */
   canEditComment?: boolean
-  /** Current user's highlight color (from User Management). Used to paint highlighted cells. Super admin uses #46bbc4; default yellow (#eab308). */
+  /** Current user's highlight color (from User Management). Used to paint highlighted cells. Super admin uses #2d7e83; default yellow (#eab308). */
   userHighlightColor?: string | null
 }
 

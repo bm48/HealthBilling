@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom'
 import { Circle, ArrowUp } from 'lucide-react'
 import 'aos/dist/aos.css'
 
+import { supabase } from '../lib/supabase'
+
 const SCROLL_THRESHOLD_PX = 300
 const AOS_OFFSET = 40
 const AOS_DURATION = 600
@@ -13,6 +15,41 @@ export default function Landing() {
   const lastScrollY = useRef(0)
   const [headerVisible, setHeaderVisible] = useState(true)
   const [showScrollToTop, setShowScrollToTop] = useState(false)
+
+  const [contactName, setContactName] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
+  const [contactPhone, setContactPhone] = useState('')
+  const [contactContent, setContactContent] = useState('')
+  const [contactSubmitted, setContactSubmitted] = useState(false)
+  const [contactLoading, setContactLoading] = useState(false)
+  const [contactError, setContactError] = useState<string | null>(null)
+
+  const handleContactSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setContactError(null)
+    setContactLoading(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('send-contact', {
+        body: {
+          name: contactName,
+          email: contactEmail,
+          phone: contactPhone || undefined,
+          content: contactContent,
+        },
+      })
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+      setContactSubmitted(true)
+      setContactName('')
+      setContactEmail('')
+      setContactPhone('')
+      setContactContent('')
+    } catch (err) {
+      setContactError(err instanceof Error ? err.message : 'Failed to send message. Please try again.')
+    } finally {
+      setContactLoading(false)
+    }
+  }
 
   // Custom Intersection Observer so scroll animations work in dev and production build
   useEffect(() => {
@@ -275,14 +312,88 @@ export default function Landing() {
         </div>
 
         <div className='w-full text-gray-900 mt-12 sm:mt-16 md:mt-20 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
-            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 ml-0 sm:ml-10 md:ml-20'>Contact Us</h1>
-            <div className='mt-6 sm:mt-10 w-full max-w-[95%] sm:max-w-[85%] md:max-w-[60%] lg:w-[40%] ml-0 sm:ml-10 md:ml-20'>
-                <h3 className='text-lg sm:text-xl text-gray-700 pb-4 sm:pb-6'>Get in Touch</h3>
-                <p className='text-sm sm:text-md mb-4 text-gray-600'>
-                    Reach out to us today to elevate your practice's financial 
-                    performance with our cutting-edge medical billing solutions. Let's work together to
-                     streamline your revenue cycle and optimize your practice's profitability.
-                </p>
+            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-6 sm:mb-8 ml-0 sm:ml-10 md:ml-20'>Contact Us</h1>
+            <div className='grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-10 mt-6 sm:mt-10 w-full max-w-[95%] sm:max-w-[85%] mx-auto lg:max-w-6xl lg:px-10'>
+                {/* left - Get in Touch text */}
+                <div className='ml-0 sm:ml-10 md:ml-20 lg:ml-0'>
+                    <h3 className='text-lg sm:text-xl text-gray-700 pb-4 sm:pb-6'>Get in Touch</h3>
+                    <p className='text-sm sm:text-md text-gray-600'>
+                        Reach out to us today to elevate your practice's financial
+                        performance with our cutting-edge medical billing solutions. Let's work together to
+                        streamline your revenue cycle and optimize your practice's profitability.
+                    </p>
+                </div>
+                {/* right - Contact form */}
+                <div className='w-full max-w-md lg:max-w-none'>
+                    {contactSubmitted ? (
+                        <div className='p-6 rounded-lg border border-gray-300 bg-gray-50 text-gray-800'>
+                            <p className='font-medium text-lg'>Thank you for reaching out.</p>
+                            <p className='text-sm mt-2'>We will get back to you as soon as possible.</p>
+                        </div>
+                    ) : (
+                        <form onSubmit={handleContactSubmit} className='flex flex-col gap-4'>
+                            {contactError && (
+                                <div className='p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm'>
+                                    {contactError}
+                                </div>
+                            )}
+                            <div>
+                                <label htmlFor='contact-name' className='block text-sm font-medium text-gray-700 mb-1'>Name</label>
+                                <input
+                                    id='contact-name'
+                                    type='text'
+                                    value={contactName}
+                                    onChange={(e) => setContactName(e.target.value)}
+                                    required
+                                    className='w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-gray-900 outline-none transition'
+                                    placeholder='Your name'
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor='contact-email' className='block text-sm font-medium text-gray-700 mb-1'>Email</label>
+                                <input
+                                    id='contact-email'
+                                    type='email'
+                                    value={contactEmail}
+                                    onChange={(e) => setContactEmail(e.target.value)}
+                                    required
+                                    className='w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-gray-900 outline-none transition'
+                                    placeholder='your@email.com'
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor='contact-phone' className='block text-sm font-medium text-gray-700 mb-1'>Phone Number</label>
+                                <input
+                                    id='contact-phone'
+                                    type='tel'
+                                    value={contactPhone}
+                                    onChange={(e) => setContactPhone(e.target.value)}
+                                    className='w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-gray-900 outline-none transition'
+                                    placeholder='(555) 123-4567'
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor='contact-content' className='block text-sm font-medium text-gray-700 mb-1'>Message</label>
+                                <textarea
+                                    id='contact-content'
+                                    value={contactContent}
+                                    onChange={(e) => setContactContent(e.target.value)}
+                                    required
+                                    rows={4}
+                                    className='w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-gray-900 outline-none transition resize-y min-h-[100px]'
+                                    placeholder='How can we help you?'
+                                />
+                            </div>
+                            <button
+                                type='submit'
+                                disabled={contactLoading}
+                                className='mt-2 px-6 py-3 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 transition disabled:opacity-60 disabled:cursor-not-allowed'
+                            >
+                                {contactLoading ? 'Sending…' : 'Send Message'}
+                            </button>
+                        </form>
+                    )}
+                </div>
             </div>
         </div>
 

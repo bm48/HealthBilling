@@ -1971,7 +1971,7 @@ export default function ClinicDetail() {
             clinicId={clinicId}
             clinicPayroll={clinic?.payroll ?? 1}
             canEditComment={userProfile?.role === 'super_admin'}
-            userHighlightColor={userProfile?.role === 'super_admin' ? '#46bbc4' : (userProfile?.highlight_color ?? '#eab308')}
+            userHighlightColor={userProfile?.role === 'super_admin' ? '#2d7e83' : (userProfile?.highlight_color ?? '#eab308')}
             providers={providers}
             providerSheetRows={providerSheetRows}
             providerRowsVersion={providerRowsVersion}

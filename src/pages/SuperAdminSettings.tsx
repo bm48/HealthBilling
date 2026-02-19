@@ -247,7 +247,7 @@ export default function SuperAdminSettings() {
       if (editingUser) {
         const payload = { ...userData }
         if (variant === 'super_admin' && userProfile?.id === editingUser.id && editingUser.role === 'super_admin') {
-          payload.highlight_color = '#46bbc4'
+          payload.highlight_color = '#2d7e83'
         }
         const { error } = await supabase
           .from('users')
@@ -256,18 +256,23 @@ export default function SuperAdminSettings() {
 
         if (error) throw error
 
-        // Super admin: update provider level and provider_cut_percent on providers table
-        if (variant === 'super_admin' && editingUser.role === 'provider') {
+        // For providers: keep providers table in sync (clinic_ids, level, provider_cut_percent)
+        if (editingUser.role === 'provider' && editingUser.email) {
           const providersForEmail = providers.filter(p => p.email === editingUser.email)
           for (const p of providersForEmail) {
-            const updatePayload: { level?: number; provider_cut_percent?: number; updated_at: string } = {
+            const updatePayload: { clinic_ids?: string[]; level?: number; provider_cut_percent?: number; updated_at: string } = {
               updated_at: new Date().toISOString(),
             }
-            if (providerLevel !== undefined && (providerLevel === 1 || providerLevel === 2)) {
-              updatePayload.level = providerLevel
+            if (userData.clinic_ids != null && Array.isArray(userData.clinic_ids)) {
+              updatePayload.clinic_ids = userData.clinic_ids
             }
-            if (providerCutPercent !== undefined && providerCutPercent >= 0 && providerCutPercent <= 1) {
-              updatePayload.provider_cut_percent = providerCutPercent
+            if (variant === 'super_admin') {
+              if (providerLevel !== undefined && (providerLevel === 1 || providerLevel === 2)) {
+                updatePayload.level = providerLevel
+              }
+              if (providerCutPercent !== undefined && providerCutPercent >= 0 && providerCutPercent <= 1) {
+                updatePayload.provider_cut_percent = providerCutPercent
+              }
             }
             const { error: providerError } = await supabase
               .from('providers')
@@ -315,38 +320,66 @@ export default function SuperAdminSettings() {
           setEditingUser(null)
           return
         }
-        const { error: updateError } = await supabase
+        // Upsert so public.users row always exists (trigger may not run or can be delayed); required for timecards FK
+        const { error: upsertError } = await supabase
           .from('users')
-          .update({
-            full_name: userData.full_name ?? null,
-            role: userData.role ?? 'billing_staff',
-            hourly_pay: userData.hourly_pay ?? null,
-            highlight_color: userData.highlight_color ?? '#eab308',
-            email,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', newUserId)
-        if (updateError) {
-          console.error('Error updating new user profile:', updateError)
+          .upsert(
+            {
+              id: newUserId,
+              email,
+              full_name: userData.full_name ?? null,
+              role: userData.role ?? 'billing_staff',
+              hourly_pay: userData.hourly_pay ?? null,
+              highlight_color: userData.highlight_color ?? '#eab308',
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'id' }
+          )
+        if (upsertError) {
+          console.error('Error upserting new user profile:', upsertError)
           alert('User was created but profile update failed. You can edit the user to set details.')
-        }
-        if (userData.hourly_pay != null && userData.hourly_pay > 0) {
-          const now = new Date()
-          const weekStart = new Date(now)
-          const day = weekStart.getDay()
-          const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1)
-          weekStart.setDate(diff)
-          weekStart.setHours(0, 0, 0, 0)
-          const { error: tcError } = await supabase.from('timecards').insert({
-            user_id: newUserId,
-            clock_in: now.toISOString(),
-            clock_out: now.toISOString(),
-            hours: 0,
-            hourly_pay: userData.hourly_pay,
-            week_start_date: weekStart.toISOString().split('T')[0],
-          })
-          if (tcError) {
-            console.error('Error saving hourly pay to timecards:', tcError)
+        } else {
+          // Ensure provider row exists and has correct level/cut (trigger may create row with default level 1 before we run)
+          if (userData.role === 'provider' && email) {
+            const level = providerLevel === 1 || providerLevel === 2 ? providerLevel : 1
+            const provider_cut_percent = providerCutPercent != null && providerCutPercent >= 0 && providerCutPercent <= 1 ? providerCutPercent : 0.7
+            const { data: existing } = await supabase.from('providers').select('id').eq('email', email).limit(1).maybeSingle()
+            if (!existing) {
+              const fullName = (userData.full_name ?? '').trim() || 'User'
+              const spaceIdx = fullName.indexOf(' ')
+              const first_name = spaceIdx > 0 ? fullName.slice(0, spaceIdx) : fullName
+              const last_name = spaceIdx > 0 ? fullName.slice(spaceIdx + 1).trim() || '-' : '-'
+              await supabase.from('providers').insert({
+                email,
+                first_name,
+                last_name,
+                clinic_ids: [],
+                level,
+                provider_cut_percent,
+              })
+            } else {
+              // Trigger already created provider with default level 1; update to chosen level/cut
+              await supabase.from('providers').update({ level, provider_cut_percent }).eq('email', email)
+            }
+          }
+          if (userData.hourly_pay != null && userData.hourly_pay > 0) {
+            const now = new Date()
+            const weekStart = new Date(now)
+            const day = weekStart.getDay()
+            const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1)
+            weekStart.setDate(diff)
+            weekStart.setHours(0, 0, 0, 0)
+            const { error: tcError } = await supabase.from('timecards').insert({
+              user_id: newUserId,
+              clock_in: now.toISOString(),
+              clock_out: now.toISOString(),
+              hours: 0,
+              hourly_pay: userData.hourly_pay,
+              week_start_date: weekStart.toISOString().split('T')[0],
+            })
+            if (tcError) {
+              console.error('Error saving hourly pay to timecards:', tcError)
+            }
           }
         }
         await fetchUsers()
@@ -360,15 +393,37 @@ export default function SuperAdminSettings() {
     }
   }
 
-  const handleSaveAssignClinics = async (userId: string, clinicIds: string[]) => {
-    console.log('handleSaveAssignClinics', userId, clinicIds)
+  const handleSaveAssignClinics = async (user: User, clinicIds: string[]) => {
     try {
-      const { error } = await supabase
+      // Always update users table – this is the source of truth for clinic access for all roles (admin, billing_staff, office_staff, provider)
+      const { error: userError } = await supabase
         .from('users')
         .update({ clinic_ids: clinicIds })
-        .eq('id', userId)
+        .eq('id', user.id)
 
-      if (error) throw error
+      if (userError) throw userError
+
+      // For providers, also update the providers table so provider sheet/schedule and sidebar use correct clinic_ids
+      if (user.role === 'provider' && user.email) {
+        const { data: existingProvider } = await supabase.from('providers').select('id').eq('email', user.email).limit(1).maybeSingle()
+        if (existingProvider) {
+          const { error: providerError } = await supabase.from('providers').update({ clinic_ids: clinicIds }).eq('email', user.email)
+          if (providerError) throw providerError
+        } else {
+          const fullName = (user.full_name ?? '').trim() || 'User'
+          const spaceIdx = fullName.indexOf(' ')
+          const first_name = spaceIdx > 0 ? fullName.slice(0, spaceIdx) : fullName
+          const last_name = spaceIdx > 0 ? fullName.slice(spaceIdx + 1).trim() || '-' : '-'
+          const { error: insertErr } = await supabase.from('providers').insert({
+            email: user.email,
+            first_name,
+            last_name,
+            clinic_ids: clinicIds,
+          })
+          if (insertErr) throw insertErr
+        }
+      }
+
       await fetchUsers()
       setShowAssignClinicModal(false)
       setAssignClinicUser(null)
@@ -686,7 +741,7 @@ export default function SuperAdminSettings() {
                               {variant === 'super_admin' && (
                                 <td>
                                   {(() => {
-                                    const color = user.role === 'super_admin' ? '#46bbc4' : (user.highlight_color || '#eab308')
+                                    const color = user.role === 'super_admin' ? '#2d7e83' : (user.highlight_color || '#eab308')
                                     return (
                                       <div
                                         className="inline-block w-8 h-6 rounded border border-white/30 shrink-0"
@@ -1134,7 +1189,7 @@ export default function SuperAdminSettings() {
             setShowAssignClinicModal(false)
             setAssignClinicUser(null)
           }}
-          onSave={(clinicIds) => handleSaveAssignClinics(assignClinicUser.id, clinicIds)}
+          onSave={(clinicIds) => handleSaveAssignClinics(assignClinicUser, clinicIds)}
         />
       )}
 
@@ -1296,7 +1351,7 @@ function UserFormModal({
     full_name: user?.full_name || '',
     role: user?.role || 'provider',
     clinic_ids: user?.clinic_ids || [],
-    highlight_color: user?.highlight_color || (user?.role === 'super_admin' ? '#46bbc4' : '#eab308'),
+    highlight_color: user?.highlight_color || (user?.role === 'super_admin' ? '#2d7e83' : '#eab308'),
     provider_level: initialLevel as 1 | 2,
     provider_cut_percent: initialCutPercent,
     hourly_pay: user?.hourly_pay ?? '',

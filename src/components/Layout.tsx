@@ -21,7 +21,7 @@ import {
   ArrowLeft,
   Lock
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Clinic, Provider } from '@/types'
 
@@ -46,6 +46,7 @@ export default function Layout({ children }: LayoutProps) {
   const [loadingProviderClinics, setLoadingProviderClinics] = useState(false)
   const [providerClinicsSectionExpanded, setProviderClinicsSectionExpanded] = useState(false)
   const [providerClinicExpanded, setProviderClinicExpanded] = useState<Set<string>>(new Set())
+  const prevPathnameRef = useRef(location.pathname)
 
   const handleSignOut = async () => {
     try {
@@ -63,6 +64,16 @@ export default function Layout({ children }: LayoutProps) {
       fetchClinics()
     }
   }, [userProfile])
+
+  // Refetch clinics and providers when navigating back from settings so new/updated providers appear in sidebar immediately
+  useEffect(() => {
+    const fromSettings = prevPathnameRef.current.startsWith('/super-admin-settings') || prevPathnameRef.current.startsWith('/admin-settings')
+    const toNonSettings = !location.pathname.startsWith('/super-admin-settings') && !location.pathname.startsWith('/admin-settings')
+    if (fromSettings && toNonSettings && (userProfile?.role === 'super_admin' || userProfile?.role === 'admin' || userProfile?.role === 'billing_staff' || userProfile?.role === 'official_staff' || userProfile?.role === 'office_staff')) {
+      fetchClinics()
+    }
+    prevPathnameRef.current = location.pathname
+  }, [location.pathname, userProfile])
 
   // Fetch provider's clinics when role is provider
   useEffect(() => {
