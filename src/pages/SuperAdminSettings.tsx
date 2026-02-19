@@ -245,9 +245,13 @@ export default function SuperAdminSettings() {
   ) => {
     try {
       if (editingUser) {
+        const payload = { ...userData }
+        if (variant === 'super_admin' && userProfile?.id === editingUser.id && editingUser.role === 'super_admin') {
+          payload.highlight_color = '#46bbc4'
+        }
         const { error } = await supabase
           .from('users')
-          .update(userData)
+          .update(payload)
           .eq('id', editingUser.id)
 
         if (error) throw error
@@ -317,6 +321,7 @@ export default function SuperAdminSettings() {
             full_name: userData.full_name ?? null,
             role: userData.role ?? 'billing_staff',
             hourly_pay: userData.hourly_pay ?? null,
+            highlight_color: userData.highlight_color ?? '#eab308',
             email,
             updated_at: new Date().toISOString(),
           })
@@ -647,6 +652,7 @@ export default function SuperAdminSettings() {
                           <th>Name</th>
                           <th>Role</th>
                           {variant === 'super_admin' && <th>Provider Level</th>}
+                          {variant === 'super_admin' && <th>Highlight Color</th>}
                           <th>Clinics</th>
                           <th>Assign Clinics</th>
                           <th style={{ width: '80px' }}>Actions</th>
@@ -675,6 +681,20 @@ export default function SuperAdminSettings() {
                               {variant === 'super_admin' && (
                                 <td>
                                   {user.role === 'provider' ? (levelAndPercent != null ? levelAndPercent : <span title={providerLevelsLoadError ? 'Level could not be loaded' : undefined}>—</span>) : <span className="text-white/50">—</span>}
+                                </td>
+                              )}
+                              {variant === 'super_admin' && (
+                                <td>
+                                  {(() => {
+                                    const color = user.role === 'super_admin' ? '#46bbc4' : (user.highlight_color || '#eab308')
+                                    return (
+                                      <div
+                                        className="inline-block w-8 h-6 rounded border border-white/30 shrink-0"
+                                        style={{ backgroundColor: color }}
+                                        title={color}
+                                      />
+                                    )
+                                  })()}
                                 </td>
                               )}
                               <td>
@@ -1276,7 +1296,7 @@ function UserFormModal({
     full_name: user?.full_name || '',
     role: user?.role || 'provider',
     clinic_ids: user?.clinic_ids || [],
-    highlight_color: user?.highlight_color || '#3b82f6',
+    highlight_color: user?.highlight_color || (user?.role === 'super_admin' ? '#46bbc4' : '#eab308'),
     provider_level: initialLevel as 1 | 2,
     provider_cut_percent: initialCutPercent,
     hourly_pay: user?.hourly_pay ?? '',
@@ -1409,15 +1429,21 @@ function UserFormModal({
             </>
           )}
 
-          {/* <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Highlight Color</label>
-            <input
-              type="color"
-              value={formData.highlight_color}
-              onChange={(e) => setFormData({ ...formData, highlight_color: e.target.value })}
-              className="w-full h-10 border border-gray-300 rounded-lg"
-            />
-          </div> */}
+          {variant === 'super_admin' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Highlight Color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={formData.highlight_color}
+                  onChange={(e) => setFormData({ ...formData, highlight_color: e.target.value })}
+                  className="h-10 w-14 border border-gray-300 rounded-lg cursor-pointer"
+                />
+                <span className="text-sm text-gray-600 font-mono">{formData.highlight_color}</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Shown in the table and used for this user&apos;s highlight. Default: yellow.</p>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4">
             <button

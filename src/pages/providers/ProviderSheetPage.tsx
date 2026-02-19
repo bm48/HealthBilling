@@ -520,6 +520,7 @@ export default function ProviderSheetPage() {
         <ProvidersTab
           clinicId={clinicId}
           clinicPayroll={clinic?.payroll ?? 1}
+          userHighlightColor={userProfile?.highlight_color ?? '#eab308'}
           providers={[provider]}
           canEditComment={false}
           providerSheetRows={providerSheetRows}

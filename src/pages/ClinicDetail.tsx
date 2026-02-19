@@ -51,6 +51,8 @@ export default function ClinicDetail() {
   const [isResizing, setIsResizing] = useState(false)
   const splitScreenContainerRef = useRef<HTMLDivElement>(null)
   const billingTodoExportRef = useRef<{ exportToCSV: () => void } | null>(null)
+  /** Remember last selected provider so clicking Billing tab returns to that provider's sheet */
+  const lastSelectedProviderIdRef = useRef<string | null>(null)
 
   
   // Context menu state
@@ -118,6 +120,11 @@ export default function ClinicDetail() {
       }
     }
   }, [tab, clinicId, navigate, providerId, userProfile?.role, isBillingStaff, isOfficialStaff])
+
+  // Remember provider when viewing a provider's sheet so Billing tab can return to it
+  useEffect(() => {
+    if (providerId) lastSelectedProviderIdRef.current = providerId
+  }, [providerId])
 
   useEffect(() => {
     patientsRef.current = patients
@@ -1864,9 +1871,14 @@ export default function ClinicDetail() {
         setSplitScreen({ left: splitScreen.left, right: tab })
       }
     } else {
-    setActiveTab(tab)
-    navigate(`/clinic/${clinicId}/${tab}`, { replace: true })
-  }
+      setActiveTab(tab)
+      // When switching to Billing (providers), go to last selected provider's sheet if we have one
+      const path =
+        tab === 'providers' && lastSelectedProviderIdRef.current
+          ? `/clinic/${clinicId}/providers/${lastSelectedProviderIdRef.current}`
+          : `/clinic/${clinicId}/${tab}`
+      navigate(path, { replace: true })
+    }
   }
   
   // Helper function to render tab content
@@ -1959,6 +1971,7 @@ export default function ClinicDetail() {
             clinicId={clinicId}
             clinicPayroll={clinic?.payroll ?? 1}
             canEditComment={userProfile?.role === 'super_admin'}
+            userHighlightColor={userProfile?.role === 'super_admin' ? '#46bbc4' : (userProfile?.highlight_color ?? '#eab308')}
             providers={providers}
             providerSheetRows={providerSheetRows}
             providerRowsVersion={providerRowsVersion}
@@ -2007,7 +2020,7 @@ export default function ClinicDetail() {
   const canLockColumns = userProfile?.role === 'super_admin' || userProfile?.role === 'admin'
   const showPatientTab = true
   // const showProvidersTab = userProfile?.role !== 'billing_staff' && userProfile?.role !== 'office_staff'
-  const showProvidersTab = false
+  // const showProvidersTab = true
   // Hide AR and Provider Pay tabs when viewing Patient Info or Billing To-Do
   const hideFinanceTabsForTopLevel =
     activeTab === 'patients' || activeTab === 'todo'
@@ -2015,6 +2028,7 @@ export default function ClinicDetail() {
     !isBillingStaff && !isOfficeStaff && !hideFinanceTabsForTopLevel
   const showProviderPayTab =
     !isBillingStaff && !isOfficeStaff && !hideFinanceTabsForTopLevel
+  const showProvidersTab = !hideFinanceTabsForTopLevel
   /** Official staff and office staff can edit only patient_id through date_of_service on the provider sheet; other columns read-only */
   const restrictProviderSheetEditToScheduling = isOfficialStaff || isOfficeStaff
 

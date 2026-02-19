@@ -6,6 +6,7 @@ import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiS
 import { useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 import { toDisplayValue, toDisplayDate } from '@/lib/utils'
 import { computeBillingMetrics } from '@/lib/billingMetrics'
 
@@ -51,6 +52,8 @@ interface ProvidersTabProps {
   officeStaffView?: boolean
   /** When true (super_admin only), user can edit/remove/resolve comments in the modal and "See comment" context menu is shown */
   canEditComment?: boolean
+  /** Current user's highlight color (from User Management). Used to paint highlighted cells. Super admin uses #46bbc4; default yellow (#eab308). */
+  userHighlightColor?: string | null
 }
 
 export default function ProvidersTab({
@@ -85,11 +88,15 @@ export default function ProvidersTab({
   restrictEditToSchedulingColumns = false,
   officeStaffView = false,
   canEditComment = false,
+  userHighlightColor = '#eab308',
 }: ProvidersTabProps) {
   
+  const { userProfile } = useAuth()
   // Use isLockProviders from props directly - it will update when parent refreshes
   const lockData = isLockProviders || null
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
+  /** Per-cell highlight color (of the user who highlighted that cell) */
+  const [highlightColorByKey, setHighlightColorByKey] = useState<Map<string, string>>(new Map())
   const [commentsMap, setCommentsMap] = useState<Map<string, string>>(new Map())
   const [resolvedCells, setResolvedCells] = useState<Set<string>>(new Set())
   const [commentModal, setCommentModal] = useState<{ row: number; col: number; rowId: string; colKey: string } | null>(null)
@@ -129,11 +136,18 @@ export default function ProvidersTab({
     const loadHighlights = async () => {
       const { data } = await supabase
         .from('cell_highlights')
-        .select('row_id, column_key')
+        .select('row_id, column_key, highlight_color')
         .eq('clinic_id', clinicId)
         .eq('sheet_type', 'providers')
       if (data) {
-        setHighlightedCells(new Set(data.map((r: { row_id: string; column_key: string }) => `${r.row_id}:${r.column_key}`)))
+        const keys = data.map((r: { row_id: string; column_key: string }) => `${r.row_id}:${r.column_key}`)
+        setHighlightedCells(new Set(keys))
+        const colorMap = new Map<string, string>()
+        data.forEach((r: { row_id: string; column_key: string; highlight_color?: string | null }) => {
+          const key = `${r.row_id}:${r.column_key}`
+          colorMap.set(key, (r.highlight_color && r.highlight_color.trim()) ? r.highlight_color.trim() : '#eab308')
+        })
+        setHighlightColorByKey(colorMap)
       }
     }
     const loadComments = async () => {
@@ -500,14 +514,22 @@ export default function ProvidersTab({
       if (!colKey) return {}
       const key = `${sheetRow?.id ?? `row-${row}`}:${colKey}`
       const isResolved = resolvedCells.has(key)
+      const isHighlighted = highlightedCells.has(key)
       const classes = [
-        highlightedCells.has(key) ? 'cell-highlight-yellow' : '',
+        isHighlighted && !highlightColorByKey.get(key) ? 'cell-highlight-yellow' : '',
         commentsMap.has(key) && !isResolved ? 'cell-has-comment' : '',
         isResolved ? 'cell-comment-resolved' : '',
       ].filter(Boolean).join(' ')
-      return classes ? { className: classes } : {}
+      const color = (highlightColorByKey.get(key) || userHighlightColor || '#eab308').trim()
+      const highlightStyle = isHighlighted && color
+        ? { backgroundColor: `${color}40` }
+        : undefined
+      if (classes || highlightStyle) {
+        return { className: classes || undefined, style: highlightStyle }
+      }
+      return {}
     },
-    [activeProviderRows, columnFields, highlightedCells, commentsMap, resolvedCells]
+    [activeProviderRows, columnFields, highlightedCells, highlightColorByKey, commentsMap, resolvedCells, userHighlightColor]
   )
 
   // Tooltip for cells with comments (e.g. on provider side when hovering)
@@ -567,18 +589,25 @@ export default function ProvidersTab({
     const sheetRow = activeProviderRows[row]
     const colKey = columnFields[col]
     if (!colKey) return
-    const key = `${sheetRow?.id ?? `row-${row}`}:${colKey}`
+    const rowId = sheetRow?.id ?? `row-${row}`
+    const key = `${rowId}:${colKey}`
     const isHighlighted = highlightedCells.has(key)
+    const currentUserColor = (userHighlightColor || '').trim() || '#eab308'
     if (isHighlighted) {
       await supabase
         .from('cell_highlights')
         .delete()
         .eq('clinic_id', clinicId)
         .eq('sheet_type', 'providers')
-        .eq('row_id', sheetRow?.id ?? `row-${row}`)
+        .eq('row_id', rowId)
         .eq('column_key', colKey)
       setHighlightedCells((prev) => {
         const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+      setHighlightColorByKey((prev) => {
+        const next = new Map(prev)
         next.delete(key)
         return next
       })
@@ -587,14 +616,17 @@ export default function ProvidersTab({
         {
           clinic_id: clinicId,
           sheet_type: 'providers',
-          row_id: sheetRow?.id ?? `row-${row}`,
+          row_id: rowId,
           column_key: colKey,
+          user_id: userProfile?.id ?? null,
+          highlight_color: currentUserColor,
         },
         { onConflict: 'clinic_id,sheet_type,row_id,column_key' }
       )
       setHighlightedCells((prev) => new Set(prev).add(key))
+      setHighlightColorByKey((prev) => new Map(prev).set(key, currentUserColor))
     }
-  }, [activeProviderRows, columnFields, clinicId, highlightedCells])
+  }, [activeProviderRows, columnFields, clinicId, highlightedCells, userHighlightColor, userProfile?.id])
 
   const handleCellSeeComment = useCallback((row: number, col: number) => {
     if (!clinicId) return
@@ -963,7 +995,12 @@ export default function ProvidersTab({
     let hadPatientIdMerge = false
     let hadDateColumnEdit = false
 
+    // Track 0-value highlight updates for Ins Pay / Collected from PT (and "00" in Collected from PT → yellow)
+    const YELLOW_HIGHLIGHT = '#eab308'
+    const zeroHighlightUpdates: { rowId: string; colKey: string; isZero: boolean; highlightColor: string }[] = []
+
     changes.forEach(([row, col, , newValue]) => {
+      const field = fields[col as number]
       // Ensure we have enough rows
       while (updatedRows.length <= row) {
         const createEmptyRow = (index: number): SheetRow => ({
@@ -1015,8 +1052,6 @@ export default function ProvidersTab({
       
       const sheetRow = updatedRows[row]
       if (sheetRow) {
-        const field = fields[col as number]
-        
         // Generate unique ID for empty rows
         const needsNewId = sheetRow.id.startsWith('empty-')
         const newId = needsNewId ? `new-${Date.now()}-${idCounter++}-${Math.random()}` : sheetRow.id
@@ -1056,6 +1091,20 @@ export default function ProvidersTab({
           const value = (newValue === '' || newValue === 'null') ? null : String(newValue)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
         }
+      }
+      // Auto highlight when 0 or "00" is entered in Ins Pay or Collected from PT ("00" in Collected from PT → yellow)
+      if (field === 'insurance_payment' || field === 'collected_from_patient') {
+        const finalRow = updatedRows[row]
+        const rowId = finalRow?.id ?? sheetRow?.id ?? `row-${row}`
+        const colKey = field === 'insurance_payment' ? 'ins_pay' : 'collected_from_pt'
+        const rawStr = String(newValue ?? '').trim()
+        const num = (newValue === '' || newValue === null || newValue === undefined) ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)))
+        const isZero = num === 0
+        // Collected from PT: "00" → yellow; 0 → user color. Ins Pay: 0 → user color.
+        const highlightColor = (userHighlightColor || '').trim() || YELLOW_HIGHLIGHT
+        const useYellowFor00 = field === 'collected_from_patient' && rawStr === '00'
+        const colorToUse = isZero ? (useYellowFor00 ? YELLOW_HIGHLIGHT : highlightColor) : highlightColor
+        zeroHighlightUpdates.push({ rowId, colKey, isZero, highlightColor: colorToUse })
       }
     })
     
@@ -1114,6 +1163,49 @@ export default function ProvidersTab({
 
     // Store latest table data so next render passes fresh data even if parent state hasn't updated yet
     latestTableDataRef.current = getTableDataFromRows(updatedRows)
+
+    // Auto add/remove highlight when Ins Pay or Collected from PT is set to 0 / "00" or changed
+    if (zeroHighlightUpdates.length > 0 && clinicId) {
+      const userId = userProfile?.id ?? null
+      ;(async () => {
+        for (const { rowId, colKey, isZero, highlightColor } of zeroHighlightUpdates) {
+          const key = `${rowId}:${colKey}`
+          if (isZero) {
+            await supabase.from('cell_highlights').upsert(
+              {
+                clinic_id: clinicId,
+                sheet_type: 'providers',
+                row_id: rowId,
+                column_key: colKey,
+                user_id: userId,
+                highlight_color: highlightColor,
+              },
+              { onConflict: 'clinic_id,sheet_type,row_id,column_key' }
+            )
+            setHighlightedCells((prev) => new Set(prev).add(key))
+            setHighlightColorByKey((prev) => new Map(prev).set(key, highlightColor))
+          } else {
+            await supabase
+              .from('cell_highlights')
+              .delete()
+              .eq('clinic_id', clinicId)
+              .eq('sheet_type', 'providers')
+              .eq('row_id', rowId)
+              .eq('column_key', colKey)
+            setHighlightedCells((prev) => {
+              const next = new Set(prev)
+              next.delete(key)
+              return next
+            })
+            setHighlightColorByKey((prev) => {
+              const next = new Map(prev)
+              next.delete(key)
+              return next
+            })
+          }
+        }
+      })()
+    }
     
     // Apply all changes to parent state
     updatedRows.forEach((row, index) => {
@@ -1181,7 +1273,7 @@ export default function ProvidersTab({
     if (hadPatientIdMerge || hadDateColumnEdit) {
       setStructureVersion((v) => v + 1)
     }
-  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, patients, getTableDataFromRows])
+  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, patients, getTableDataFromRows, clinicId, userHighlightColor, userProfile?.id])
 
   const handleDeleteProviderSheetRow = useCallback((providerId: string, rowId: string) => {
     if (onDeleteRow) onDeleteRow(providerId, rowId)

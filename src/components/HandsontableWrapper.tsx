@@ -56,6 +56,31 @@ export function parseFormulaReferences(formula: string): FormulaRefRange[] {
   return ranges
 }
 
+/** Apply cell meta.style and optional title to all currently rendered (visible) cells. Call after render and after scroll so highlights persist. */
+function applyCellStylesAndTitles(
+  hot: Handsontable,
+  getCellTitle?: (row: number, col: number) => string | undefined
+) {
+  const countRows = hot.countRows()
+  const countCols = hot.countCols()
+  for (let r = 0; r < countRows; r++) {
+    for (let c = 0; c < countCols; c++) {
+      const cell = hot.getCell(r, c) as HTMLElement | null
+      if (cell) {
+        const meta = hot.getCellMeta(r, c) as { style?: React.CSSProperties } | undefined
+        if (meta?.style && typeof meta.style === 'object') {
+          Object.assign(cell.style, meta.style)
+        }
+        if (getCellTitle) {
+          const title = getCellTitle(r, c)
+          if (title != null && title !== '') cell.setAttribute('title', title)
+          else cell.removeAttribute('title')
+        }
+      }
+    }
+  }
+}
+
 /** Copy row heights from main table to row header clone so the row number column matches data row heights. */
 function syncRowHeaderHeightsToClone(hot: Handsontable) {
   const root = hot?.rootElement
@@ -630,27 +655,18 @@ export default function HandsontableWrapper({
     // Enable comments
     comments: false,
 
-    // Sync row heights from main table to row header clone; optionally set cell titles (e.g. comment tooltip)
+    // Sync row heights from main table to row header clone; apply cell styles/titles so highlights persist after scroll
     afterRender: function (this: Handsontable) {
       syncRowHeaderHeightsToClone(this)
-      if (getCellTitle) {
-        const countRows = this.countRows()
-        const countCols = this.countCols()
-        for (let r = 0; r < countRows; r++) {
-          for (let c = 0; c < countCols; c++) {
-            const cell = this.getCell(r, c)
-            if (cell) {
-              const title = getCellTitle(r, c)
-              if (title != null && title !== '') (cell as HTMLElement).setAttribute('title', title)
-              else (cell as HTMLElement).removeAttribute('title')
-            }
-          }
-        }
-      }
+      applyCellStylesAndTitles(this, getCellTitle)
       afterRenderCallback?.(this)
     },
     afterScrollVertically: function (this: Handsontable) {
       syncRowHeaderHeightsToClone(this)
+      applyCellStylesAndTitles(this, getCellTitle)
+    },
+    afterScrollHorizontally: function (this: Handsontable) {
+      applyCellStylesAndTitles(this, getCellTitle)
     },
   }
   
