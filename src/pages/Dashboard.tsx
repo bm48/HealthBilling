@@ -370,6 +370,7 @@ export default function Dashboard() {
                     clinic={clinic}
                     providers={providersByClinic[clinic.id] || []}
                     stats={cardStats}
+                    role={userProfile?.role}
                   />
                 )
               })}
@@ -380,7 +381,123 @@ export default function Dashboard() {
     )
   }
 
-  // Regular Dashboard for non-super-admin users (admin, billing_staff, etc.) – same clinic card layout and summary cards as super admin
+  // Billing Staff Dashboard – focused on billing tasks, timecards, and assigned clinics
+  if (userProfile?.role === 'billing_staff') {
+    return (
+      <div>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-white">Billing Staff Dashboard</h1>
+          <p className="text-white/70 mt-2">
+            Welcome back, {userProfile?.full_name || userProfile?.email}
+          </p>
+        </div>
+
+        {/* Quick actions */}
+        {/* <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+          <Link
+            to="/todo"
+            className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20 hover:border-primary-400/50 hover:scale-[1.02] transition-all flex items-center gap-4"
+          >
+            <CheckSquare className="text-yellow-400 shrink-0" size={32} />
+            <div>
+              <h3 className="text-lg font-semibold text-white">Billing To-Do</h3>
+              <p className="text-white/70 text-sm">Manage and complete billing tasks</p>
+              {stats.totalTodosOpen > 0 && (
+                <p className="text-amber-300 text-sm mt-1">{stats.totalTodosOpen} open</p>
+              )}
+            </div>
+          </Link>
+          <Link
+            to="/timecards"
+            className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20 hover:border-primary-400/50 hover:scale-[1.02] transition-all flex items-center gap-4"
+          >
+            <Clock className="text-blue-400 shrink-0" size={32} />
+            <div>
+              <h3 className="text-lg font-semibold text-white">Timecards</h3>
+              <p className="text-white/70 text-sm">Clock in / out and view hours</p>
+            </div>
+          </Link>
+          <Link
+            to="/patients"
+            className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20 hover:border-primary-400/50 hover:scale-[1.02] transition-all flex items-center gap-4"
+          >
+            <Users className="text-green-400 shrink-0" size={32} />
+            <div>
+              <h3 className="text-lg font-semibold text-white">Patient Database</h3>
+              <p className="text-white/70 text-sm">View and manage patient records</p>
+            </div>
+          </Link>
+        </div> */}
+
+        {/* Billing-focused stats */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <Building2 className="text-primary-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalClinics}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Assigned Clinics</h3>
+          </div>
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <Users className="text-green-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalPatients}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Total Patients</h3>
+          </div>
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <AlertCircle className="text-orange-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalTodosOpen}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Open To-Do Items</h3>
+          </div>
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+            <div className="flex items-center justify-between mb-2">
+              <FileText className="text-purple-400" size={24} />
+              <span className="text-3xl font-bold text-white">{stats.totalProviderSheets}</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/70">Provider Sheets</h3>
+          </div>
+        </div>
+
+        {clinics.length > 0 ? (
+          <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
+            <h2 className="text-xl font-semibold text-white mb-4">Your Assigned Clinics</h2>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {clinics.map((clinic) => {
+                const s = clinicStats[clinic.id]
+                const cardStats: ClinicCardStats | null = s
+                  ? {
+                      patientCount: s.patientCount,
+                      providerCount: s.providerCount,
+                      todoCount: s.todoCount,
+                      currentMonthTotal: s.currentMonthTotal,
+                    }
+                  : null
+                return (
+                  <ClinicCard
+                    key={clinic.id}
+                    clinic={clinic}
+                    providers={providersByClinic[clinic.id] || []}
+                    stats={cardStats}
+                    dashboardHref
+                    role={userProfile?.role}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
+            <p className="text-white/70">No clinics assigned yet. Contact your admin to get access.</p>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Regular Dashboard for admin and office_staff – clinic card layout and summary cards
   return (
     <div>
       <div className="mb-8">
@@ -499,6 +616,7 @@ export default function Dashboard() {
                   providers={providersByClinic[clinic.id] || []}
                   stats={cardStats}
                   dashboardHref
+                  role={userProfile?.role}
                 />
               )
             })}

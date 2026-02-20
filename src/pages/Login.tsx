@@ -203,7 +203,7 @@ export default function Login() {
               <p className="text-sm text-white/70">
                 Don't have an account?{' '}
                 <Link to="/signup" className="font-medium text-primary-400 hover:text-primary-300 transition-colors">
-                  Create one now
+                  email office@amerbilling.com
                 </Link>
               </p>
             </div>

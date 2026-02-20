@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { Clinic, Provider } from '@/types'
-import { LayoutDashboard, Building2, FileText, Calendar, Users } from 'lucide-react'
+import { LayoutDashboard, Building2, Users } from 'lucide-react'
 import ClinicCard, { ClinicCardStats } from '@/components/ClinicCard'
 
 export default function ProviderDashboardPage() {
@@ -17,8 +17,6 @@ export default function ProviderDashboardPage() {
   const [providersByClinic, setProvidersByClinic] = useState<Record<string, Provider[]>>({})
   const [patientCountByClinic, setPatientCountByClinic] = useState<Record<string, number>>({})
   // const [providerCountByClinic, setProviderCountByClinic] = useState<Record<string, number>>({})
-  const [upcomingCount, setUpcomingCount] = useState(0)
-  const [sheetsThisMonthCount, setSheetsThisMonthCount] = useState(0)
 
   useEffect(() => {
     if (authLoading) return
@@ -53,8 +51,6 @@ export default function ProviderDashboardPage() {
           setClinics([])
           setPatientCountByClinic({})
           // setProviderCountByClinic({})
-          setUpcomingCount(0)
-          setSheetsThisMonthCount(0)
           setLoading(false)
           return
         }
@@ -66,8 +62,6 @@ export default function ProviderDashboardPage() {
           setProvidersByClinic({})
           setPatientCountByClinic({})
           // setProviderCountByClinic({})
-          setUpcomingCount(0)
-          setSheetsThisMonthCount(0)
           setLoading(false)
           return
         }
@@ -147,32 +141,6 @@ export default function ProviderDashboardPage() {
           })
           setClinicStats(statsMap)
         }
-
-        const providerId = (providerData as Provider).id
-        const now = new Date()
-        const today = now.toISOString().slice(0, 10)
-        const endDate = new Date(now)
-        endDate.setDate(endDate.getDate() + 7)
-        const endDateStr = endDate.toISOString().slice(0, 10)
-        const currentMonth = now.getMonth() + 1
-        const currentYear = now.getFullYear()
-
-        const [upcomingRes, sheetsRes] = await Promise.all([
-          supabase
-            .from('provider_schedules')
-            .select('id', { count: 'exact', head: true })
-            .eq('provider_id', providerId)
-            .gte('date_of_service', today)
-            .lte('date_of_service', endDateStr),
-          supabase
-            .from('provider_sheets')
-            .select('id', { count: 'exact', head: true })
-            .eq('provider_id', providerId)
-            .eq('month', currentMonth)
-            .eq('year', currentYear),
-        ])
-        setUpcomingCount(upcomingRes.count ?? 0)
-        setSheetsThisMonthCount(sheetsRes.count ?? 0)
       } catch (e) {
         console.error(e)
         setError('Failed to load your clinics.')
@@ -182,8 +150,6 @@ export default function ProviderDashboardPage() {
         setProvidersByClinic({})
         setPatientCountByClinic({})
         // setProviderCountByClinic({})
-        setUpcomingCount(0)
-        setSheetsThisMonthCount(0)
       } finally {
         setLoading(false)
       }
@@ -241,21 +207,6 @@ export default function ProviderDashboardPage() {
           <h3 className="text-sm font-medium text-white/70">Total Patients</h3>
         </div>
 
-        <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
-          <div className="flex items-center justify-between mb-2">
-            <Calendar className="text-blue-400" size={24} />
-            <span className="text-3xl font-bold text-white">{upcomingCount}</span>
-          </div>
-          <h3 className="text-sm font-medium text-white/70">Upcoming (7 days)</h3>
-        </div>
-
-        <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
-          <div className="flex items-center justify-between mb-2">
-            <FileText className="text-purple-400" size={24} />
-            <span className="text-3xl font-bold text-white">{sheetsThisMonthCount}</span>
-          </div>
-          <h3 className="text-sm font-medium text-white/70">Sheets This Month</h3>
-        </div>
       </div>
 
       {/* Clinic cards – same layout as super admin dashboard */}
@@ -280,6 +231,7 @@ export default function ProviderDashboardPage() {
                   providers={providersByClinic[clinic.id] || []}
                   stats={cardStats}
                   customTo={`/providers/clinics/${clinic.id}/sheet`}
+                  role={userProfile?.role}
                 />
               )
             })}

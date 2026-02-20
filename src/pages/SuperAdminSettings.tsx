@@ -247,7 +247,9 @@ export default function SuperAdminSettings() {
   ) => {
     try {
       if (editingUser) {
-        const payload = { ...userData }
+        // users table does not have npi (it lives on providers); omit it from the users update
+        const { npi: _npi, ...userDataForUsers } = userData as typeof userData & { npi?: string | null }
+        const payload = { ...userDataForUsers }
         if (variant === 'super_admin' && userProfile?.id === editingUser.id && editingUser.role === 'super_admin') {
           payload.highlight_color = '#2d7e83'
         }

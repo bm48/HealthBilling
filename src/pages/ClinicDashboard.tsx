@@ -234,41 +234,86 @@ export default function ClinicDashboard() {
 
       {/* Section 2: Clinic info card – dashboard style */}
       <div>
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <span className="text-white/70 font-medium">Clinic Addresses 1: </span>
-            <span className="text-white">
-              {clinic.address}
-            </span>
+        <div className="space-y-3 grid grid-cols-2">
+            <div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span className="text-white/70 font-medium">Clinic Addresses 1: </span>
+                <span className="text-white">
+                  {clinic.address}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span className="text-white/70 font-medium">Clinic Addresses 2: </span>
+                <span className="text-white">
+                  {clinic.address_line_2}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span className="text-white/70 font-medium">Phone : </span>
+                <span className="text-white">{clinic.phone ?? '—'}</span>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span className="text-white/70 font-medium">Fax : </span>
+                <span className="text-white">{clinic.fax ?? '—'}</span>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span className="text-white/70 font-medium">EIN/Tax ID : </span>
+                <span className="text-white">{clinic.ein ?? '—'}</span>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span className="text-white/70 font-medium">NPI : </span>
+                <span className="text-white">{clinic.npi ?? '—'}</span>
+              </div>
+            </div>
+            <div>
+              {/* Section 3: Summary cards */}
+              <div className="grid grid-cols-2 gap-6 -mt-6">
+                <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+                  <div className="flex items-center justify-between mb-2">
+                    <Users className="text-green-400" size={24} />
+                    <span className="text-3xl font-bold text-white">{stats?.patientCount ?? 0}</span>
+                  </div>
+                  <h3 className="text-sm font-medium text-white/70">Patients</h3>
+                </div>
+                <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+                  <div className="flex items-center justify-between mb-2">
+                    <FileText className="text-blue-400" size={24} />
+                    <span className="text-3xl font-bold text-white">{stats?.providerCount ?? 0}</span>
+                  </div>
+                  <h3 className="text-sm font-medium text-white/70">Providers</h3>
+                </div>
+                {userProfile?.role !== 'office_staff' && (
+                  <>
+                  <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+                    <div className="flex items-center justify-between mb-2">
+                      <CheckSquare className="text-yellow-400" size={24} />
+                      <span className="text-3xl font-bold text-white">{stats?.todoCount ?? 0}</span>
+                    </div>
+                    <h3 className="text-sm font-medium text-white/70">To-Do Items</h3>
+                  </div>
+                  </>
+                )}
+                {(userProfile?.role !== 'billing_staff' && userProfile?.role !== 'office_staff') && (
+                  <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
+                    <div className="flex items-center justify-between mb-2">
+                      <DollarSign className="text-purple-400" size={24} />
+                      <span className="text-3xl font-bold text-white">
+                        {formatCurrency(stats?.currentMonthTotal ?? 0)}
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-medium text-white/70">Total $ paid (current month)</h3>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <span className="text-white/70 font-medium">Clinic Addresses 2: </span>
-            <span className="text-white">
-              {clinic.address_line_2}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <span className="text-white/70 font-medium">Phone : </span>
-            <span className="text-white">{clinic.phone ?? '—'}</span>
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <span className="text-white/70 font-medium">Fax : </span>
-            <span className="text-white">{clinic.fax ?? '—'}</span>
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <span className="text-white/70 font-medium">EIN/Tax ID : </span>
-            <span className="text-white">{clinic.ein ?? '—'}</span>
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <span className="text-white/70 font-medium">NPI : </span>
-            <span className="text-white">{clinic.npi ?? '—'}</span>
-          </div>
-        </div>
+          
+          
       </div>
 
 
       {/* Section 3b: Total $ paid (current month) per provider – summary at top */}
-      {providers.length > 0 && (
+      {(userProfile?.role !== 'billing_staff' && userProfile?.role !== 'office_staff') && providers.length > 0 && (
         <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20 p-5">
           <h2 className="text-lg font-semibold text-white mb-3">Total $ paid (current month) by provider</h2>
           <div className="flex flex-wrap gap-x-6 gap-y-2">
@@ -286,39 +331,6 @@ export default function ClinicDashboard() {
       )}
 
 
-      {/* Section 3: Summary cards */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
-          <div className="flex items-center justify-between mb-2">
-            <Users className="text-green-400" size={24} />
-            <span className="text-3xl font-bold text-white">{stats?.patientCount ?? 0}</span>
-          </div>
-          <h3 className="text-sm font-medium text-white/70">Patients</h3>
-        </div>
-        <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
-          <div className="flex items-center justify-between mb-2">
-            <FileText className="text-blue-400" size={24} />
-            <span className="text-3xl font-bold text-white">{stats?.providerCount ?? 0}</span>
-          </div>
-          <h3 className="text-sm font-medium text-white/70">Providers</h3>
-        </div>
-        <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
-          <div className="flex items-center justify-between mb-2">
-            <CheckSquare className="text-yellow-400" size={24} />
-            <span className="text-3xl font-bold text-white">{stats?.todoCount ?? 0}</span>
-          </div>
-          <h3 className="text-sm font-medium text-white/70">To-Do Items</h3>
-        </div>
-        <div className="bg-white/10 backdrop-blur-md p-6 rounded-lg shadow-xl border border-white/20">
-          <div className="flex items-center justify-between mb-2">
-            <DollarSign className="text-purple-400" size={24} />
-            <span className="text-3xl font-bold text-white">
-              {formatCurrency(stats?.currentMonthTotal ?? 0)}
-            </span>
-          </div>
-          <h3 className="text-sm font-medium text-white/70">Total $ paid (current month)</h3>
-        </div>
-      </div>
       
       {/* Section 4: Provider summary cards – dashboard style (one per row) */}
       <div>
@@ -333,19 +345,23 @@ export default function ClinicDashboard() {
                 className="block bg-white/10 backdrop-blur-md rounded-lg shadow-xl border border-white/20 p-5 hover:border-primary-400/50 transition-colors"
               >
                 <div className="space-y-2">
-                  <div className="font-semibold text-white italic">
+                  <div className="font-semibold text-white italic text-2xl">
                     {provider.first_name} {provider.last_name}
                   </div>
-                  <div className="text-white/80 text-sm">
+                  <div className="text-white/80 text-lg">
                     {provider.npi ? ` NPI : ${provider.npi}` : ''}
                   </div>
                   <div className="text-white/80 text-sm flex flex-wrap gap-x-4 gap-y-0.5 mt-1 border-t border-white/20 pt-2">
-                    <span>Visits: {ps?.metrics?.visits ?? 0}</span>
-                    <span>No Shows: {ps?.metrics?.noShows ?? 0}</span>
-                    <span>Paid claims: {ps?.metrics?.paidClaims ?? 0}</span>
-                    <span>PP: {ps?.metrics?.privatePay ?? 0}</span>
-                    <span>Secondary: {ps?.metrics?.secondary ?? 0}</span>
-                    <span>CC Declines: {ps?.metrics?.ccDeclines ?? 0}</span>
+                    {userProfile?.role !== 'office_staff' && (
+                      <>
+                      <span>Visits: {ps?.metrics?.visits ?? 0}</span>
+                      <span>No Shows: {ps?.metrics?.noShows ?? 0}</span>
+                      <span>Paid claims: {ps?.metrics?.paidClaims ?? 0}</span>
+                      <span>PP: {ps?.metrics?.privatePay ?? 0}</span>
+                      <span>Secondary: {ps?.metrics?.secondary ?? 0}</span>
+                      <span>CC Declines: {ps?.metrics?.ccDeclines ?? 0}</span>
+                    </>
+                    )}
                   </div>
                 </div>
               </Link>

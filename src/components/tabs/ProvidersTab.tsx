@@ -384,10 +384,11 @@ export default function ProvidersTab({
     : isProviderView
       ? (providerLevel === 2 ? columnTitlesFull : columnTitlesProviderView)
       : (showCondenseButton && isCondensed ? columnTitlesFull.slice(0, 9) : columnTitlesFull)
-  /** In provider view, level 1 can edit only CPT Code (7) and Appt/Note Status (8); level 2 (full access) cannot edit any column */
-  const isProviderEditableColumn = (dataIndex: number) => dataIndex === 7 || dataIndex === 8
+  /** In provider view, level 1 can edit only CPT Code (7) and Appt/Note Status (8); level 2 (full access) can edit Patient ID (0), First Name (1), and Date of Service (6) */
+  const isProviderEditableColumn = (dataIndex: number) =>
+    providerLevel === 1 ? dataIndex === 6 : (dataIndex === 0 || dataIndex === 1 || dataIndex === 6)
   const getReadOnlyProviderView = (dataIndex: number) =>
-    providerLevel === 2 || !canEdit || !isProviderEditableColumn(dataIndex)
+    !canEdit || !isProviderEditableColumn(dataIndex)
 
   const getReadOnly = (columnName: keyof IsLockProviders): boolean => {
     if (!canEdit) return true
@@ -395,10 +396,13 @@ export default function ProvidersTab({
     return Boolean(lockData[columnName])
   }
 
-  /** For official_staff: only columns 0-6 (Patient ID through Date of Service) are editable */
+  /** For official_staff: only columns 0-6 (Patient ID through Date of Service) are editable. For office_staff: only columns 9-11 (Collected from PT, PT Pay Status, PT Payment AR Ref Date) are editable. */
   const isSchedulingColumn = (dataIndex: number) => dataIndex <= 6
-  const getReadOnlyForColumn = (dataIndex: number, baseReadOnly: boolean) =>
-    baseReadOnly || (restrictEditToSchedulingColumns && !isSchedulingColumn(dataIndex))
+  const isOfficeStaffEditableColumn = (dataIndex: number) => dataIndex === 9 || dataIndex === 10 || dataIndex === 11
+  const getReadOnlyForColumn = (dataIndex: number, baseReadOnly: boolean) => {
+    if (officeStaffView) return baseReadOnly || !isOfficeStaffEditableColumn(dataIndex)
+    return baseReadOnly || (restrictEditToSchedulingColumns && !isSchedulingColumn(dataIndex))
+  }
 
   // Right-click on column headers to lock/unlock (no lock icon in header)
   useEffect(() => {

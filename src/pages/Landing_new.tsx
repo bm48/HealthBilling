@@ -143,18 +143,30 @@ export default function Landing() {
         <div className="grid grid-cols-1 lg:grid-cols-2 h-full pt-20 px-4 sm:px-6 md:px-8 text-center mt-10">
             {/* left side - AOS fade-up with stagger */}
             <div className="flex flex-col items-center justify-center gap-4 sm:gap-6 pt-6 sm:pt-10 w-full max-w-[90%] sm:max-w-[85%] lg:w-[76%] lg:max-w-none mx-auto pb-0">
-                <img src='/AMBC logo update.png' alt="Logo" className="w-full max-h-24 sm:max-h-32 md:max-h-40 lg:h-120 object-contain" data-aos="fade-up" data-aos-delay="0" />
-                <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold text-black w-full max-w-[95%] sm:max-w-[80%]" data-aos="fade-up" data-aos-delay="80">
-                    Simplifying Healthcare Revenue Management. Strengthening
-                     Practice Performance.
+                <img src='/AMBC logo update.png' alt="Logo" className="w-full max-h-36 sm:max-h-36 md:max-h-64 lg:h-120 object-contain" data-aos="fade-up" data-aos-delay="0" />
+                <h1 className="-mt-10 text-2xl sm:text-3xl md:text-4xl font-semibold text-black max-w-[95%] sm:max-w-[80%] text-center" data-aos="fade-up" data-aos-delay="80">
+                    Simplifying Healthcare<br />
+                    Revenue Management.<br />
+                    Strengthening Practice<br />
+                    Performance.
                 </h1>
-                <p className="text-base sm:text-lg text-gray-900 w-full max-w-[95%] sm:max-w-[80%]" data-aos="fade-up" data-aos-delay="160">
-                    End-to-end billing, coding, consulting, and proprietary technology designed to improve cash flow, reduce denials,
-                     and give practices complete financial visibility.
+                <p className="text-base sm:text-lg text-gray-600 font-normal max-w-[95%] sm:max-w-[80%] text-center mt-8 sm:mt-10" data-aos="fade-up" data-aos-delay="160">
+                    End-to-end billing, coding, consulting, and<br />
+                    proprietary technology designed to improve<br />
+                    cash flow, reduce denials, and give practices complete financial visibility.
                 </p>
-                <button className='border w-[9rem] h-[3rem] bg-gray-900 text-white rounded-3xl hover:bg-white hover:text-black hover:border-black transition-colors' data-aos="fade-up" data-aos-delay="240">
+                <a
+                    href="#contact"
+                    onClick={(e) => {
+                        e.preventDefault()
+                        document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })
+                    }}
+                    className='border w-[9rem] h-[3rem] bg-gray-900 text-white rounded-3xl hover:bg-white hover:text-black hover:border-black transition-colors inline-flex items-center justify-center'
+                    data-aos="fade-up"
+                    data-aos-delay="240"
+                >
                     Get Started
-                </button>
+                </a>
                 <img className='w-full max-w-[90%] sm:max-w-[60%]' src='/Laptop.jpg' alt="Landing" data-aos="fade-up" data-aos-delay="320" />
             </div>
             {/* right side */}
@@ -164,9 +176,9 @@ export default function Landing() {
         </div>
 
         <div className='px-4 sm:px-6 md:px-8 lg:pl-[20%] lg:pr-[20%] w-full text-center text-black mt-12 sm:mt-16 md:mt-20 border-t border-black pt-8 sm:pt-10' data-aos="fade-up">
-            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4'>About Us</h1>
-            <h2 className='text-2xl sm:text-3xl font-medium mb-4'>Our Mission</h2>
-            <p className='text-sm sm:text-md'>
+            <h1 className='text-2xl sm:text-3xl md:text-4xl font-semibold mb-4'>About Us</h1>
+            <h2 className='text-xl sm:text-2xl font-medium mb-4'>Our Mission</h2>
+            <p className='text-md sm:text-md'>
                 American Medical Billing and Coding is dedicated to providing high-quality medical billing services to 
                 healthcare professionals. We provide comprehensive revenue cycle solutions for healthcare practices that
                  want accuracy, transparency, and control over their financial operations. Our services combine expert billing 
@@ -175,16 +187,16 @@ export default function Landing() {
             </p>
         </div>
 
-        <div className='border-t border-black mt-12 sm:mt-16 md:mt-20' data-aos="fade-up" data-aos-delay="100">
+        <div className='w-[90%] mx-auto border-t border-black mt-12 sm:mt-16 mt-20' data-aos="fade-up" data-aos-delay="100">
             <img className='w-full' src='/display.png' alt="Display" />
         </div>
 
-        <div className='w-full py-8 sm:py-10 md:py-12 px-6 sm:px-8 md:px-10 mt-8 sm:mt-12 md:mt-16'>
-            <h1 className='text-3xl sm:text-4xl md:text-5xl font-bold mb-6 sm:mb-8 md:mb-10 px-6 sm:px-8 md:px-10' data-aos="fade-up" data-aos-delay="0">Our Services</h1>
-            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 md:gap-10 w-full'>
+        <div className='w-full py-2 sm:py-10 md:py-12 px-6 sm:px-8 md:px-10'>
+            <h1 className='text-2xl sm:text-3xl md:text-4xl font-semibold mb-6 sm:mb-8 md:mb-10 px-6 sm:px-8 md:px-10' data-aos="fade-up" data-aos-delay="0">Our Services</h1>
+            <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 md:gap-10 w-[95%] mx-auto'>
                 <div className='flex flex-col items-start gap-2 text-left w-full min-w-0' data-aos="fade-up" data-aos-delay="0">
-                    <div className='flex items-start justify-start mb-6 sm:mb-10 min-h-[5rem] sm:min-h-[6rem]'>
-                        <h2 className='text-2xl sm:text-3xl font-medium mb-0'>Medical Billing</h2>
+                    <div className='flex items-start justify-start '>
+                        <h2 className='text-xl sm:text-2xl font-medium mb-0'>Medical Billing</h2>
                         <img src='/BillingTag.png' alt="Billing Tag" className="w-12 h-12 sm:w-16 sm:h-16 ml-2 flex-shrink-0 -mt-1" />
                     </div>
                     <p className='text-md'>
@@ -223,8 +235,8 @@ export default function Landing() {
                 </div>
 
                 <div className='flex flex-col gap-2 text-left items-start w-full min-w-0' data-aos="fade-up" data-aos-delay="150">
-                    <div className='flex items-start justify-start mb-6 sm:mb-10 min-h-[5rem] sm:min-h-[6rem]'>
-                        <h2 className='text-2xl sm:text-3xl font-medium mb-0'>Proprietary Revenue Tracking Software</h2>
+                    <div className='flex items-start justify-start '>
+                        <h2 className='text-xl sm:text-2xl font-medium mb-0'>Proprietary Revenue Tracking Software</h2>
                         <img src='/Revenue.png' alt="Revenue Tracking Software" className="w-12 h-12 sm:w-16 sm:h-16 -ml-3 flex-shrink-0 -mt-1" />
                     </div>
                     <p className='text-md'>
@@ -258,8 +270,8 @@ export default function Landing() {
                 </div>
 
                 <div className='flex flex-col items-start justify-start gap-2 text-left w-full min-w-0' data-aos="fade-up" data-aos-delay="300">
-                    <div className='flex items-start justify-start mb-6 sm:mb-10 min-h-[5rem] sm:min-h-[6rem]'>
-                        <h2 className='text-2xl sm:text-3xl font-medium mb-0'>Practice Consultation</h2>
+                    <div className='flex items-start justify-start '>
+                        <h2 className='text-xl sm:text-2xl font-medium mb-0'>Practice Consultation</h2>
                         <img src='/consultation.png' alt="consultation" className="w-12 h-12 sm:w-16 sm:h-16 ml-2 flex-shrink-0 -mt-2" />
                     </div>
                     <p className='text-md'>
@@ -296,7 +308,7 @@ export default function Landing() {
         </div>
 
         <div className='w-full text-gray-900 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
-            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 ml-0 sm:ml-10 md:ml-20'>Why Choose Us</h1>
+            <h1 className='text-2xl sm:text-3xl md:text-4xl font-semibold mb-4 ml-0 sm:ml-8 md:ml-14'>Why Choose Us</h1>
             <div className='w-full max-w-[95%] sm:max-w-[85%] md:max-w-[70%] lg:w-[50%] mx-auto text-left pt-6 sm:pt-10'>
                 
                 <p className='text-base sm:text-lg md:text-xl flex items-start gap-2'>
@@ -322,13 +334,13 @@ export default function Landing() {
             </div>
         </div>
 
-        <div className='w-full text-gray-900 mt-12 sm:mt-16 md:mt-20 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
-            <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-6 sm:mb-8 ml-0 sm:ml-10 md:ml-20'>Contact Us</h1>
+        <div id="contact" className='w-full text-gray-900 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
+            <h1 className='text-2xl sm:text-3xl md:text-4xl font-semibold mb-6 sm:mb-8 ml-0 sm:ml-8 md:ml-14'>Contact Us</h1>
             <div className='grid grid-cols-1 lg:grid-cols-3 gap-8 sm:gap-10 mt-6 sm:mt-10 w-full max-w-[95%] sm:max-w-[95%] mx-auto  lg:px-10'>
                 {/* left - Get in Touch text */}
                 <div className='ml-0 sm:ml-10 md:ml-20 lg:ml-0'>
                     <h3 className='text-lg sm:text-xl text-gray-700 pb-4 sm:pb-6'>Get in Touch</h3>
-                    <p className='text-sm sm:text-md text-gray-600'>
+                    <p className='text-md sm:text-md text-gray-600'>
                         Reach out to us today to elevate your practice's financial
                         performance with our cutting-edge medical billing solutions. Let's work together to
                         streamline your revenue cycle and optimize your practice's profitability.
@@ -379,6 +391,7 @@ export default function Landing() {
                                     type='tel'
                                     value={contactPhone}
                                     onChange={(e) => setContactPhone(e.target.value)}
+                                    required
                                     className='w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-gray-900 outline-none transition'
                                     placeholder='(555) 123-4567'
                                 />
@@ -409,9 +422,9 @@ export default function Landing() {
             </div>
         </div>
 
-        <div className='pb-20 sm:pb-30 pt-8 sm:pt-10 px-4' data-aos="fade-up">
-            <img src='/AMBC logo update.png' alt='' className='w-full max-w-[400px] sm:max-w-[440px] md:w-140 h-24 sm:h-32 md:h-40 mx-auto object-contain' />
-            <p className='text-base sm:text-lg md:text-xl text-blue-600 text-center mt-2'>Call/Text: <span className='font-bold'>725-346-5009</span></p>
+        <div className='pt-8 sm:pt-10 px-4' data-aos="fade-up">
+            <img src='/AMBC logo update.png' alt='' className='w-full max-w-[400px] sm:max-w-[440px] md:w-140 h-36 sm:h-48 md:h-64 mx-auto object-contain -mt-20' />
+            <p className='text-base sm:text-lg md:text-xl text-blue-600 text-center -mt-10'>Call/Text: <span className='font-bold'>725-346-5009</span></p>
             <p className='text-base sm:text-lg md:text-xl text-blue-600 text-center mt-1 pb-12 sm:pb-20'>office@amerbilling.com</p>
         </div>
 

@@ -272,7 +272,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['*'] },
     { name: 'Patient Database', href: '/patients', icon: Users, roles: ['office_staff', 'billing_staff', 'admin', 'super_admin'] },
     { name: 'Billing To-Do', href: '/todo', icon: CheckSquare, roles: ['billing_staff', 'admin', 'super_admin'] },
-    { name: 'Timecards', href: '/timecards', icon: Clock, roles: ['billing_staff', 'admin', 'super_admin'] },
+    { name: 'Timecards', href: '/timecards', icon: Clock, roles: ['office_staff', 'billing_staff', 'admin', 'super_admin'] },
     { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['admin', 'view_only_admin', 'super_admin'] },
   ]
 
@@ -991,6 +991,20 @@ export default function Layout({ children }: LayoutProps) {
                   {!sidebarCollapsed && <span>Dashboard</span>}
                 </Link>
 
+                {/* Timecards for office staff */}
+                <Link
+                  to="/timecards"
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
+                    isActive('/timecards')
+                      ? 'bg-primary-600 text-white font-medium shadow-lg'
+                      : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  } ${sidebarCollapsed ? 'justify-center' : ''}`}
+                  title="Timecards"
+                >
+                  <Clock size={20} />
+                  {!sidebarCollapsed && <span>Timecards</span>}
+                </Link>
+
                 {/* <Link
                   to="/patients"
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
@@ -1108,7 +1122,6 @@ export default function Layout({ children }: LayoutProps) {
               })
             )}
 
-          
           </nav>
 
           {/* User Info & Sign Out */}

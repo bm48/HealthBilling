@@ -250,11 +250,21 @@ export default function Timecards() {
 
         <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
           <h2 className="text-xl font-semibold text-white mb-4">Summary</h2>
-          <div className="flex justify-between items-center">
-            <span className="text-white/70">Average hours per week</span>
-            <span className="font-semibold text-white text-xl">
-              {averageHoursPerWeek.toFixed(2)} hrs
-            </span>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-white/70">Average hours per week</span>
+              <span className="font-semibold text-white text-xl">
+                {averageHoursPerWeek.toFixed(2)} hrs
+              </span>
+            </div>
+            {userProfile?.hourly_pay != null && userProfile.hourly_pay > 0 && (
+              <div className="flex justify-between items-center pt-2 border-t border-white/20">
+                <span className="text-white/70">Hourly rate</span>
+                <span className="font-semibold text-white">
+                  ${Number(userProfile.hourly_pay).toFixed(2)}/hr
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
