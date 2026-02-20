@@ -30,7 +30,7 @@ interface ProvidersTabProps {
   isInSplitScreen: boolean
   /** When true, show provider columns. providerLevel 1 = columns up to Appt/Note Status; providerLevel 2 = all columns. */
   isProviderView?: boolean
-  /** Provider level (1 or 2). Level 1 sees only up to Appt/Note Status; level 2 sees all columns. All providers can edit only CPT Code and Appt/Note Status. */
+  /** Provider level (1 or 2). Level 1 sees only up to Appt/Note Status and can edit CPT Code and Appt/Note Status; level 2 (full access) sees all columns but cannot edit any column. */
   providerLevel?: 1 | 2
   onUpdateProviderSheetRow: (providerId: string, rowId: string, field: string, value: any) => void
   onSaveProviderSheetRowsDirect: (providerId: string, rows: SheetRow[]) => Promise<void>
@@ -384,9 +384,10 @@ export default function ProvidersTab({
     : isProviderView
       ? (providerLevel === 2 ? columnTitlesFull : columnTitlesProviderView)
       : (showCondenseButton && isCondensed ? columnTitlesFull.slice(0, 9) : columnTitlesFull)
-  /** In provider view, only CPT Code (7) and Appt/Note Status (8) are editable */
+  /** In provider view, level 1 can edit only CPT Code (7) and Appt/Note Status (8); level 2 (full access) cannot edit any column */
   const isProviderEditableColumn = (dataIndex: number) => dataIndex === 7 || dataIndex === 8
-  const getReadOnlyProviderView = (dataIndex: number) => !canEdit || !isProviderEditableColumn(dataIndex)
+  const getReadOnlyProviderView = (dataIndex: number) =>
+    providerLevel === 2 || !canEdit || !isProviderEditableColumn(dataIndex)
 
   const getReadOnly = (columnName: keyof IsLockProviders): boolean => {
     if (!canEdit) return true
@@ -786,9 +787,9 @@ export default function ProvidersTab({
     }
     if (isProviderView && providerLevel === 2) {
       return [
-        { data: 0, title: 'Patient ID', type: 'text' as const, width: 100,  },
-        { data: 1, title: 'First Name', type: 'text' as const, width: 120,  },
-        { data: 2, title: 'Last Initial', type: 'text' as const, width: 40, },
+        { data: 0, title: 'Patient ID', type: 'text' as const, width: 100, readOnly: getReadOnlyProviderView(0) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
+        { data: 2, title: 'Last Initial', type: 'text' as const, width: 40, readOnly: getReadOnlyProviderView(2) },
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
         { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(4) },
         { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyProviderView(5) },
@@ -994,6 +995,7 @@ export default function ProvidersTab({
     let idCounter = 0
     let hadPatientIdMerge = false
     let hadDateColumnEdit = false
+    let hadTotalAutoUpdate = false
 
     // Track 0-value highlight updates for Ins Pay / Collected from PT (and "00" in Collected from PT → yellow)
     const YELLOW_HIGHLIGHT = '#eab308'
@@ -1075,13 +1077,26 @@ export default function ProvidersTab({
             merged.patient_first_name = patient.first_name || null
             merged.last_initial = patient.last_name ? patient.last_name.charAt(0) : null
             merged.patient_insurance = patient.insurance || null
-            merged.patient_copay = patient.copay ?? null
-            merged.patient_coinsurance = patient.coinsurance ?? null
+            merged.patient_copay = patient.copay ?? 0
+            merged.patient_coinsurance = patient.coinsurance ?? 0
           }
           updatedRows[row] = merged as SheetRow
         } else if (field === 'patient_copay' || field === 'patient_coinsurance' || field === 'total') {
           const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: numValue, updated_at: new Date().toISOString() } as SheetRow
+        } else if (field === 'insurance_payment' || field === 'collected_from_patient') {
+          hadTotalAutoUpdate = true
+          const numValue = (newValue === '' || newValue === null || newValue === 'null' || newValue === undefined) ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)))
+          const insPay = field === 'insurance_payment' ? (numValue ?? NaN) : parseFloat(String(sheetRow.insurance_payment ?? '')) || 0
+          const collected = field === 'collected_from_patient' ? (numValue ?? NaN) : parseFloat(String(sheetRow.collected_from_patient ?? '')) || 0
+          const totalSum = (Number.isFinite(insPay) ? insPay : 0) + (Number.isFinite(collected) ? collected : 0)
+          updatedRows[row] = {
+            ...sheetRow,
+            id: newId,
+            [field]: numValue ?? null,
+            total: String(totalSum),
+            updated_at: new Date().toISOString(),
+          } as SheetRow
         } else if (field === 'appointment_date') {
           hadDateColumnEdit = true
           const value = (newValue === '' || newValue === 'null') ? null : String(newValue)
@@ -1267,10 +1282,9 @@ export default function ProvidersTab({
       })
     }, 0)
 
-    // When patient_id was merged or a date column was edited, bump so HandsontableWrapper pushes
-    // the ref data to the grid (wrapper only updates on dataVersion/length change). This makes
-    // date cells show MM-DD-YY immediately instead of YYYY-MM-DD until reload.
-    if (hadPatientIdMerge || hadDateColumnEdit) {
+    // When patient_id was merged, a date column was edited, or total was auto-calculated from Ins Pay + Collected from PT,
+    // bump so HandsontableWrapper pushes the ref data to the grid (wrapper only updates on dataVersion/length change).
+    if (hadPatientIdMerge || hadDateColumnEdit || hadTotalAutoUpdate) {
       setStructureVersion((v) => v + 1)
     }
   }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, patients, getTableDataFromRows, clinicId, userHighlightColor, userProfile?.id])
@@ -1395,7 +1409,7 @@ export default function ProvidersTab({
       className="p-6" 
       style={isInSplitScreen ? { width: '100%', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
     >
-      
+      <h1 className="text-3xl font-bold text-white">{activeProvider?.first_name} {activeProvider?.last_name}</h1>
       {/* month selector - background color from status_colors (month type), like Ins Pay Date column */}
       {(() => {
         const monthName = selectedMonth.toLocaleString('en-US', { month: 'long' })

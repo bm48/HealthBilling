@@ -324,7 +324,7 @@ export default function Landing() {
 
         <div className='w-full text-gray-900 mt-12 sm:mt-16 md:mt-20 border-b border-black pt-8 sm:pt-10 pb-8 sm:pb-10 px-4 sm:px-6' data-aos="fade-up">
             <h1 className='text-3xl sm:text-4xl md:text-5xl font-semibold mb-6 sm:mb-8 ml-0 sm:ml-10 md:ml-20'>Contact Us</h1>
-            <div className='grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-10 mt-6 sm:mt-10 w-full max-w-[95%] sm:max-w-[85%] mx-auto lg:max-w-6xl lg:px-10'>
+            <div className='grid grid-cols-1 lg:grid-cols-3 gap-8 sm:gap-10 mt-6 sm:mt-10 w-full max-w-[95%] sm:max-w-[95%] mx-auto  lg:px-10'>
                 {/* left - Get in Touch text */}
                 <div className='ml-0 sm:ml-10 md:ml-20 lg:ml-0'>
                     <h3 className='text-lg sm:text-xl text-gray-700 pb-4 sm:pb-6'>Get in Touch</h3>
@@ -405,6 +405,7 @@ export default function Landing() {
                         </form>
                     )}
                 </div>
+                <div className='w-full max-w-md lg:max-w-none'></div>
             </div>
         </div>
 

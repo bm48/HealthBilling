@@ -170,6 +170,7 @@ export default function Layout({ children }: LayoutProps) {
       const { data, error } = await supabase
         .from('providers')
         .select('*')
+        .eq('active', true)
         .overlaps('clinic_ids', clinicIds)
         .order('first_name')
         .order('last_name')
@@ -179,17 +180,17 @@ export default function Layout({ children }: LayoutProps) {
         console.error('Error fetching all providers:', error)
         throw error
       }
-      
-      
+
+      const providersList = data || []
       // Group providers by clinic (a provider can appear in multiple clinics)
       const grouped: Record<string, Provider[]> = {}
-      data?.forEach(provider => {
+      providersList.forEach(provider => {
         (provider.clinic_ids || []).forEach((cid: string) => {
           if (!grouped[cid]) grouped[cid] = []
           grouped[cid].push(provider)
         })
       })
-      
+
       setClinicProviders(grouped)
     } catch (error) {
       console.error('Error fetching providers:', error)
@@ -201,12 +202,12 @@ export default function Layout({ children }: LayoutProps) {
     if (clinicProviders[clinicId]) {
       return
     }
-    
+
     try {
-      // Fetch providers from the providers table (including inactive ones)
       const { data, error } = await supabase
         .from('providers')
         .select('*')
+        .eq('active', true)
         .contains('clinic_ids', [clinicId])
         .order('last_name')
         .order('first_name')
@@ -215,8 +216,7 @@ export default function Layout({ children }: LayoutProps) {
         console.error('Error fetching providers for clinic:', clinicId, error)
         throw error
       }
-      
-      console.log(`Fetched ${data?.length || 0} providers for clinic ${clinicId}:`, data)
+
       setClinicProviders(prev => ({ ...prev, [clinicId]: data || [] }))
     } catch (error) {
       console.error('Error fetching providers:', error)

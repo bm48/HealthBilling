@@ -46,6 +46,8 @@ export interface User {
   clinic_ids: string[]
   highlight_color: string | null
   hourly_pay: number | null
+  /** When false, user is hidden from lists and dashboard. Default true. Super admin can toggle in User Management. */
+  active?: boolean
   created_at: string
   updated_at: string
 }

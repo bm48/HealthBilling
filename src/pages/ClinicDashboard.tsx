@@ -81,6 +81,7 @@ export default function ClinicDashboard() {
         supabase
           .from('providers')
           .select('*')
+          .eq('active', true)
           .contains('clinic_ids', [clinicId])
           .order('last_name')
           .order('first_name'),

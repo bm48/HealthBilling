@@ -67,8 +67,8 @@ export default function Reports() {
       let users: User[] = []
       let clinicsData: Clinic[] = []
 
-      // Fetch users
-      const { data: usersData } = await supabase.from('users').select('*')
+      // Fetch users (active only so inactive users do not appear in reports)
+      const { data: usersData } = await supabase.from('users').select('*').eq('active', true)
       users = usersData || []
 
       // Fetch clinics

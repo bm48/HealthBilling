@@ -3,7 +3,7 @@ import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { supabase, createSupabaseClientForSignUp, createSupabaseClientWithStorageKey } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { User, BillingCode, Clinic, ProviderSheet, AuditLog, Provider } from '@/types'
-import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Calendar, Link2 } from 'lucide-react'
+import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Calendar, Link2, Check, CircleSlash } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 import MonthCloseTab from '@/components/MonthCloseTab'
 
@@ -165,6 +165,7 @@ export default function SuperAdminSettings() {
         const { data, error } = await supabase
           .from('providers')
           .select('*')
+          .eq('active', true)
           .order('last_name')
           .order('first_name')
         if (!error) providerList = data || []
@@ -172,6 +173,7 @@ export default function SuperAdminSettings() {
         const { data, error } = await supabase
           .from('providers')
           .select('*')
+          .eq('active', true)
           .overlaps('clinic_ids', clinicIds)
           .order('last_name')
           .order('first_name')
@@ -256,11 +258,20 @@ export default function SuperAdminSettings() {
 
         if (error) throw error
 
-        // For providers: keep providers table in sync (clinic_ids, level, provider_cut_percent)
+        // For providers: keep providers table in sync (name, clinic_ids, level, provider_cut_percent) so Clinic Management shows correct names
         if (editingUser.role === 'provider' && editingUser.email) {
+          const fullName = (userData.full_name ?? '').trim() || 'User'
+          const spaceIdx = fullName.indexOf(' ')
+          const first_name = spaceIdx > 0 ? fullName.slice(0, spaceIdx) : fullName
+          const last_name = spaceIdx > 0 ? fullName.slice(spaceIdx + 1).trim() || '-' : '-'
+
           const providersForEmail = providers.filter(p => p.email === editingUser.email)
+          const npi = (userData as { npi?: string | null }).npi ?? null
           for (const p of providersForEmail) {
-            const updatePayload: { clinic_ids?: string[]; level?: number; provider_cut_percent?: number; updated_at: string } = {
+            const updatePayload: { first_name?: string; last_name?: string; npi?: string | null; clinic_ids?: string[]; level?: number; provider_cut_percent?: number; updated_at: string } = {
+              first_name,
+              last_name,
+              npi,
               updated_at: new Date().toISOString(),
             }
             if (userData.clinic_ids != null && Array.isArray(userData.clinic_ids)) {
@@ -294,6 +305,11 @@ export default function SuperAdminSettings() {
         }
         if (!temporaryPassword || temporaryPassword.length < 6) {
           alert('Please enter a temporary password (at least 6 characters).')
+          return
+        }
+        const { data: existingUser } = await supabase.from('users').select('id').eq('email', email).maybeSingle()
+        if (existingUser) {
+          alert('A user with this email already exists. Use a different email or edit the existing user.')
           return
         }
         const tempClient = createSupabaseClientForSignUp()
@@ -331,19 +347,26 @@ export default function SuperAdminSettings() {
               role: userData.role ?? 'billing_staff',
               hourly_pay: userData.hourly_pay ?? null,
               highlight_color: userData.highlight_color ?? '#eab308',
+              active: true,
               updated_at: new Date().toISOString(),
             },
             { onConflict: 'id' }
           )
         if (upsertError) {
           console.error('Error upserting new user profile:', upsertError)
-          alert('User was created but profile update failed. You can edit the user to set details.')
+          const isDuplicateEmail = upsertError.code === '23505' && (upsertError.message?.includes('users_email_key') || upsertError.message?.includes('email'))
+          alert(
+            isDuplicateEmail
+              ? 'A user with this email already exists. The sign-in email was sent; ask the existing user to use the link or change their email in profile.'
+              : 'User was created but profile update failed. You can edit the user to set details.'
+          )
         } else {
           // Ensure provider row exists and has correct level/cut (trigger may create row with default level 1 before we run)
           if (userData.role === 'provider' && email) {
             const level = providerLevel === 1 || providerLevel === 2 ? providerLevel : 1
             const provider_cut_percent = providerCutPercent != null && providerCutPercent >= 0 && providerCutPercent <= 1 ? providerCutPercent : 0.7
             const { data: existing } = await supabase.from('providers').select('id').eq('email', email).limit(1).maybeSingle()
+            const npiNew = (userData as { npi?: string | null }).npi ?? null
             if (!existing) {
               const fullName = (userData.full_name ?? '').trim() || 'User'
               const spaceIdx = fullName.indexOf(' ')
@@ -353,13 +376,15 @@ export default function SuperAdminSettings() {
                 email,
                 first_name,
                 last_name,
+                npi: npiNew,
                 clinic_ids: [],
                 level,
                 provider_cut_percent,
+                active: true,
               })
             } else {
-              // Trigger already created provider with default level 1; update to chosen level/cut
-              await supabase.from('providers').update({ level, provider_cut_percent }).eq('email', email)
+              // Trigger already created provider with default level 1; update to chosen level/cut, npi, and active
+              await supabase.from('providers').update({ level, provider_cut_percent, npi: npiNew, active: true }).eq('email', email)
             }
           }
           if (userData.hourly_pay != null && userData.hourly_pay > 0) {
@@ -381,6 +406,23 @@ export default function SuperAdminSettings() {
               console.error('Error saving hourly pay to timecards:', tcError)
             }
           }
+        }
+        // Send invite email with sign-in link so the new user can open it and have email/password pre-filled
+        const appOrigin = import.meta.env.VITE_APP_ORIGIN || (typeof window !== 'undefined' ? window.location.origin : '')
+        try {
+          const inviteRes = await fetch('/api/send-invite-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, tempPassword: temporaryPassword, appOrigin }),
+          })
+          if (!inviteRes.ok) {
+            const errData = await inviteRes.json().catch(() => ({}))
+            console.error('Invite email failed:', errData)
+            alert('User was created but the sign-in link email could not be sent. You can share the temporary password with the user manually.')
+          }
+        } catch (inviteErr) {
+          console.error('Invite email error:', inviteErr)
+          alert('User was created but the sign-in link email could not be sent. You can share the temporary password with the user manually.')
         }
         await fetchUsers()
         if (variant === 'super_admin') await fetchClinics()
@@ -430,6 +472,30 @@ export default function SuperAdminSettings() {
     } catch (error) {
       console.error('Error assigning clinics:', error)
       alert('Failed to assign clinics. Please try again.')
+    }
+  }
+
+  const handleToggleUserActive = async (user: User) => {
+    if (variant !== 'super_admin') return
+    const nextActive = !(user.active !== false)
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ active: nextActive, updated_at: new Date().toISOString() })
+        .eq('id', user.id)
+      if (error) throw error
+      // Keep providers table in sync: same user may have one provider row (by email)
+      if (user.email) {
+        await supabase
+          .from('providers')
+          .update({ active: nextActive, updated_at: new Date().toISOString() })
+          .eq('email', user.email)
+      }
+      await fetchUsers()
+      if (variant === 'super_admin') await fetchClinics()
+    } catch (error) {
+      console.error('Error toggling user active:', error)
+      alert('Failed to update user active status.')
     }
   }
 
@@ -687,16 +753,18 @@ export default function SuperAdminSettings() {
                 <div>
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-semibold text-white">User Management</h2>
-                    <button
-                      onClick={() => {
-                        setEditingUser(null)
-                        setShowUserForm(true)
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                    >
-                      <Plus size={18} />
-                      Add User
-                    </button>
+                    <div className="flex items-center gap-4">
+                      <button
+                        onClick={() => {
+                          setEditingUser(null)
+                          setShowUserForm(true)
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                      >
+                        <Plus size={18} />
+                        Add User
+                      </button>
+                    </div>
                   </div>
 
                   <div className="table-container dark-theme">
@@ -706,6 +774,7 @@ export default function SuperAdminSettings() {
                           <th>Email</th>
                           <th>Name</th>
                           <th>Role</th>
+                          {variant === 'super_admin' && <th>Active</th>}
                           {variant === 'super_admin' && <th>Provider Level</th>}
                           {variant === 'super_admin' && <th>Highlight Color</th>}
                           <th>Clinics</th>
@@ -733,6 +802,22 @@ export default function SuperAdminSettings() {
                                   {user.role}
                                 </span>
                               </td>
+                              {variant === 'super_admin' && (
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleUserActive(user)}
+                                    className="inline-flex items-center justify-center p-1 rounded hover:bg-white/10"
+                                    title={user.active !== false ? 'Active (click to deactivate)' : 'Inactive (click to activate)'}
+                                  >
+                                    {user.active !== false ? (
+                                      <Check size={20} className="text-green-400" />
+                                    ) : (
+                                      <CircleSlash size={20} className="text-white/50" />
+                                    )}
+                                  </button>
+                                </td>
+                              )}
                               {variant === 'super_admin' && (
                                 <td>
                                   {user.role === 'provider' ? (levelAndPercent != null ? levelAndPercent : <span title={providerLevelsLoadError ? 'Level could not be loaded' : undefined}>—</span>) : <span className="text-white/50">—</span>}
@@ -1346,9 +1431,20 @@ function UserFormModal({
   const providersForUser = user?.role === 'provider' && user?.email ? providers.filter(p => p.email === user.email) : []
   const initialLevel = providersForUser.length > 0 ? (providerLevelsMap[providersForUser[0].id] ?? 1) : 1
   const initialCutPercent = providersForUser.length > 0 ? (providersForUser[0].provider_cut_percent ?? 0.7) : 0.7
+  const parseFullName = (full: string) => {
+    const trimmed = (full || '').trim()
+    const spaceIdx = trimmed.indexOf(' ')
+    return {
+      first_name: spaceIdx > 0 ? trimmed.slice(0, spaceIdx) : trimmed,
+      last_name: spaceIdx > 0 ? trimmed.slice(spaceIdx + 1).trim() : '',
+    }
+  }
+  const initialName = parseFullName(user?.full_name || '')
+  const initialNpi = user?.role === 'provider' && providersForUser.length > 0 ? (providersForUser[0].npi ?? '') : ''
   const [formData, setFormData] = useState({
     email: user?.email || '',
-    full_name: user?.full_name || '',
+    first_name: initialName.first_name,
+    last_name: initialName.last_name,
     role: user?.role || 'provider',
     clinic_ids: user?.clinic_ids || [],
     highlight_color: user?.highlight_color || (user?.role === 'super_admin' ? '#2d7e83' : '#eab308'),
@@ -1356,14 +1452,18 @@ function UserFormModal({
     provider_cut_percent: initialCutPercent,
     hourly_pay: user?.hourly_pay ?? '',
     password: '',
+    npi: initialNpi,
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { provider_level, provider_cut_percent, hourly_pay, password, ...rest } = formData
+    const { provider_level, provider_cut_percent, hourly_pay, password, first_name, last_name, npi, ...rest } = formData
+    const full_name = [first_name, last_name].map(s => (s || '').trim()).filter(Boolean).join(' ') || undefined
     const userData = {
       ...rest,
+      full_name: full_name || null,
       hourly_pay: hourly_pay === '' || hourly_pay == null ? null : Number(hourly_pay),
+      ...(formData.role === 'provider' && { npi: (npi || '').trim() || null }),
     }
     await onSave(
       userData,
@@ -1375,7 +1475,7 @@ function UserFormModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">
             {user ? 'Edit User' : 'Add User'}
@@ -1385,122 +1485,147 @@ function UserFormModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
-            <input
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              placeholder="user@example.com"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-            />
-          </div>
-
-          {!user && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Temporary password</label>
+        <form onSubmit={handleSubmit} className="p-6">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+            <div className={user ? 'col-span-2' : ''}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email address</label>
               <input
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                placeholder="Min 6 characters"
-                minLength={6}
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                placeholder="user@example.com"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
               />
-              <p className="text-xs text-gray-500 mt-1">User will sign in with this password; they can change it later.</p>
             </div>
-          )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-            <input
-              type="text"
-              value={formData.full_name}
-              onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-            <select
-              value={formData.role}
-              onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-            >
-              {/* <option value="super_admin">Super Admin</option> */}
-              <option value="admin">Admin</option>
-              {/* <option value="view_only_admin">View-Only Admin</option> */}
-              <option value="billing_staff">Billing Staff</option>
-              {/* <option value="view_only_billing">View-Only Billing</option> */}
-              {/* <option value="official_staff">Official Staff</option> */}
-              <option value="provider">Provider</option>
-              <option value="office_staff">Office Staff</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Hourly pay amount</label>
-            <input
-              type="number"
-              min={0}
-              step={0.01}
-              placeholder="e.g. 25.00"
-              value={formData.hourly_pay === '' ? '' : formData.hourly_pay}
-              onChange={(e) => setFormData({ ...formData, hourly_pay: e.target.value === '' ? '' : (parseFloat(e.target.value) || 0) })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-            />
-            <p className="text-xs text-gray-500 mt-1">Stored on user and applied to timecard entries.</p>
-          </div>
-
-          {variant === 'super_admin' && formData.role === 'provider' && (
-            <>
+            {!user && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Provider Level</label>
-                <select
-                  value={formData.provider_level}
-                  onChange={(e) => setFormData({ ...formData, provider_level: Number(e.target.value) as 1 | 2 })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-                >
-                  <option value={1}>Partial</option>
-                  <option value={2}>Full</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">Partial or Full (default is Partial).</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Provider cut %</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Temporary password</label>
                 <input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={formData.provider_cut_percent}
-                  onChange={(e) => setFormData({ ...formData, provider_cut_percent: Number(e.target.value) })}
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  placeholder="Min 6 characters"
+                  minLength={6}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
                 />
-                <p className="text-xs text-gray-500 mt-1">Decimal 0–1 (e.g. 0.7 = 70%). Default 0.7. Provider Cut = Total Payments × this.</p>
+                <p className="text-xs text-gray-500 mt-1">User will sign in with this password; they can change it later.</p>
               </div>
-            </>
-          )}
+            )}
 
-          {variant === 'super_admin' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Highlight Color</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={formData.highlight_color}
-                  onChange={(e) => setFormData({ ...formData, highlight_color: e.target.value })}
-                  className="h-10 w-14 border border-gray-300 rounded-lg cursor-pointer"
-                />
-                <span className="text-sm text-gray-600 font-mono">{formData.highlight_color}</span>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">Shown in the table and used for this user&apos;s highlight. Default: yellow.</p>
+              <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+              <input
+                type="text"
+                value={formData.first_name}
+                onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              />
             </div>
-          )}
 
-          <div className="flex justify-end gap-3 pt-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+              <input
+                type="text"
+                value={formData.last_name}
+                onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+              <select
+                value={formData.role}
+                onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              >
+                {/* <option value="super_admin">Super Admin</option> */}
+                <option value="admin">Admin</option>
+                {/* <option value="view_only_admin">View-Only Admin</option> */}
+                <option value="billing_staff">Billing Staff</option>
+                {/* <option value="view_only_billing">View-Only Billing</option> */}
+                {/* <option value="official_staff">Official Staff</option> */}
+                <option value="provider">Provider</option>
+                <option value="office_staff">Office Staff</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Hourly pay amount</label>
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                placeholder="e.g. 25.00"
+                value={formData.hourly_pay === '' ? '' : formData.hourly_pay}
+                onChange={(e) => setFormData({ ...formData, hourly_pay: e.target.value === '' ? '' : (parseFloat(e.target.value) || 0) })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              />
+              <p className="text-xs text-gray-500 mt-1">Stored on user and applied to timecard entries.</p>
+            </div>
+
+            {formData.role === 'provider' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">NPI</label>
+                <input
+                  type="text"
+                  value={formData.npi}
+                  onChange={(e) => setFormData({ ...formData, npi: e.target.value })}
+                  placeholder="National Provider Identifier"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                />
+              </div>
+            )}
+
+            {variant === 'super_admin' && formData.role === 'provider' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Provider Level</label>
+                  <select
+                    value={formData.provider_level}
+                    onChange={(e) => setFormData({ ...formData, provider_level: Number(e.target.value) as 1 | 2 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                  >
+                    <option value={1}>Partial</option>
+                    <option value={2}>Full</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">Partial or Full (default is Partial).</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Provider cut %</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={formData.provider_cut_percent}
+                    onChange={(e) => setFormData({ ...formData, provider_cut_percent: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Decimal 0–1 (e.g. 0.7 = 70%). Default 0.7. Provider Cut = Total Payments × this.</p>
+                </div>
+              </>
+            )}
+
+            {variant === 'super_admin' && (
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Highlight Color</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={formData.highlight_color}
+                    onChange={(e) => setFormData({ ...formData, highlight_color: e.target.value })}
+                    className="h-10 w-14 border border-gray-300 rounded-lg cursor-pointer"
+                  />
+                  <span className="text-sm text-gray-600 font-mono">{formData.highlight_color}</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Shown in the table and used for this user&apos;s highlight. Default: yellow.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-6 mt-4 border-t border-gray-200">
             <button
               type="button"
               onClick={onClose}

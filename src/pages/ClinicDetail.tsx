@@ -53,8 +53,18 @@ export default function ClinicDetail() {
   const billingTodoExportRef = useRef<{ exportToCSV: () => void } | null>(null)
   /** Remember last selected provider so clicking Billing tab returns to that provider's sheet */
   const lastSelectedProviderIdRef = useRef<string | null>(null)
+  const [fullName, setFullName] = useState<string>('')
 
-  
+  useEffect(() => {
+    console.log('ok')
+    if (lastSelectedProviderIdRef.current) {
+      const provider = providers.find(p => p.id === lastSelectedProviderIdRef.current)
+      if (provider) {
+        const fullName = `${provider.first_name} ${provider.last_name}`
+        setFullName(fullName)
+      }
+    }
+  }, [providers])
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ 
     x: number; 
@@ -1325,6 +1335,7 @@ export default function ClinicDetail() {
       const { data, error } = await supabase
         .from('providers')
         .select('*')
+        .eq('active', true)
         .contains('clinic_ids', [clinicId])
         .order('last_name')
         .order('first_name')
@@ -1352,15 +1363,16 @@ export default function ClinicDetail() {
 
       console.log('Fetching provider sheets for:', { month, year })
 
-      // Fetch all providers for this clinic
+      // Fetch all active providers for this clinic
       const { data: providersData } = await supabase
         .from('providers')
         .select('id')
+        .eq('active', true)
         .contains('clinic_ids', [clinicId])
 
       if (!providersData || providersData.length === 0) return
 
-      const providerIds = providersData.map(p => p.id)
+      const providerIds = providersData.map((p: { id: string }) => p.id)
 
       // Fetch or create provider sheets for all providers
       const sheetsMap: Record<string, ProviderSheet> = {}
@@ -2157,7 +2169,7 @@ export default function ClinicDetail() {
     <div>
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">{clinic?.name || 'Clinic Details'}</h1>
+          <h1 className="text-3xl font-bold text-white mb-2">{`${fullName} - ${clinic?.name}`}</h1>
           {/* {clinic?.address && <p className="text-white/70">{clinic.address}</p>} */}
         </div>
         {((!providerId || userProfile?.role !== 'office_staff') || userProfile?.role === 'office_staff') && (showPatientTab || showBillingTodoTab || !splitScreen) && (

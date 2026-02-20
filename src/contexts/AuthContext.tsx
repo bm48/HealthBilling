@@ -126,7 +126,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error && error.code !== 'PGRST116') {
         throw error
       }
-      setUserProfile(data || null)
+      if (data && data.active === false) {
+        try {
+          await supabase.auth.signOut()
+        } catch {
+          // ignore
+        }
+        setUserProfile(null)
+        setSession(null)
+        setUser(null)
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem('login_deactivated', '1')
+        }
+      } else {
+        setUserProfile(data || null)
+      }
     } catch (error) {
       console.error('Error fetching user profile:', error)
     } finally {
@@ -135,11 +149,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data: authData, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
     if (error) throw error
+    if (authData?.user?.id) {
+      const { data: profile } = await supabase
+        .from('users')
+        .select('active')
+        .eq('id', authData.user.id)
+        .maybeSingle()
+      if (profile && profile.active === false) {
+        await supabase.auth.signOut()
+        throw new Error('Your account has been deactivated. Please contact your administrator.')
+      }
+    }
   }
 
   const signOut = async () => {

@@ -74,7 +74,7 @@ export default function Dashboard() {
       const [clinicsData, patientsData, usersData, todosData, sheetsData] = await Promise.all([
         supabase.from('clinics').select('id', { count: 'exact', head: true }),
         supabase.from('patients').select('id', { count: 'exact', head: true }),
-        supabase.from('users').select('id', { count: 'exact', head: true }),
+        supabase.from('users').select('id', { count: 'exact', head: true }).eq('active', true),
         supabase.from('todo_lists').select('id, completed_at', { count: 'exact' }),
         supabase.from('provider_sheets').select('id', { count: 'exact', head: true }),
       ])
@@ -156,6 +156,7 @@ export default function Dashboard() {
         supabase
           .from('users')
           .select('id', { count: 'exact', head: true })
+          .eq('active', true)
           .overlaps('clinic_ids', clinicIds),
         supabase
           .from('todo_lists')
@@ -190,6 +191,7 @@ export default function Dashboard() {
       const { data, error } = await supabase
         .from('providers')
         .select('*')
+        .eq('active', true)
         .overlaps('clinic_ids', clinicIds)
         .order('last_name')
         .order('first_name')
@@ -229,6 +231,7 @@ export default function Dashboard() {
             supabase
               .from('providers')
               .select('id', { count: 'exact', head: true })
+              .eq('active', true)
               .contains('clinic_ids', [clinicId]),
             supabase
               .from('todo_lists')
