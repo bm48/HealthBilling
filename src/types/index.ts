@@ -63,6 +63,8 @@ export interface Clinic {
   ein?: string | null
   /** 1 = default/original; 2 = two pay periods per month (24-item date dropdowns, dual AR/Provider Pay tables) */
   payroll?: 1 | 2
+  /** Decimal rate for invoice total (e.g. 0.05 = 5%). Invoice Total = (Ins + Patient + AR) * invoice_rate. Set in Clinic Management. */
+  invoice_rate?: number | null
   created_at: string
   updated_at: string
 }
@@ -193,6 +195,8 @@ export interface BillingCode {
   code: string
   description: string | null
   color: string
+  /** Text color (hex) for the code label. Defaults to #000000 if not set (e.g. before migration). */
+  text_color?: string
   created_at: string
   updated_at: string
 }
@@ -390,6 +394,8 @@ export interface Timecard {
   amount_paid: number | null
   payment_date: string | null
   week_start_date: string
+  /** When true, super admin has locked this row; edit/delete disabled until unlocked. */
+  is_locked?: boolean
   created_at: string
   updated_at: string
 }
