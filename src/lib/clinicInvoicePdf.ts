@@ -36,7 +36,7 @@ export async function generateClinicInvoicePdf(
   selectedMonth: Date
 ): Promise<jsPDF> {
   const doc = new jsPDF()
-  const pageW = doc.getPageWidth()
+  const pageW = doc.internal.pageSize.getWidth()
   let y = 20
 
   try {
