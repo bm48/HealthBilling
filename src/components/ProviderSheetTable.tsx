@@ -255,7 +255,7 @@ export default function ProviderSheetTable({
             className={isLocked ? 'locked' : ''}
             style={{ 
               backgroundColor: billingCode?.color || 'rgba(255, 255, 255, 0.9)',
-              color: billingCode?.color ? '#ffffff' : '#000000',
+              color: billingCode?.text_color ?? (billingCode?.color ? '#ffffff' : '#000000'),
               fontWeight: billingCode?.color ? '500' : 'normal',
               border: 'none',
               outline: 'none',
@@ -269,7 +269,7 @@ export default function ProviderSheetTable({
                 value={code.code}
                 style={{ 
                   backgroundColor: code.color || '#ffffff',
-                  color: code.color ? '#ffffff' : '#000000',
+                  color: code.text_color ?? (code.color ? '#ffffff' : '#000000'),
                   fontWeight: '500'
                 }}
               >

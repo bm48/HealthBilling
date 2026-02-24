@@ -46,9 +46,9 @@ interface ProvidersTabProps {
   isProviderColumnLocked?: (columnName: keyof IsLockProviders) => boolean
   /** Called when rows are reordered by drag. Parent should update providerSheetRows for the given provider. */
   onReorderProviderRows?: (providerId: string, movedRows: number[], finalIndex: number) => void
-  /** When true (e.g. official_staff), only columns Patient ID through Date of Service are editable; rest read-only */
+  /** When true (e.g. official_staff), only columns ID through Date of Service are editable; rest read-only */
   restrictEditToSchedulingColumns?: boolean
-  /** When true (office_staff), show only columns Patient ID through Appt/Note Status and Collected from PT through PT Payment AR Ref Date */
+  /** When true (office_staff), show only columns ID through Appt/Note Status and Collected from PT through PT Payment AR Ref Date */
   officeStaffView?: boolean
   /** When true (super_admin only), user can edit/remove/resolve comments in the modal and "See comment" context menu is shown */
   canEditComment?: boolean
@@ -171,7 +171,7 @@ export default function ProvidersTab({
     const primaryCode = code.split(',')[0].trim()
     const billingCode = billingCodes.find(c => c.code === primaryCode)
     if (billingCode) {
-      return { color: billingCode.color, textColor: '#ffffff' }
+      return { color: billingCode.color, textColor: billingCode.text_color ?? '#000000' }
     }
     return null
   }, [billingCodes])
@@ -198,7 +198,7 @@ export default function ProvidersTab({
 
   // Map rows to Handsontable 2D array format (shared by getProviderRowsHandsontableData and change handler); never show "null"
   // When isProviderView and providerLevel 2, show full columns; when providerLevel 1, show only up to Appt/Note Status
-  // When officeStaffView, show Patient ID through Appt/Note Status (0-8) and Collected from PT through PT Payment AR Ref Date (14-16)
+  // When officeStaffView, show ID through Appt/Note Status (0-8) and Collected from PT through PT Payment AR Ref Date (14-16)
   const getTableDataFromRows = useCallback((rows: SheetRow[]) => {
     return rows.map(row => {
       const patient = patients.find(p => p.patient_id === row.patient_id)
@@ -357,20 +357,20 @@ export default function ProvidersTab({
     'pt_pay_status', 'pt_payment_ar_ref_date', 'total', 'notes'
   ]
   const columnTitlesFull = [
-    'Patient ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins',
+    'ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins',
     'Date of Service', 'CPT Code', 'Appt/Note Status', 'Claim Status', 'Most Recent Submit Date',
     'Ins Pay', 'Ins Pay Date', 'PT RES', 'Collected from PT', 'PT Pay Status',
     'PT Payment AR Ref Date', 'Total', 'Notes'
   ]
   const columnFieldsProviderView = ['patient_id', 'first_name', 'last_initial', 'insurance', 'copay', 'coinsurance', 'date_of_service', 'cpt_code', 'appointment_note_status'] as const
-  const columnTitlesProviderView = ['Patient ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins', 'Date of Service', 'CPT Code', 'Appt/Note Status']
+  const columnTitlesProviderView = ['ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins', 'Date of Service', 'CPT Code', 'Appt/Note Status']
   const columnFieldsOfficeStaff: Array<keyof IsLockProviders> = [
     'patient_id', 'first_name', 'last_initial', 'insurance', 'copay', 'coinsurance',
     'date_of_service', 'cpt_code', 'appointment_note_status',
     'collected_from_pt', 'pt_pay_status', 'pt_payment_ar_ref_date'
   ]
   const columnTitlesOfficeStaff = [
-    'Patient ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins',
+    'ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins',
     'Date of Service', 'CPT Code', 'Appt/Note Status',
     'Collected from PT', 'PT Pay Status', 'PT Payment AR Ref Date'
   ]
@@ -384,7 +384,7 @@ export default function ProvidersTab({
     : isProviderView
       ? (providerLevel === 2 ? columnTitlesFull : columnTitlesProviderView)
       : (showCondenseButton && isCondensed ? columnTitlesFull.slice(0, 9) : columnTitlesFull)
-  /** In provider view, level 1 can edit only CPT Code (7) and Appt/Note Status (8); level 2 (full access) can edit Patient ID (0), First Name (1), and Date of Service (6) */
+  /** In provider view, level 1 can edit only CPT Code (7) and Appt/Note Status (8); level 2 (full access) can edit ID (0), First Name (1), and Date of Service (6) */
   const isProviderEditableColumn = (dataIndex: number) =>
     providerLevel === 1 ? dataIndex === 6 : (dataIndex === 0 || dataIndex === 1 || dataIndex === 6)
   const getReadOnlyProviderView = (dataIndex: number) =>
@@ -396,7 +396,7 @@ export default function ProvidersTab({
     return Boolean(lockData[columnName])
   }
 
-  /** For official_staff: only columns 0-6 (Patient ID through Date of Service) are editable. For office_staff: only columns 9-11 (Collected from PT, PT Pay Status, PT Payment AR Ref Date) are editable. */
+  /** For official_staff: only columns 0-6 (ID through Date of Service) are editable. For office_staff: only columns 9-11 (Collected from PT, PT Pay Status, PT Payment AR Ref Date) are editable. */
   const isSchedulingColumn = (dataIndex: number) => dataIndex <= 6
   const isOfficeStaffEditableColumn = (dataIndex: number) => dataIndex === 9 || dataIndex === 10 || dataIndex === 11
   const getReadOnlyForColumn = (dataIndex: number, baseReadOnly: boolean) => {
@@ -762,10 +762,10 @@ export default function ProvidersTab({
 
     if (officeStaffView) {
       return [
-        { data: 0, title: 'Patient ID', type: 'text' as const, width: 100, readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id')) },
+        { data: 0, title: 'ID', type: 'text' as const, width: 100, readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id')) },
         { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name')) },
         { data: 2, title: 'Last Initial', type: 'text' as const, width: 40, readOnly: getReadOnlyForColumn(2, !canEdit || getReadOnly('last_initial')) },
-        { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance')) },
+        { data: 3, title: 'Ins', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance')) },
         { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay')) },
         { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance')) },
         { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyForColumn(6, !canEdit || getReadOnly('date_of_service')) },
@@ -778,7 +778,7 @@ export default function ProvidersTab({
     }
     if (isProviderView && providerLevel !== 2) {
       return [
-        { data: 0, title: 'Patient ID', type: 'text' as const, width: 180, readOnly: getReadOnlyProviderView(0) },
+        { data: 0, title: 'ID', type: 'text' as const, width: 180, readOnly: getReadOnlyProviderView(0) },
         { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
         { data: 2, title: 'Last Initial', type: 'text' as const, width: 80, readOnly: getReadOnlyProviderView(2) },
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
@@ -791,7 +791,7 @@ export default function ProvidersTab({
     }
     if (isProviderView && providerLevel === 2) {
       return [
-        { data: 0, title: 'Patient ID', type: 'text' as const, width: 100, readOnly: getReadOnlyProviderView(0) },
+        { data: 0, title: 'ID', type: 'text' as const, width: 100, readOnly: getReadOnlyProviderView(0) },
         { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
         { data: 2, title: 'Last Initial', type: 'text' as const, width: 40, readOnly: getReadOnlyProviderView(2) },
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
@@ -804,7 +804,7 @@ export default function ProvidersTab({
         { data: 10, title: 'Most Recent Submit Date', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(10) },
         { data: 11, title: 'Ins Pay', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(11) },
         { data: 12, title: 'Ins Pay Date', type: 'dropdown' as const, width: 100, selectOptions: months, renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any, readOnly: getReadOnlyProviderView(12) },
-        { data: 13, title: 'PT RES', type: 'text' as const, width: 100, readOnly: getReadOnlyProviderView(13) },
+        { data: 13, title: 'PT RES', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(13) },
         { data: 14, title: 'Collected from PT', type: 'numeric' as const, width: 120, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(14) },
         { data: 15, title: 'PT Pay Status', type: 'dropdown' as const, width: 120, selectOptions: ['Paid', 'CC declined', 'Secondary', 'Refunded', 'Payment Plan', 'Waiting on Claim', 'Collections'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'patient_pay')) as any, readOnly: getReadOnlyProviderView(15) },
         { data: 16, title: 'PT Payment AR Ref Date', type: 'dropdown' as const, width: 120, selectOptions: months, renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any, readOnly: getReadOnlyProviderView(16) },
@@ -816,7 +816,7 @@ export default function ProvidersTab({
     const fullProviderColumns = [
       { 
         data: 0, 
-        title: 'Patient ID', 
+        title: 'ID', 
         type: 'text' as const, 
         width: 100,
         readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id'))
@@ -837,7 +837,7 @@ export default function ProvidersTab({
       },
       { 
         data: 3, 
-        title: 'Insurance', 
+        title: 'Ins', 
         type: 'text' as const, 
         width: 120,
         readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance'))
@@ -896,7 +896,7 @@ export default function ProvidersTab({
       },
       { 
         data: 10, 
-        title: 'Most Recent Submit Date', 
+        title: 'Most Recent', 
         type: 'text' as const, 
         width: 120,
         readOnly: getReadOnlyForColumn(10, !canEdit || getReadOnly('most_recent_submit_date'))
@@ -921,13 +921,14 @@ export default function ProvidersTab({
       { 
         data: 13, 
         title: 'PT RES', 
-        type: 'text' as const, 
+        type: 'numeric' as const, 
         width: 100,
+        renderer: currencyCellRenderer,
         readOnly: getReadOnlyForColumn(13, !canEdit || getReadOnly('pt_res'))
       },
       { 
         data: 14, 
-        title: 'Collected from PT', 
+        title: 'PT Paid', 
         type: 'numeric' as const, 
         width: 120,
         renderer: currencyCellRenderer,

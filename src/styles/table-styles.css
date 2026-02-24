@@ -311,6 +311,10 @@
   color: #ffffff !important;
   font-weight: 600 !important;
   padding: 6px 8px !important;
+  text-align: center !important;
+}
+.handsontable-custom .ht_clone_top table.htCore thead th {
+  text-align: center !important;
 }
 
 /* Support for custom header colors via data attributes or classes */
@@ -404,6 +408,32 @@
 .providers-handsontable .ht_clone_top th:nth-child(19) {
   background-color: #5d9f5d !important;
   color: #000000 !important;
+}
+
+/* Providers tab: wrap column header titles so full text is visible when column is narrow */
+.providers-handsontable table.htCore thead th,
+.providers-handsontable .ht_clone_top table.htCore thead th {
+  white-space: normal !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  min-height: 36px !important;
+  height: auto !important;
+  line-height: 1.2 !important;
+  vertical-align: top !important;
+  padding-top: 6px !important;
+}
+.providers-handsontable table.htCore thead th span.colHeader,
+.providers-handsontable .ht_clone_top table.htCore thead th span.colHeader {
+  white-space: normal !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  display: block !important;
+}
+.providers-handsontable table.htCore thead tr,
+.providers-handsontable .ht_clone_top table.htCore thead tr {
+  min-height: 36px !important;
 }
 
 .handsontable-custom .ht_clone_left th {
@@ -512,6 +542,7 @@
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
+  text-align: center !important;
 }
 
 /* Row header column: min-height only so it can grow with row when select/dropdown increases height */

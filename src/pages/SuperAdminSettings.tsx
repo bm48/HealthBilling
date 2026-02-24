@@ -3,11 +3,29 @@ import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { supabase, createSupabaseClientForSignUp, createSupabaseClientWithStorageKey } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { User, BillingCode, Clinic, ProviderSheet, AuditLog, Provider } from '@/types'
-import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Calendar, Link2, Check, CircleSlash } from 'lucide-react'
+import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Link2, Check, CircleSlash, Key } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 import MonthCloseTab from '@/components/MonthCloseTab'
 
-type SettingsTabId = 'users' | 'billing-codes' | 'audit-logs' | 'unlock' | 'clinics' | 'export' | 'month-close'
+/** Convert array of objects to CSV string (header row + data rows, values escaped). */
+function toCSV(rows: Record<string, unknown>[]): string {
+  if (rows.length === 0) return ''
+  const escape = (val: unknown): string => {
+    if (val == null) return ''
+    let s: string
+    if (Array.isArray(val)) s = val.join('; ')
+    else if (typeof val === 'object') s = JSON.stringify(val)
+    else s = String(val)
+    if (/[,"\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`
+    return s
+  }
+  const keys = Object.keys(rows[0])
+  const header = keys.map(escape).join(',')
+  const dataLines = rows.map(row => keys.map(k => escape(row[k])).join(','))
+  return [header, ...dataLines].join('\r\n')
+}
+
+type SettingsTabId = 'users' | 'billing-codes' | 'audit-logs' | 'unlock' | 'clinics' | 'export' | 'month-close' | 'change-password'
 type Variant = 'super_admin' | 'admin'
 
 export default function SuperAdminSettings() {
@@ -68,18 +86,24 @@ export default function SuperAdminSettings() {
   const [deleteClinicPassword, setDeleteClinicPassword] = useState('')
   const [deleteClinicError, setDeleteClinicError] = useState('')
   const [deleteClinicLoading, setDeleteClinicLoading] = useState(false)
+  const [changePasswordCurrent, setChangePasswordCurrent] = useState('')
+  const [changePasswordNew, setChangePasswordNew] = useState('')
+  const [changePasswordConfirm, setChangePasswordConfirm] = useState('')
+  const [changePasswordError, setChangePasswordError] = useState('')
+  const [changePasswordSuccess, setChangePasswordSuccess] = useState(false)
+  const [changePasswordLoading, setChangePasswordLoading] = useState(false)
 
   useEffect(() => {
     const tab = (searchParams.get('tab') || 'users') as SettingsTabId
     const validForVariant: SettingsTabId[] =
       variant === 'super_admin'
-        ? ['users', 'billing-codes', 'clinics', 'export', 'audit-logs', 'unlock']
+        ? ['users', 'billing-codes', 'clinics', 'export', 'audit-logs', 'unlock', 'change-password']
         : variant === 'admin'
           ? ['users', 'billing-codes', 'clinics', 'export', 'audit-logs', 'month-close']
           : ['users', 'billing-codes', 'clinics', 'export', 'audit-logs']
     if (validForVariant.includes(tab) && tab !== activeTab) {
       setActiveTab(tab)
-    } else if (variant === 'admin' && tab === 'unlock') {
+    } else if (variant === 'admin' && (tab === 'unlock' || tab === 'change-password')) {
       setActiveTab('users')
       setSearchParams({ tab: 'users' })
     } else if (variant === 'super_admin' && tab === 'month-close') {
@@ -94,6 +118,7 @@ export default function SuperAdminSettings() {
 
   const fetchData = async () => {
     if (!variant) return
+    if (activeTab === 'change-password') return
     setLoading(true)
     try {
       await Promise.all([
@@ -586,6 +611,7 @@ export default function SuperAdminSettings() {
             npi: clinicData.npi ?? editingClinic.npi ?? null,
             ein: clinicData.ein ?? editingClinic.ein ?? null,
             payroll: clinicData.payroll ?? editingClinic.payroll ?? 1,
+            invoice_rate: clinicData.invoice_rate !== undefined ? clinicData.invoice_rate : editingClinic.invoice_rate ?? null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingClinic.id)
@@ -603,6 +629,7 @@ export default function SuperAdminSettings() {
             npi: clinicData.npi ?? null,
             ein: clinicData.ein ?? null,
             payroll: clinicData.payroll ?? 1,
+            invoice_rate: clinicData.invoice_rate ?? null,
           })
 
         if (error) throw error
@@ -701,14 +728,58 @@ export default function SuperAdminSettings() {
   ]
   const tabs =
     variant === 'super_admin'
-      ? [...baseTabs, { id: 'unlock' as const, label: 'Locked Sheets', icon: Unlock }]
-      : variant === 'admin'
-        ? [...baseTabs, { id: 'month-close' as const, label: 'Month Close', icon: Calendar }]
+      ? [...baseTabs, { id: 'unlock' as const, label: 'Locked Sheets', icon: Unlock }, { id: 'change-password' as const, label: 'Change Password', icon: Key }]
+      // : variant === 'admin'
+      //   ? [...baseTabs, { id: 'month-close' as const, label: 'Month Close', icon: Calendar }]
         : baseTabs
 
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId as SettingsTabId)
     setSearchParams({ tab: tabId })
+  }
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setChangePasswordError('')
+    setChangePasswordSuccess(false)
+    if (!changePasswordNew || changePasswordNew.length < 6) {
+      setChangePasswordError('New password must be at least 6 characters.')
+      return
+    }
+    if (changePasswordNew !== changePasswordConfirm) {
+      setChangePasswordError('New password and confirmation do not match.')
+      return
+    }
+    if (!userProfile?.email) {
+      setChangePasswordError('Could not determine your email.')
+      return
+    }
+    setChangePasswordLoading(true)
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: userProfile.email,
+        password: changePasswordCurrent,
+      })
+      if (signInError) {
+        setChangePasswordError('Current password is incorrect.')
+        setChangePasswordLoading(false)
+        return
+      }
+      const { error: updateError } = await supabase.auth.updateUser({ password: changePasswordNew })
+      if (updateError) {
+        setChangePasswordError(updateError.message || 'Failed to update password.')
+        setChangePasswordLoading(false)
+        return
+      }
+      setChangePasswordCurrent('')
+      setChangePasswordNew('')
+      setChangePasswordConfirm('')
+      setChangePasswordSuccess(true)
+    } catch (err) {
+      setChangePasswordError(err instanceof Error ? err.message : 'Failed to change password.')
+    } finally {
+      setChangePasswordLoading(false)
+    }
   }
 
   if (variant === null) {
@@ -1019,6 +1090,7 @@ export default function SuperAdminSettings() {
                           <th>Phone</th>
                           <th>Providers</th>
                           <th>Payroll</th>
+                          <th>Invoice rate</th>
                           <th>Created</th>
                           <th style={{ width: '80px' }}>Actions</th>
                         </tr>
@@ -1052,6 +1124,7 @@ export default function SuperAdminSettings() {
                                 )}
                               </td>
                               <td>{clinic.payroll === 1 ? 'Once' : 'Twice'}</td>
+                              <td>{clinic.invoice_rate != null ? `${(clinic.invoice_rate * 100).toFixed(2)}%` : '—'}</td>
                               <td>{formatDateTime(clinic.created_at)}</td>
                               <td>
                                 <div className="flex items-center gap-1">
@@ -1103,12 +1176,14 @@ export default function SuperAdminSettings() {
                           onClick={async () => {
                             try {
                               const { data: users } = await supabase.from('users').select('*')
-                              const blob = new Blob([JSON.stringify(users, null, 2)], { type: 'application/json' })
+                              const csv = toCSV((users ?? []) as Record<string, unknown>[])
+                              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
                               const url = URL.createObjectURL(blob)
                               const a = document.createElement('a')
                               a.href = url
-                              a.download = `users-${new Date().toISOString().split('T')[0]}.json`
+                              a.download = `users-${new Date().toISOString().split('T')[0]}.csv`
                               a.click()
+                              URL.revokeObjectURL(url)
                             } catch (error) {
                               console.error('Error exporting users:', error)
                               alert('Failed to export users')
@@ -1123,12 +1198,14 @@ export default function SuperAdminSettings() {
                           onClick={async () => {
                             try {
                               const { data: clinics } = await supabase.from('clinics').select('*')
-                              const blob = new Blob([JSON.stringify(clinics, null, 2)], { type: 'application/json' })
+                              const csv = toCSV((clinics ?? []) as Record<string, unknown>[])
+                              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
                               const url = URL.createObjectURL(blob)
                               const a = document.createElement('a')
                               a.href = url
-                              a.download = `clinics-${new Date().toISOString().split('T')[0]}.json`
+                              a.download = `clinics-${new Date().toISOString().split('T')[0]}.csv`
                               a.click()
+                              URL.revokeObjectURL(url)
                             } catch (error) {
                               console.error('Error exporting clinics:', error)
                               alert('Failed to export clinics')
@@ -1143,12 +1220,14 @@ export default function SuperAdminSettings() {
                           onClick={async () => {
                             try {
                               const { data: patients } = await supabase.from('patients').select('*')
-                              const blob = new Blob([JSON.stringify(patients, null, 2)], { type: 'application/json' })
+                              const csv = toCSV((patients ?? []) as Record<string, unknown>[])
+                              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
                               const url = URL.createObjectURL(blob)
                               const a = document.createElement('a')
                               a.href = url
-                              a.download = `patients-${new Date().toISOString().split('T')[0]}.json`
+                              a.download = `patients-${new Date().toISOString().split('T')[0]}.csv`
                               a.click()
+                              URL.revokeObjectURL(url)
                             } catch (error) {
                               console.error('Error exporting patients:', error)
                               alert('Failed to export patients')
@@ -1163,12 +1242,14 @@ export default function SuperAdminSettings() {
                           onClick={async () => {
                             try {
                               const { data: auditLogs } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(1000)
-                              const blob = new Blob([JSON.stringify(auditLogs, null, 2)], { type: 'application/json' })
+                              const csv = toCSV((auditLogs ?? []) as Record<string, unknown>[])
+                              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
                               const url = URL.createObjectURL(blob)
                               const a = document.createElement('a')
                               a.href = url
-                              a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.json`
+                              a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`
                               a.click()
+                              URL.revokeObjectURL(url)
                             } catch (error) {
                               console.error('Error exporting audit logs:', error)
                               alert('Failed to export audit logs')
@@ -1182,6 +1263,77 @@ export default function SuperAdminSettings() {
                       </div>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {activeTab === 'change-password' && variant === 'super_admin' && (
+                <div>
+                  <h2 className="text-xl font-semibold text-white mb-4">Change Password</h2>
+                  <form onSubmit={handleChangePassword} className="max-w-md space-y-4">
+                    <div>
+                      <label htmlFor="current-password" className="block text-sm font-medium text-white/90 mb-1">
+                        Current password
+                      </label>
+                      <input
+                        id="current-password"
+                        type="password"
+                        value={changePasswordCurrent}
+                        onChange={(e) => setChangePasswordCurrent(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50"
+                        placeholder="Enter current password"
+                        required
+                        autoComplete="current-password"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="new-password" className="block text-sm font-medium text-white/90 mb-1">
+                        New password
+                      </label>
+                      <input
+                        id="new-password"
+                        type="password"
+                        value={changePasswordNew}
+                        onChange={(e) => setChangePasswordNew(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50"
+                        placeholder="At least 6 characters"
+                        required
+                        minLength={6}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="confirm-password" className="block text-sm font-medium text-white/90 mb-1">
+                        Confirm new password
+                      </label>
+                      <input
+                        id="confirm-password"
+                        type="password"
+                        value={changePasswordConfirm}
+                        onChange={(e) => setChangePasswordConfirm(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50"
+                        placeholder="Confirm new password"
+                        required
+                        minLength={6}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    {changePasswordError && (
+                      <p className="text-sm text-red-400">{changePasswordError}</p>
+                    )}
+                    {changePasswordSuccess && (
+                      <p className="text-sm text-green-400 flex items-center gap-2">
+                        <Check size={16} />
+                        Password changed successfully.
+                      </p>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={changePasswordLoading}
+                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {changePasswordLoading ? 'Updating...' : 'Change password'}
+                    </button>
+                  </form>
                 </div>
               )}
 
@@ -1661,6 +1813,7 @@ function BillingCodeFormModal({
     code: code?.code || '',
     description: code?.description || '',
     color: code?.color || '#3b82f6',
+    text_color: code?.text_color ?? '#000000',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1707,11 +1860,21 @@ function BillingCodeFormModal({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Background color</label>
             <input
               type="color"
               value={formData.color}
               onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+              className="w-full h-10 border border-gray-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Text color</label>
+            <input
+              type="color"
+              value={formData.text_color}
+              onChange={(e) => setFormData({ ...formData, text_color: e.target.value })}
               className="w-full h-10 border border-gray-300 rounded-lg"
             />
           </div>
@@ -1755,6 +1918,7 @@ function ClinicFormModal({
     npi: clinic?.npi ?? '',
     ein: clinic?.ein ?? '',
     payroll: (clinic?.payroll ?? 1) as 1 | 2,
+    invoice_rate: clinic?.invoice_rate != null ? String(clinic.invoice_rate * 100) : '',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1763,6 +1927,7 @@ function ClinicFormModal({
       alert('Clinic name is required')
       return
     }
+    const rateNum = formData.invoice_rate.trim() ? parseFloat(formData.invoice_rate) : null
     await onSave({
       name: formData.name.trim(),
       address: formData.address.trim() || null,
@@ -1772,6 +1937,7 @@ function ClinicFormModal({
       npi: formData.npi.trim() || null,
       ein: formData.ein.trim() || null,
       payroll: formData.payroll,
+      invoice_rate: rateNum != null && Number.isFinite(rateNum) ? rateNum / 100 : null,
     })
   }
 
@@ -1865,6 +2031,20 @@ function ClinicFormModal({
               <option value={2}>Twice per month</option>
             </select>
             <p className="text-xs text-gray-500 mt-1">1 = default; 2 = two pay periods per month (24-item date dropdowns, dual AR/Provider Pay tables)</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Invoice rate (%)</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.01}
+              value={formData.invoice_rate}
+              onChange={(e) => setFormData({ ...formData, invoice_rate: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              placeholder="e.g. 5 for 5%"
+            />
+            <p className="text-xs text-gray-500 mt-1">Used on Invoices page: Invoice Total = (Insurance + Patient + AR) × this rate. Leave empty for none.</p>
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
