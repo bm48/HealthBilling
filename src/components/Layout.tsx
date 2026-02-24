@@ -19,7 +19,9 @@ import {
   Palette,
   Menu,
   ArrowLeft,
-  Lock
+  Lock,
+  KeyRound,
+  X
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -47,6 +49,13 @@ export default function Layout({ children }: LayoutProps) {
   const [providerClinicsSectionExpanded, setProviderClinicsSectionExpanded] = useState(false)
   const [providerClinicExpanded, setProviderClinicExpanded] = useState<Set<string>>(new Set())
   const prevPathnameRef = useRef(location.pathname)
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false)
+  const [changePasswordCurrent, setChangePasswordCurrent] = useState('')
+  const [changePasswordNew, setChangePasswordNew] = useState('')
+  const [changePasswordConfirm, setChangePasswordConfirm] = useState('')
+  const [changePasswordError, setChangePasswordError] = useState('')
+  const [changePasswordSuccess, setChangePasswordSuccess] = useState(false)
+  const [changePasswordLoading, setChangePasswordLoading] = useState(false)
 
   const handleSignOut = async () => {
     try {
@@ -55,6 +64,50 @@ export default function Layout({ children }: LayoutProps) {
       console.error('Error signing out:', error)
     } finally {
       navigate('/login')
+    }
+  }
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setChangePasswordError('')
+    if (changePasswordNew.length < 6) {
+      setChangePasswordError('New password must be at least 6 characters.')
+      return
+    }
+    if (changePasswordNew !== changePasswordConfirm) {
+      setChangePasswordError('New password and confirmation do not match.')
+      return
+    }
+    if (!userProfile?.email) {
+      setChangePasswordError('Could not determine your email.')
+      return
+    }
+    setChangePasswordLoading(true)
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: userProfile.email,
+        password: changePasswordCurrent,
+      })
+      if (signInError) {
+        setChangePasswordError('Current password is incorrect.')
+        setChangePasswordLoading(false)
+        return
+      }
+      const { error: updateError } = await supabase.auth.updateUser({ password: changePasswordNew })
+      if (updateError) {
+        setChangePasswordError(updateError.message || 'Failed to update password.')
+        setChangePasswordLoading(false)
+        return
+      }
+      setChangePasswordCurrent('')
+      setChangePasswordNew('')
+      setChangePasswordConfirm('')
+      setChangePasswordSuccess(true)
+      setShowChangePasswordModal(false)
+    } catch (err) {
+      setChangePasswordError(err instanceof Error ? err.message : 'Failed to change password.')
+    } finally {
+      setChangePasswordLoading(false)
     }
   }
 
@@ -1131,14 +1184,31 @@ export default function Layout({ children }: LayoutProps) {
           {/* User Info & Sign Out */}
           <div className="border-white/10 p-4">
             {!sidebarCollapsed && (
-              <div className="mb-3">
-                <div className="text-sm font-medium text-white truncate">
-                  {userProfile?.full_name || userProfile?.email}
+              // <div className='flex items-center gap-2'>
+                <div className="mb-3 relative">
+                  <div className="text-sm font-medium text-white truncate">
+                    {userProfile?.full_name || userProfile?.email}
+                  </div>
+                  <div className="text-xs text-white/60 capitalize">
+                    {userProfile?.role?.replace('_', ' ')}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowChangePasswordModal(true)
+                      setChangePasswordCurrent('')
+                      setChangePasswordNew('')
+                      setChangePasswordConfirm('')
+                      setChangePasswordError('')
+                      setChangePasswordSuccess(false)
+                    }}
+                    className="absolute right-2 top-2 p-1 rounded text-white/70 hover:text-white hover:bg-white/10"
+                    title="Change password"
+                  >
+                    <KeyRound size={24} />
+                  </button>
                 </div>
-                <div className="text-xs text-white/60 capitalize">
-                  {userProfile?.role?.replace('_', ' ')}
-                </div>
-              </div>
+              // </div>
             )}
             <button
               onClick={handleSignOut}
@@ -1160,6 +1230,113 @@ export default function Layout({ children }: LayoutProps) {
           {children}
         </main>
       </div>
+
+      {/* Change Password Modal */}
+      {showChangePasswordModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">Change password</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowChangePasswordModal(false)
+                  setChangePasswordCurrent('')
+                  setChangePasswordNew('')
+                  setChangePasswordConfirm('')
+                  setChangePasswordError('')
+                  setChangePasswordSuccess(false)
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <form onSubmit={handleChangePassword} className="p-6 space-y-4">
+              <div>
+                <label htmlFor="layout-current-password" className="block text-sm font-medium text-gray-700 mb-1">
+                  Current password
+                </label>
+                <input
+                  id="layout-current-password"
+                  type="password"
+                  value={changePasswordCurrent}
+                  onChange={(e) => setChangePasswordCurrent(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  placeholder="Enter current password"
+                  required
+                  autoComplete="current-password"
+                  disabled={changePasswordLoading}
+                />
+              </div>
+              <div>
+                <label htmlFor="layout-new-password" className="block text-sm font-medium text-gray-700 mb-1">
+                  New password
+                </label>
+                <input
+                  id="layout-new-password"
+                  type="password"
+                  value={changePasswordNew}
+                  onChange={(e) => setChangePasswordNew(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  placeholder="At least 6 characters"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  disabled={changePasswordLoading}
+                />
+              </div>
+              <div>
+                <label htmlFor="layout-confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
+                  Confirm new password
+                </label>
+                <input
+                  id="layout-confirm-password"
+                  type="password"
+                  value={changePasswordConfirm}
+                  onChange={(e) => setChangePasswordConfirm(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  placeholder="Confirm new password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  disabled={changePasswordLoading}
+                />
+              </div>
+              {changePasswordError && (
+                <p className="text-sm text-red-600">{changePasswordError}</p>
+              )}
+              {changePasswordSuccess && (
+                <p className="text-sm text-green-600">Password updated successfully.</p>
+              )}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowChangePasswordModal(false)
+                    setChangePasswordCurrent('')
+                    setChangePasswordNew('')
+                    setChangePasswordConfirm('')
+                    setChangePasswordError('')
+                    setChangePasswordSuccess(false)
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  disabled={changePasswordLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                  disabled={changePasswordLoading}
+                >
+                  {changePasswordLoading ? 'Updating...' : 'Change password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
