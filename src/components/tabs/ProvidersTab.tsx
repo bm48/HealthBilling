@@ -357,20 +357,20 @@ export default function ProvidersTab({
     'pt_pay_status', 'pt_payment_ar_ref_date', 'total', 'notes'
   ]
   const columnTitlesFull = [
-    'ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins',
+    'ID', 'First Name', 'LI', 'Insurance', 'Co-pay', 'Co-Ins',
     'Date of Service', 'CPT Code', 'Appt/Note Status', 'Claim Status', 'Most Recent Submit Date',
     'Ins Pay', 'Ins Pay Date', 'PT RES', 'Collected from PT', 'PT Pay Status',
     'PT Payment AR Ref Date', 'Total', 'Notes'
   ]
   const columnFieldsProviderView = ['patient_id', 'first_name', 'last_initial', 'insurance', 'copay', 'coinsurance', 'date_of_service', 'cpt_code', 'appointment_note_status'] as const
-  const columnTitlesProviderView = ['ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins', 'Date of Service', 'CPT Code', 'Appt/Note Status']
+  const columnTitlesProviderView = ['ID', 'First Name', 'LI', 'Insurance', 'Co-pay', 'Co-Ins', 'Date of Service', 'CPT Code', 'Appt/Note Status']
   const columnFieldsOfficeStaff: Array<keyof IsLockProviders> = [
     'patient_id', 'first_name', 'last_initial', 'insurance', 'copay', 'coinsurance',
     'date_of_service', 'cpt_code', 'appointment_note_status',
     'collected_from_pt', 'pt_pay_status', 'pt_payment_ar_ref_date'
   ]
   const columnTitlesOfficeStaff = [
-    'ID', 'First Name', 'Last Initial', 'Insurance', 'Co-pay', 'Co-Ins',
+    'ID', 'First Name', 'LI', 'Insurance', 'Co-pay', 'Co-Ins',
     'Date of Service', 'CPT Code', 'Appt/Note Status',
     'Collected from PT', 'PT Pay Status', 'PT Payment AR Ref Date'
   ]
@@ -764,7 +764,7 @@ export default function ProvidersTab({
       return [
         { data: 0, title: 'ID', type: 'text' as const, width: 100, readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id')) },
         { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name')) },
-        { data: 2, title: 'Last Initial', type: 'text' as const, width: 40, readOnly: getReadOnlyForColumn(2, !canEdit || getReadOnly('last_initial')) },
+        { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: getReadOnlyForColumn(2, !canEdit || getReadOnly('last_initial')) },
         { data: 3, title: 'Ins', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance')) },
         { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay')) },
         { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance')) },
@@ -780,7 +780,7 @@ export default function ProvidersTab({
       return [
         { data: 0, title: 'ID', type: 'text' as const, width: 180, readOnly: getReadOnlyProviderView(0) },
         { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
-        { data: 2, title: 'Last Initial', type: 'text' as const, width: 80, readOnly: getReadOnlyProviderView(2) },
+        { data: 2, title: 'LI', type: 'text' as const, width: 80, readOnly: getReadOnlyProviderView(2) },
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
         { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(4) },
         { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyProviderView(5) },
@@ -793,7 +793,7 @@ export default function ProvidersTab({
       return [
         { data: 0, title: 'ID', type: 'text' as const, width: 100, readOnly: getReadOnlyProviderView(0) },
         { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
-        { data: 2, title: 'Last Initial', type: 'text' as const, width: 40, readOnly: getReadOnlyProviderView(2) },
+        { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: getReadOnlyProviderView(2) },
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
         { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(4) },
         { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyProviderView(5) },
@@ -818,7 +818,7 @@ export default function ProvidersTab({
         data: 0, 
         title: 'ID', 
         type: 'text' as const, 
-        width: 100,
+        width: 60,
         readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id'))
       },
       { 
@@ -830,7 +830,7 @@ export default function ProvidersTab({
       },
       { 
         data: 2, 
-        title: 'Last Initial', 
+        title: 'LI', 
         type: 'text' as const, 
         width: 40,
         readOnly: getReadOnlyForColumn(2, !canEdit || getReadOnly('last_initial'))

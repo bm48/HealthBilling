@@ -297,6 +297,11 @@
   background-color: #1e3a8a;
 }
 
+/* Remove gap between row-number column and first data column; overlap border by 1px */
+.handsontable-custom .ht_clone_left {
+  margin-right: -1px;
+}
+
 .handsontable-custom .ht_clone_top th {
   background-color: #1e3a8a !important;
   color: #ffffff !important;
@@ -305,16 +310,19 @@
   border: 1px solid rgba(255, 255, 255, 0.2) !important;
 }
 
-/* Colored headers support - can be overridden per column */
+/* Colored headers support - can be overridden per column; min-height so all tabs have consistent header height */
 .handsontable-custom table.htCore thead th {
   background-color: #1e3a8a !important;
   color: #ffffff !important;
   font-weight: 600 !important;
   padding: 6px 8px !important;
   text-align: center !important;
+  min-height: 32px !important;
+  box-sizing: border-box !important;
 }
 .handsontable-custom .ht_clone_top table.htCore thead th {
   text-align: center !important;
+  min-height: 32px !important;
 }
 
 /* Support for custom header colors via data attributes or classes */
@@ -410,7 +418,7 @@
   color: #000000 !important;
 }
 
-/* Providers tab: wrap column header titles so full text is visible when column is narrow */
+/* Providers tab: wrap column header titles; header height at least as tall as other tabs (36px) */
 .providers-handsontable table.htCore thead th,
 .providers-handsontable .ht_clone_top table.htCore thead th {
   white-space: normal !important;
@@ -419,10 +427,11 @@
   overflow: visible !important;
   text-overflow: unset !important;
   min-height: 36px !important;
-  height: auto !important;
+  height: 36px !important;
   line-height: 1.2 !important;
-  vertical-align: top !important;
-  padding-top: 6px !important;
+  vertical-align: middle !important;
+  padding: 6px 8px !important;
+  box-sizing: border-box !important;
 }
 .providers-handsontable table.htCore thead th span.colHeader,
 .providers-handsontable .ht_clone_top table.htCore thead th span.colHeader {
@@ -434,6 +443,7 @@
 .providers-handsontable table.htCore thead tr,
 .providers-handsontable .ht_clone_top table.htCore thead tr {
   min-height: 36px !important;
+  height: 36px !important;
 }
 
 .handsontable-custom .ht_clone_left th {
@@ -464,14 +474,29 @@
 /* .handsontable-custom .ht_clone_left .wtHolder {
   overflow: auto !important;
   box-sizing: border-box !important;
-} */
+providers-handsontable} */
 
-/* Same top offset as master so row numbers align with data and are not covered by header */
+/* Row-number column: small top offset in other tabs so row numbers align with data (column header can render slightly taller than corner). */
 .handsontable-custom .ht_clone_left .wtHider {
-  padding-top: 28px !important;
-  margin-top: 0 !important;
+  padding-top: 4px !important;
+  margin-top: 0 ;
 }
-
+/* Providers: no extra padding so corner cell sits at top and fills header space (avoids empty band above row numbers). */
+.providers-handsontable .ht_clone_left .wtHider {
+  padding-top: 0 !important;
+}
+/* Corner cell height matches column header so first row number aligns with first data row. */
+.providers-handsontable .ht_clone_left table.htCore thead tr th {
+  height: var(--ht-colheader-height, 36px) !important;
+  min-height: var(--ht-colheader-height, 36px) !important;
+  box-sizing: border-box !important;
+}
+/* Top-left corner cell (non-providers): fixed height so first row number lines up with first data row. */
+.handsontable-custom .ht_clone_left table.htCore thead tr th {
+  height: 32px !important;
+  min-height: 32px !important;
+  box-sizing: border-box !important;
+}
 
 /* Fix first row being cut off - ensure proper spacing */
 .handsontable-custom .ht_master .wtHider table.htCore {

@@ -104,6 +104,22 @@ function syncRowHeaderHeightsToClone(hot: Handsontable) {
   }
 }
 
+/** For providers tab: measure column header row height and set CSS variable so row-number column corner and offset match when header wraps. */
+function syncColHeaderHeightForProviders(hot: Handsontable) {
+  const root = hot?.rootElement as HTMLElement | undefined
+  if (!root) return
+  const container = root.closest?.('.providers-handsontable') as HTMLElement | null
+  if (!container) return
+  const headerRow =
+    root.querySelector('.ht_clone_top table.htCore thead tr') as HTMLTableRowElement | null ||
+    root.querySelector('.ht_master table.htCore thead tr') as HTMLTableRowElement | null
+  if (!headerRow) return
+  const height = headerRow.offsetHeight
+  if (height > 0) {
+    container.style.setProperty('--ht-colheader-height', `${height}px`)
+  }
+}
+
 interface HandsontableWrapperProps {
   data: any[][]
   columns: Array<{
@@ -658,6 +674,7 @@ export default function HandsontableWrapper({
     // Sync row heights from main table to row header clone; apply cell styles/titles so highlights persist after scroll
     afterRender: function (this: Handsontable) {
       syncRowHeaderHeightsToClone(this)
+      syncColHeaderHeightForProviders(this)
       applyCellStylesAndTitles(this, getCellTitle)
       afterRenderCallback?.(this)
     },
@@ -667,6 +684,9 @@ export default function HandsontableWrapper({
     },
     afterScrollHorizontally: function (this: Handsontable) {
       applyCellStylesAndTitles(this, getCellTitle)
+    },
+    afterColumnResize: function (this: Handsontable) {
+      requestAnimationFrame(() => syncColHeaderHeightForProviders(this))
     },
   }
   
