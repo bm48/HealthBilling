@@ -623,18 +623,22 @@ export default function Layout({ children }: LayoutProps) {
                     {!sidebarCollapsed && <span>TimeCards</span>}
                   </Link>
 
-                  <Link
-                    to="/invoices"
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
-                      isActive('/invoices')
-                        ? 'bg-primary-600 text-white font-medium shadow-lg'
-                        : 'text-white/70 hover:bg-white/10 hover:text-white'
-                    } ${sidebarCollapsed ? 'justify-center' : ''}`}
-                    title="Invoices"
-                  >
-                    <DollarSign size={20} />
-                    {!sidebarCollapsed && <span>Invoices</span>}
-                  </Link>
+                  {
+                    isSuperAdmin && (
+                      <Link
+                      to="/invoices"
+                      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
+                        isActive('/invoices')
+                          ? 'bg-primary-600 text-white font-medium shadow-lg'
+                          : 'text-white/70 hover:bg-white/10 hover:text-white'
+                      } ${sidebarCollapsed ? 'justify-center' : ''}`}
+                      title="Invoices"
+                    >
+                      <DollarSign size={20} />
+                      {!sidebarCollapsed && <span>Invoices</span>}
+                    </Link>
+                    )
+                  }
 
                   {/* Settings with submenu */}
                   {!sidebarCollapsed ? (
