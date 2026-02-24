@@ -853,8 +853,19 @@ export default function HandsontableWrapper({
           const tr = rowHeaderCell.closest('tr')
           if (!tr?.parentElement) return
           const tbody = tr.parentElement
-          const rowIndex = Array.from(tbody.children).indexOf(tr as Element)
-          if (rowIndex < 0) return
+          const domOffset = Array.from(tbody.children).indexOf(tr as Element)
+          if (domOffset < 0) return
+          const mapper = hotInstance.rowIndexMapper
+          let rowIndex: number | null
+          const firstRenderedVisual = hotInstance.getFirstRenderedVisibleRow?.() ?? null
+          if (firstRenderedVisual != null && mapper?.getRenderableFromVisualIndex && mapper?.getPhysicalFromRenderableIndex) {
+            const firstRenderedRenderable = mapper.getRenderableFromVisualIndex(firstRenderedVisual)
+            const clickedRenderable = firstRenderedRenderable + domOffset
+            rowIndex = mapper.getPhysicalFromRenderableIndex(clickedRenderable)
+          } else {
+            rowIndex = mapper?.getPhysicalFromRenderableIndex(domOffset) ?? domOffset
+          }
+          if (rowIndex == null || rowIndex < 0) return
           event.preventDefault()
           event.stopPropagation()
           onContextMenu(rowIndex, 0, event)

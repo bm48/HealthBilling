@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Timecard} from '@/types'
+import { Timecard, User } from '@/types'
+import type { Clinic } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
-import { LogIn, LogOut, Plus } from 'lucide-react'
+import { Lock, LogIn, LogOut, Pencil, Plus, Trash2, Unlock } from 'lucide-react'
 
 export default function Timecards() {
   const { user, userProfile } = useAuth()
@@ -16,14 +17,25 @@ export default function Timecards() {
     clock_out: '',
     notes: '',
   })
+  const isSuperAdmin = userProfile?.role === 'super_admin'
+  const [staffTimecards, setStaffTimecards] = useState<Timecard[]>([])
+  const [staffUsers, setStaffUsers] = useState<User[]>([])
+  const [clinicsMap, setClinicsMap] = useState<Record<string, string>>({})
+  const [editingTimecard, setEditingTimecard] = useState<Timecard | null>(null)
+  const [editForm, setEditForm] = useState({ clock_in: '', clock_out: '', notes: '' })
 
   useEffect(() => {
     if (user && userProfile) {
       loadClinics()
-      loadCurrentClockIn()
+      if (!isSuperAdmin) {
+        loadCurrentClockIn()
+      }
       loadTimecards()
+      if (isSuperAdmin) {
+        loadStaffTimecards()
+      }
     }
-  }, [user, userProfile])
+  }, [user, userProfile, isSuperAdmin])
 
   async function loadClinics() {
     if (!userProfile?.clinic_ids.length) return
@@ -70,6 +82,44 @@ export default function Timecards() {
 
     if (data) {
       setTimecards(data)
+    }
+  }
+
+  async function loadStaffTimecards() {
+    const { data: usersData } = await supabase
+      .from('users')
+      .select('*')
+      .in('role', ['billing_staff', 'office_staff'])
+    if (!usersData?.length) {
+      setStaffUsers([])
+      setStaffTimecards([])
+      setClinicsMap({})
+      return
+    }
+    setStaffUsers(usersData)
+    const userIds = usersData.map((u) => u.id)
+    const { data: tcData } = await supabase
+      .from('timecards')
+      .select('*')
+      .in('user_id', userIds)
+    const timecardsList = tcData ?? []
+    setStaffTimecards(timecardsList)
+
+    const clinicIdsFromTimecards = [...new Set(timecardsList.map((tc) => tc.clinic_id).filter(Boolean) as string[])]
+    const clinicIdsFromUsers = [...new Set(usersData.flatMap((u) => u.clinic_ids || []))]
+    const clinicIds = [...new Set([...clinicIdsFromUsers, ...clinicIdsFromTimecards])]
+    if (clinicIds.length > 0) {
+      const { data: clinicsData } = await supabase
+        .from('clinics')
+        .select('id, name')
+        .in('id', clinicIds)
+      const map: Record<string, string> = {}
+      ;(clinicsData as Pick<Clinic, 'id' | 'name'>[] | null)?.forEach((c) => {
+        map[c.id] = c.name
+      })
+      setClinicsMap(map)
+    } else {
+      setClinicsMap({})
     }
   }
 
@@ -161,6 +211,72 @@ export default function Timecards() {
     loadTimecards()
   }
 
+  const toDatetimeLocal = (iso: string) => {
+    const d = new Date(iso)
+    const pad = (n: number) => n.toString().padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  const handleOpenEdit = (tc: Timecard) => {
+    setEditingTimecard(tc)
+    setEditForm({
+      clock_in: toDatetimeLocal(tc.clock_in),
+      clock_out: tc.clock_out ? toDatetimeLocal(tc.clock_out) : '',
+      notes: tc.notes || '',
+    })
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingTimecard || !editForm.clock_in || !editForm.clock_out) return
+    const clockInTime = new Date(editForm.clock_in)
+    const clockOutTime = new Date(editForm.clock_out)
+    const hours = (clockOutTime.getTime() - clockInTime.getTime()) / (1000 * 60 * 60)
+    const weekStart = new Date(clockInTime)
+    const day = weekStart.getDay()
+    const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1)
+    weekStart.setDate(diff)
+    weekStart.setHours(0, 0, 0, 0)
+    const { error } = await supabase
+      .from('timecards')
+      .update({
+        clock_in: clockInTime.toISOString(),
+        clock_out: clockOutTime.toISOString(),
+        hours: Math.round(hours * 100) / 100,
+        notes: editForm.notes || null,
+        week_start_date: weekStart.toISOString().split('T')[0],
+      })
+      .eq('id', editingTimecard.id)
+    if (error) {
+      alert('Failed to update timecard.')
+      return
+    }
+    setEditingTimecard(null)
+    loadStaffTimecards()
+  }
+
+  const handleDeleteTimecard = async (tc: Timecard) => {
+    if (!confirm(`Delete this timecard (${tc.hours?.toFixed(2) ?? '0'} hrs)?`)) return
+    const { error } = await supabase.from('timecards').delete().eq('id', tc.id)
+    if (error) {
+      alert('Failed to delete timecard.')
+      return
+    }
+    loadStaffTimecards()
+  }
+
+  const handleToggleLock = async (tc: Timecard) => {
+    const nextLocked = !(tc.is_locked ?? false)
+    const { error } = await supabase
+      .from('timecards')
+      .update({ is_locked: nextLocked })
+      .eq('id', tc.id)
+    if (error) {
+      alert('Failed to update lock.')
+      return
+    }
+    loadStaffTimecards()
+  }
+
   // Working time per entry = clock_out - clock_in (stored as tc.hours). Weekly total = sum of those hours for all entries in that week. Average weekly = sum of all weekly totals / number of weeks.
   const totalHours = timecards
     .filter((tc) => tc.hours)
@@ -189,81 +305,172 @@ export default function Timecards() {
     .sort((a, b) => b.date.localeCompare(a.date))
   const averageHoursPerWeek = weekEntries.length > 0 ? totalHours / weekEntries.length : 0
 
+  const hoursByUserId = staffTimecards
+    .filter((tc) => tc.hours != null)
+    .reduce<Record<string, number>>((acc, tc) => {
+      acc[tc.user_id] = (acc[tc.user_id] ?? 0) + (tc.hours ?? 0)
+      return acc
+    }, {})
+  const billingStaffUsers = staffUsers.filter((u) => u.role === 'billing_staff')
+  const officeStaffUsers = staffUsers.filter((u) => u.role === 'office_staff')
+  const userName = (u: User) => u.full_name?.trim() || u.email || '—'
+  const userClinicNames = (u: User) => {
+    const ids = u.clinic_ids || []
+    if (ids.length === 0) return '—'
+    return ids.map((id) => clinicsMap[id] || id).join(', ')
+  }
+  const staffUserById = staffUsers.reduce<Record<string, User>>((acc, u) => {
+    acc[u.id] = u
+    return acc
+  }, {})
+  const oneWeekAgo = new Date()
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7)
+  const recentStaffTimecards = [...staffTimecards]
+    .filter((tc) => new Date(tc.clock_in) >= oneWeekAgo)
+    .sort((a, b) => new Date(b.clock_in).getTime() - new Date(a.clock_in).getTime())
+
+  // Weekly summary for super admin: name, week, dates worked, total hours (per staff per week)
+  type StaffWeekRow = { userId: string; weekStart: string; datesWorked: string; totalHours: number }
+  const staffWeekRows: StaffWeekRow[] = (() => {
+    const withHours = staffTimecards.filter((tc) => tc.hours != null)
+    const byKey = new Map<string, { userId: string; weekStart: string; dateStrings: Set<string>; totalHours: number }>()
+    for (const tc of withHours) {
+      const weekStart = getWeekStart(tc)
+      const key = `${tc.user_id}|${weekStart}`
+      const dateStr = new Date(tc.clock_in).toISOString().slice(0, 10)
+      if (!byKey.has(key)) {
+        byKey.set(key, { userId: tc.user_id, weekStart, dateStrings: new Set(), totalHours: 0 })
+      }
+      const row = byKey.get(key)!
+      row.dateStrings.add(dateStr)
+      row.totalHours += tc.hours ?? 0
+    }
+    const rows: StaffWeekRow[] = []
+    byKey.forEach((row) => {
+      const sortedDates = [...row.dateStrings].sort()
+      const datesWorked = sortedDates
+        .map((d) => {
+          const dt = new Date(d + 'T00:00:00')
+          return dt.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' })
+        })
+        .join(', ')
+      rows.push({ userId: row.userId, weekStart: row.weekStart, datesWorked, totalHours: row.totalHours })
+    })
+    return rows.sort((a, b) => b.weekStart.localeCompare(a.weekStart) || a.userId.localeCompare(b.userId))
+  })()
+
+  const formatWeekRange = (weekStart: string) => {
+    const weekStartDate = new Date(weekStart + 'T00:00:00')
+    const weekEnd = new Date(weekStartDate)
+    weekEnd.setDate(weekEnd.getDate() + 6)
+    return weekStartDate.getMonth() === weekEnd.getMonth()
+      ? `${weekStartDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}-${weekEnd.getDate()}, ${weekEnd.getFullYear()}`
+      : `${weekStartDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${weekEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+  }
+
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-white mb-2">Timecards</h1>
-        <p className="text-white/70">Track your work hours</p>
+        {
+          !isSuperAdmin && (
+            <p className="text-white/70">Track your work hours</p>
+          )
+        }
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
-          <h2 className="text-xl font-semibold text-white mb-4">Clock In/Out</h2>
-          {/* <div className="mb-4">
-            <label className="block text-sm font-medium text-white/90 mb-2">
-              Clinic
-            </label>
-            <select
-              value={selectedClinic}
-              onChange={(e) => setSelectedClinic(e.target.value)}
-              className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-md"
-            >
-              <option value="" className="bg-slate-900">Select clinic</option>
-              {clinics.map((clinic) => (
-                <option key={clinic.id} value={clinic.id} className="bg-slate-900">
-                  {clinic.name}
-                </option>
-              ))}
-            </select>
-          </div> */}
-          {currentClockIn ? (
-            <div>
-              <p className="text-sm text-white/70 mb-4">
-                Clocked in at: {new Date(currentClockIn.clock_in).toLocaleString()}
-              </p>
+      <div className={`grid gap-6 mb-6 ${isSuperAdmin ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
+        {!isSuperAdmin && (
+          <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
+            <h2 className="text-xl font-semibold text-white mb-4">Clock In/Out</h2>
+            {currentClockIn ? (
+              <div>
+                <p className="text-sm text-white/70 mb-4">
+                  Clocked in at: {new Date(currentClockIn.clock_in).toLocaleString()}
+                </p>
+                <button
+                  onClick={handleClockOut}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600 text-white rounded-md hover:bg-red-700"
+                >
+                  <LogOut className="w-5 h-5" />
+                  Clock Out
+                </button>
+              </div>
+            ) : (
               <button
-                onClick={handleClockOut}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-600 text-white rounded-md hover:bg-red-700"
+                onClick={handleClockIn}
+                disabled={!selectedClinic}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
               >
-                <LogOut className="w-5 h-5" />
-                Clock Out
+                <LogIn className="w-5 h-5" />
+                Clock In
               </button>
-            </div>
-          ) : (
+            )}
             <button
-              onClick={handleClockIn}
-              disabled={!selectedClinic}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+              onClick={() => setShowModal(true)}
+              className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 border border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-md"
             >
-              <LogIn className="w-5 h-5" />
-              Clock In
+              <Plus className="w-5 h-5" />
+              Manual Entry
             </button>
-          )}
-          <button
-            onClick={() => setShowModal(true)}
-            className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 border border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-md"
-          >
-            <Plus className="w-5 h-5" />
-            Manual Entry
-          </button>
-        </div>
+          </div>
+        )}
 
         <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl p-6 border border-white/20">
           <h2 className="text-xl font-semibold text-white mb-4">Summary</h2>
           <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-white/70">Average hours per week</span>
-              <span className="font-semibold text-white text-xl">
-                {averageHoursPerWeek.toFixed(2)} hrs
-              </span>
-            </div>
-            {userProfile?.hourly_pay != null && userProfile.hourly_pay > 0 && (
-              <div className="flex justify-between items-center pt-2 border-t border-white/20">
-                <span className="text-white/70">Hourly rate</span>
-                <span className="font-semibold text-white">
-                  ${Number(userProfile.hourly_pay).toFixed(2)}/hr
-                </span>
-              </div>
+            {isSuperAdmin ? (
+              <>
+                <div>
+                  <h3 className="text-lg font-semibold text-white/90 mb-2 italic">Billing staff</h3>
+                  <div className="space-y-1.5">
+                    {billingStaffUsers.length === 0 ? (
+                      <p className="text-white/50 text-sm pl-4">No billing staff</p>
+                    ) : (
+                      billingStaffUsers.map((u) => (
+                        <div key={u.id} className="flex justify-between items-center gap-4 text-sm flex-wrap">
+                          <span className="text-white/80 pl-4 shrink-0">{userName(u)}</span>
+                          <span className="text-white/60 flex-1 min-w-0">{userClinicNames(u)}</span>
+                          <span className="font-medium text-white shrink-0">{(hoursByUserId[u.id] ?? 0).toFixed(2)} hrs</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="pt-3 border-t border-white/20">
+                  <h3 className="text-lg font-semibold text-white/90 mb-2 italic">Office staff</h3>
+                  <div className="space-y-1.5">
+                    {officeStaffUsers.length === 0 ? (
+                      <p className="text-white/50 text-sm pl-4">No office staff</p>
+                    ) : (
+                      officeStaffUsers.map((u) => (
+                        <div key={u.id} className="flex justify-between items-center gap-4 text-sm flex-wrap">
+                          <span className="text-white/80 pl-4 shrink-0">{userName(u)}</span>
+                          <span className="text-white/60 flex-1 min-w-0">{userClinicNames(u)}</span>
+                          <span className="font-medium text-white shrink-0">{(hoursByUserId[u.id] ?? 0).toFixed(2)} hrs</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex justify-between items-center">
+                  <span className="text-white/70">Average hours per week</span>
+                  <span className="font-semibold text-white text-xl">
+                    {averageHoursPerWeek.toFixed(2)} hrs
+                  </span>
+                </div>
+                {userProfile?.hourly_pay != null && userProfile.hourly_pay > 0 && (
+                  <div className="flex justify-between items-center pt-2 border-t border-white/20">
+                    <span className="text-white/70">Hourly rate</span>
+                    <span className="font-semibold text-white">
+                      ${Number(userProfile.hourly_pay).toFixed(2)}/hr
+                    </span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -271,22 +478,29 @@ export default function Timecards() {
 
       <div className="bg-white/10 backdrop-blur-md rounded-lg shadow-xl overflow-hidden border border-white/20">
         <div className="p-4 border-b border-white/20">
-          <h2 className="font-semibold text-white">Recent Timecards</h2>
+          <h2 className="font-semibold text-white">Recent Timecards{isSuperAdmin ? ' (last week)' : ''}</h2>
         </div>
         <div className="table-container dark-theme">
           <table className="table-spreadsheet dark-theme">
             <thead>
               <tr>
+                {isSuperAdmin && <th>Staff</th>}
                 <th>Date</th>
                 <th>Clock In</th>
                 <th>Clock Out</th>
                 <th>Hours</th>
                 <th>Notes</th>
+                {isSuperAdmin && <th className="w-24">Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {timecards.map((timecard) => (
+              {(isSuperAdmin ? recentStaffTimecards : timecards).map((timecard) => (
                 <tr key={timecard.id}>
+                  {isSuperAdmin && (
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {staffUserById[timecard.user_id] ? userName(staffUserById[timecard.user_id]) : timecard.user_id}
+                    </td>
+                  )}
                   <td style={{ whiteSpace: 'nowrap' }}>
                     {new Date(timecard.clock_in).toLocaleDateString()}
                   </td>
@@ -294,12 +508,44 @@ export default function Timecards() {
                     {new Date(timecard.clock_in).toLocaleTimeString()}
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    {timecard.clock_out ? new Date(timecard.clock_out).toLocaleTimeString() : '-'}
+                    {timecard.clock_out ? new Date(timecard.clock_out).toLocaleTimeString() : '00:00'}
                   </td>
                   <td style={{ fontWeight: 500 }}>
-                    {timecard.hours ? timecard.hours.toFixed(2) : '-'}
+                    {timecard.hours ? timecard.hours.toFixed(2) : '0.00'}
                   </td>
-                  <td>{timecard.notes || '-'}</td>
+                  <td>{timecard.notes || ''}</td>
+                  {isSuperAdmin && (
+                    <td className="whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleLock(timecard)}
+                          className={`p-1.5 rounded ${timecard.is_locked ? 'text-amber-400 hover:bg-white/10' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+                          title={timecard.is_locked ? 'Unlock row' : 'Lock row'}
+                        >
+                          {timecard.is_locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => !timecard.is_locked && handleOpenEdit(timecard)}
+                          disabled={!!timecard.is_locked}
+                          className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded disabled:opacity-40 disabled:pointer-events-none"
+                          title={timecard.is_locked ? 'Locked' : 'Edit'}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => !timecard.is_locked && handleDeleteTimecard(timecard)}
+                          disabled={!!timecard.is_locked}
+                          className="p-1.5 text-white/70 hover:text-red-400 hover:bg-white/10 rounded disabled:opacity-40 disabled:pointer-events-none"
+                          title={timecard.is_locked ? 'Locked' : 'Delete'}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -315,12 +561,42 @@ export default function Timecards() {
           <table className="table-spreadsheet dark-theme">
             <thead>
               <tr>
-                <th>Week</th>
-                <th>Hours</th>
+                {isSuperAdmin ? (
+                  <>
+                    <th>Name</th>
+                    <th>Week</th>
+                    <th>Dates worked</th>
+                    <th>Hours</th>
+                  </>
+                ) : (
+                  <>
+                    <th>Week</th>
+                    <th>Hours</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
-              {weekEntries.length === 0 ? (
+              {isSuperAdmin ? (
+                staffWeekRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="text-white/60 text-center py-6">
+                      No hours recorded yet.
+                    </td>
+                  </tr>
+                ) : (
+                  staffWeekRows.map((row) => (
+                    <tr key={`${row.userId}-${row.weekStart}`}>
+                      <td style={{ whiteSpace: 'nowrap' }} className="text-white/90">
+                        {staffUserById[row.userId] ? userName(staffUserById[row.userId]) : row.userId}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }} className="text-white/90">{formatWeekRange(row.weekStart)}</td>
+                      <td className="text-white/80">{row.datesWorked}</td>
+                      <td style={{ fontWeight: 500 }} className="text-white">{row.totalHours.toFixed(2)} hrs</td>
+                    </tr>
+                  ))
+                )
+              ) : weekEntries.length === 0 ? (
                 <tr>
                   <td colSpan={2} className="text-white/60 text-center py-6">
                     No hours recorded yet.
@@ -392,6 +668,62 @@ export default function Timecards() {
               </button>
               <button
                 onClick={handleManualEntry}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingTimecard && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-slate-800/95 backdrop-blur-md rounded-lg p-6 w-full max-w-md border border-white/20">
+            <h2 className="text-xl font-bold text-white mb-4">Edit Timecard</h2>
+            {staffUserById[editingTimecard.user_id] && (
+              <p className="text-white/70 text-sm mb-4">{userName(staffUserById[editingTimecard.user_id])}</p>
+            )}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-white/90 mb-1">Clock In</label>
+                <input
+                  type="datetime-local"
+                  value={editForm.clock_in}
+                  onChange={(e) => setEditForm({ ...editForm, clock_in: e.target.value })}
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-md"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white/90 mb-1">Clock Out</label>
+                <input
+                  type="datetime-local"
+                  value={editForm.clock_out}
+                  onChange={(e) => setEditForm({ ...editForm, clock_out: e.target.value })}
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-md"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white/90 mb-1">Notes</label>
+                <textarea
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  className="w-full px-3 py-2 border border-white/20 bg-white/10 backdrop-blur-sm text-white rounded-md placeholder-white/50"
+                  rows={3}
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex gap-4 justify-end">
+              <button
+                onClick={() => {
+                  setEditingTimecard(null)
+                }}
+                className="px-4 py-2 border border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-md"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEdit}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
               >
                 Save
