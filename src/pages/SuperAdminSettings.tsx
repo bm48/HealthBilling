@@ -2051,8 +2051,8 @@ function ClinicFormModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full my-auto">
         <div className="flex justify-between items-center p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">
             {clinic ? 'Edit Clinic' : 'Add Clinic'}
@@ -2062,101 +2062,103 @@ function ClinicFormModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-            <input
-              type="text"
-              required
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Address 1</label>
-            <input
-              type="text"
-              value={formData.address}
-              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Address 2</label>
-            <input
-              type="text"
-              value={formData.address_line_2}
-              onChange={(e) => setFormData({ ...formData, address_line_2: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-            <input
-              type="text"
-              value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Fax</label>
-            <input
-              type="text"
-              value={formData.fax}
-              onChange={(e) => setFormData({ ...formData, fax: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">NPI</label>
-            <input
-              type="text"
-              value={formData.npi}
-              onChange={(e) => setFormData({ ...formData, npi: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-              placeholder="National Provider Identifier"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">EIN</label>
-            <input
-              type="text"
-              value={formData.ein}
-              onChange={(e) => setFormData({ ...formData, ein: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-              placeholder="Employer Identification Number"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Payroll</label>
-            <select
-              value={formData.payroll}
-              onChange={(e) => setFormData({ ...formData, payroll: Number(e.target.value) as 1 | 2 })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-            >
-              <option value={1}>Once per month</option>
-              <option value={2}>Twice per month</option>
-            </select>
-            <p className="text-xs text-gray-500 mt-1">1 = default; 2 = two pay periods per month (24-item date dropdowns, dual AR/Provider Pay tables)</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Invoice rate (%)</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.01}
-              value={formData.invoice_rate}
-              onChange={(e) => setFormData({ ...formData, invoice_rate: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-              placeholder="e.g. 5 for 5%"
-            />
-            <p className="text-xs text-gray-500 mt-1">Used on Invoices page: Invoice Total = (Insurance + Patient + AR) × this rate. Leave empty for none.</p>
+        <form onSubmit={handleSubmit} className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Address 1</label>
+              <input
+                type="text"
+                value={formData.address}
+                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Address 2</label>
+              <input
+                type="text"
+                value={formData.address_line_2}
+                onChange={(e) => setFormData({ ...formData, address_line_2: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+              <input
+                type="text"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Fax</label>
+              <input
+                type="text"
+                value={formData.fax}
+                onChange={(e) => setFormData({ ...formData, fax: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">NPI</label>
+              <input
+                type="text"
+                value={formData.npi}
+                onChange={(e) => setFormData({ ...formData, npi: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                placeholder="National Provider Identifier"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">EIN</label>
+              <input
+                type="text"
+                value={formData.ein}
+                onChange={(e) => setFormData({ ...formData, ein: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                placeholder="Employer Identification Number"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Payroll</label>
+              <select
+                value={formData.payroll}
+                onChange={(e) => setFormData({ ...formData, payroll: Number(e.target.value) as 1 | 2 })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+              >
+                <option value={1}>Once per month</option>
+                <option value={2}>Twice per month</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">1 = default; 2 = two pay periods per month (24-item date dropdowns, dual AR/Provider Pay tables)</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Invoice rate (%)</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.01}
+                value={formData.invoice_rate}
+                onChange={(e) => setFormData({ ...formData, invoice_rate: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                placeholder="e.g. 5 for 5%"
+              />
+              <p className="text-xs text-gray-500 mt-1">Used on Invoices page: Invoice Total = (Insurance + Patient + AR) × this rate. Leave empty for none.</p>
+            </div>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4">
+          <div className="flex justify-end gap-3 pt-6 mt-4 border-t border-gray-200">
             <button
               type="button"
               onClick={onClose}
