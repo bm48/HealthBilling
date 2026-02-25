@@ -10,7 +10,6 @@ export interface ClinicInvoiceSummaryRow {
   insurance_payment_total: number
   patient_payment_total: number
   accounts_receivable_total: number
-  additional_fee?: number
   total: number
   invoice_total: number
   invoice_rate: number | null
@@ -74,25 +73,20 @@ export async function generateClinicInvoicePdf(
   } else {
     y += 18
   }
-  // Total = ins + patient pay + AR + additional fee; billing amount = total * invoice rate
-  const total = row.total
-  const rate = row.invoice_rate != null ? row.invoice_rate : 0
-  const billingAmount = total * rate
-
   doc.setDrawColor(200, 200, 200)
   doc.setFillColor(240, 240, 240)
   doc.rect(14, y - 4, pageW - 28, 14, 'FD')
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)
   doc.text('Balance Due:', 18, y + 5)
-  doc.text(formatCurrency(billingAmount), pageW - 18 - doc.getTextWidth(formatCurrency(billingAmount)), y + 5)
+  doc.text(formatCurrency(row.invoice_total), pageW - 18 - doc.getTextWidth(formatCurrency(row.invoice_total)), y + 5)
   doc.setFont('helvetica', 'normal')
   y += 22
 
   const ratePct = row.invoice_rate != null ? (row.invoice_rate * 100).toFixed(2) : '0'
   const tableBody: (string | number)[][] = [
-    ['Total (Insurance + Patient Pay + AR + Additional Fee)', '$0.00', formatCurrency(total)],
-    [`Billing Fee: ${ratePct}% of Total`, formatCurrency(billingAmount), formatCurrency(billingAmount)],
+    [`Total Collected From Insurances Only ${formatCurrency(row.insurance_payment_total)}`, '$0.00', formatCurrency(0)],
+    [`Billing Fee: ${ratePct}% of Total Collected`, formatCurrency(row.invoice_total), formatCurrency(row.invoice_total)],
   ]
   autoTable(doc, {
     head: [['Item', 'Rate', 'Amount']],
@@ -103,29 +97,26 @@ export async function generateClinicInvoicePdf(
   })
   y = (doc as any).lastAutoTable.finalY + 14
 
+  // doc.setFontSize(10)
+  // doc.text(`Subtotal: ${formatCurrency(row.invoice_total)}`, pageW - 14 - doc.getTextWidth(`Subtotal: ${formatCurrency(row.invoice_total)}`), y)
+  // y += 6
+  // doc.text('Tax (0%): No tax $0.00', pageW - 14 - doc.getTextWidth('Tax (0%): No tax $0.00'), y)
+  // y += 6
   doc.setFont('helvetica', 'bold')
-  doc.text(`Total: ${formatCurrency(billingAmount)}`, pageW - 14 - doc.getTextWidth(`Total: ${formatCurrency(billingAmount)}`), y)
+  doc.text(`Total: ${formatCurrency(row.invoice_total)}`, pageW - 14 - doc.getTextWidth(`Total: ${formatCurrency(row.invoice_total)}`), y)
   doc.setFont('helvetica', 'normal')
   y += 14
 
-  const additionalFee = row.additional_fee != null ? Number(row.additional_fee) : 0
-  const hasNote = (row.note?.trim() ?? '').length > 0
-  if (additionalFee !== 0 || hasNote) {
-    doc.setFont('helvetica', 'bold')
-    doc.text('Notes:', 14, y)
-    doc.setFont('helvetica', 'normal')
-    y += 6
-    if (additionalFee !== 0) {
-      doc.text(`Additional fee: ${formatCurrency(additionalFee)}`, 14, y)
+  doc.setFont('helvetica', 'bold')
+  doc.text('Notes:', 14, y)
+  doc.setFont('helvetica', 'normal')
+  y += 6
+  if (row.note?.trim()) {
+    const maxWidth = pageW - 28
+    const lines = doc.splitTextToSize(row.note.trim(), maxWidth)
+    for (const line of lines) {
+      doc.text(line, 14, y)
       y += 6
-    }
-    if (hasNote) {
-      const maxWidth = pageW - 28
-      const lines = doc.splitTextToSize(row.note!.trim(), maxWidth)
-      for (const line of lines) {
-        doc.text(line, 14, y)
-        y += 6
-      }
     }
   }
 
