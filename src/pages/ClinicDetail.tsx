@@ -74,6 +74,8 @@ export default function ClinicDetail() {
     providerId?: string;
   } | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
+  /** Last undo callback (e.g. restore deleted row). Cleared after Ctrl+Z or when another delete happens. */
+  const lastUndoRef = useRef<(() => void) | null>(null)
   
   // Month filter for provider tab
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
@@ -1739,15 +1741,29 @@ export default function ClinicDetail() {
 
 
   const handleDeleteProviderSheetRow = useCallback(async (providerId: string, rowId: string) => {
+    const rows = providerSheetRows[providerId] || []
+    const deletedRow = rows.find(r => r.id === rowId)
+    const insertIndex = deletedRow ? rows.findIndex(r => r.id === rowId) : -1
     let rowsAfterDelete: SheetRow[] = []
     setProviderSheetRowsByMonth(prev => {
       const current = prev[selectedMonthKey] ?? {}
-      const rows = current[providerId] || []
-      rowsAfterDelete = rows.filter(r => r.id !== rowId)
+      const list = current[providerId] || []
+      rowsAfterDelete = list.filter(r => r.id !== rowId)
       return { ...prev, [selectedMonthKey]: { ...current, [providerId]: rowsAfterDelete } }
     })
     await saveProviderSheetRows(providerId, rowsAfterDelete)
-  }, [saveProviderSheetRows, selectedMonthKey])
+    if (deletedRow != null && insertIndex >= 0) {
+      lastUndoRef.current = () => {
+        setProviderSheetRowsByMonth(prev => {
+          const current = prev[selectedMonthKey] ?? {}
+          const list = current[providerId] || []
+          const next = [...list.slice(0, insertIndex), deletedRow, ...list.slice(insertIndex)]
+          saveProviderSheetRows(providerId, next).catch(err => console.error('Undo provider row: save failed', err))
+          return { ...prev, [selectedMonthKey]: { ...current, [providerId]: next } }
+        })
+      }
+    }
+  }, [providerSheetRows, saveProviderSheetRows, selectedMonthKey])
 
   const handleAddProviderRowAbove = useCallback((providerId: string, beforeRowId: string) => {
     const rows = providerSheetRows[providerId] || []
@@ -1903,6 +1919,7 @@ export default function ClinicDetail() {
             canEdit={canEdit}
             isInSplitScreen={!!splitScreen}
             isLockPatients={isLockPatients}
+            onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
             onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockPatients && isPatientColumnLocked(columnName as keyof IsLockPatients)
                 ? (isLockPatients[`${columnName}_comment` as keyof IsLockPatients] as string | null) || ''
@@ -1923,6 +1940,7 @@ export default function ClinicDetail() {
             isLockBillingTodo={isLockBillingTodo}
             isInSplitScreen={!!splitScreen}
             exportRef={billingTodoExportRef}
+            onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
             onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockBillingTodo && isBillingTodoColumnLocked(columnName as keyof IsLockBillingTodo)
                 ? (isLockBillingTodo[`${columnName}_comment` as keyof IsLockBillingTodo] as string | null) || ''
@@ -1942,6 +1960,7 @@ export default function ClinicDetail() {
             canEdit={canEdit}
             isInSplitScreen={!!splitScreen}
             isLockAccountsReceivable={isLockAccountsReceivable}
+            onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
             onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockAccountsReceivable && isARColumnLocked(columnName as keyof IsLockAccountsReceivable)
                 ? (isLockAccountsReceivable[`${columnName}_comment` as keyof IsLockAccountsReceivable] as string | null) || ''
@@ -2060,7 +2079,23 @@ export default function ClinicDetail() {
       }
     }
   }, [contextMenu])
-  
+
+  // Undo last delete row (all tabs) with Ctrl+Z / Cmd+Z
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        const undo = lastUndoRef.current
+        if (undo) {
+          e.preventDefault()
+          undo()
+          lastUndoRef.current = null
+        }
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [])
+
   // Tab order for cycling in split screen (left/right Switch) — exclude patients so Switch never changes the Patients pane; admin has no Billing To-Do
   const SPLIT_SCREEN_TAB_ORDER: TabType[] = [
     ...(showBillingTodoTab ? (['todo'] as const) : []),

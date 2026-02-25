@@ -3,7 +3,7 @@ import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { supabase, createSupabaseClientForSignUp, createSupabaseClientWithStorageKey } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { User, BillingCode, Clinic, ProviderSheet, AuditLog, Provider } from '@/types'
-import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Link2, Check, CircleSlash, Key } from 'lucide-react'
+import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Link2, Check, Key } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 import MonthCloseTab from '@/components/MonthCloseTab'
 
@@ -86,6 +86,11 @@ export default function SuperAdminSettings() {
   const [deleteClinicPassword, setDeleteClinicPassword] = useState('')
   const [deleteClinicError, setDeleteClinicError] = useState('')
   const [deleteClinicLoading, setDeleteClinicLoading] = useState(false)
+  const [userToToggleActive, setUserToToggleActive] = useState<User | null>(null)
+  const [showToggleActiveModal, setShowToggleActiveModal] = useState(false)
+  const [toggleActivePassword, setToggleActivePassword] = useState('')
+  const [toggleActiveError, setToggleActiveError] = useState('')
+  const [toggleActiveLoading, setToggleActiveLoading] = useState(false)
   const [changePasswordCurrent, setChangePasswordCurrent] = useState('')
   const [changePasswordNew, setChangePasswordNew] = useState('')
   const [changePasswordConfirm, setChangePasswordConfirm] = useState('')
@@ -502,27 +507,56 @@ export default function SuperAdminSettings() {
     }
   }
 
-  const handleToggleUserActive = async (user: User) => {
+  const openToggleActiveModal = (user: User) => {
     if (variant !== 'super_admin') return
-    const nextActive = !(user.active !== false)
+    setUserToToggleActive(user)
+    setShowToggleActiveModal(true)
+    setToggleActivePassword('')
+    setToggleActiveError('')
+  }
+
+  const handleConfirmToggleActive = async () => {
+    if (!userToToggleActive || !userProfile?.email) return
+    if (!toggleActivePassword.trim()) {
+      setToggleActiveError('Please enter your password.')
+      return
+    }
+    setToggleActiveError('')
+    setToggleActiveLoading(true)
     try {
+      const tempClient = createSupabaseClientWithStorageKey('health-billing-auth-verify-password')
+      const { error: signInError } = await tempClient.auth.signInWithPassword({
+        email: userProfile.email,
+        password: toggleActivePassword,
+      })
+      await tempClient.auth.signOut()
+      if (signInError) {
+        setToggleActiveError('Incorrect password.')
+        setToggleActiveLoading(false)
+        return
+      }
+      const nextActive = !(userToToggleActive.active !== false)
       const { error } = await supabase
         .from('users')
         .update({ active: nextActive, updated_at: new Date().toISOString() })
-        .eq('id', user.id)
+        .eq('id', userToToggleActive.id)
       if (error) throw error
-      // Keep providers table in sync: same user may have one provider row (by email)
-      if (user.email) {
+      if (userToToggleActive.email) {
         await supabase
           .from('providers')
           .update({ active: nextActive, updated_at: new Date().toISOString() })
-          .eq('email', user.email)
+          .eq('email', userToToggleActive.email)
       }
+      setShowToggleActiveModal(false)
+      setUserToToggleActive(null)
+      setToggleActivePassword('')
       await fetchUsers()
       if (variant === 'super_admin') await fetchClinics()
     } catch (error) {
       console.error('Error toggling user active:', error)
-      alert('Failed to update user active status.')
+      setToggleActiveError('Failed to update user active status. Please try again.')
+    } finally {
+      setToggleActiveLoading(false)
     }
   }
 
@@ -877,18 +911,23 @@ export default function SuperAdminSettings() {
                               </td>
                               {variant === 'super_admin' && (
                                 <td>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleUserActive(user)}
-                                    className="inline-flex items-center justify-center p-1 rounded hover:bg-white/10"
-                                    title={user.active !== false ? 'Active (click to deactivate)' : 'Inactive (click to activate)'}
-                                  >
-                                    {user.active !== false ? (
-                                      <Check size={20} className="text-green-400" />
-                                    ) : (
-                                      <CircleSlash size={20} className="text-white/50" />
-                                    )}
-                                  </button>
+                                  <div className="flex flex-col items-center gap-1">
+                                    <button
+                                      type="button"
+                                      role="switch"
+                                      aria-checked={user.active !== false}
+                                      onClick={() => openToggleActiveModal(user)}
+                                      className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 ${user.active !== false ? 'bg-blue-500 focus:ring-blue-400' : 'bg-gray-300 focus:ring-gray-400'}`}
+                                      title={user.active !== false ? 'Active (click to deactivate)' : 'Inactive (click to activate)'}
+                                    >
+                                      <span
+                                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5 ${user.active !== false ? 'translate-x-6' : 'translate-x-1'}`}
+                                      />
+                                    </button>
+                                    <span className={`text-xs ${user.active !== false ? 'text-white/80' : 'text-slate-400'}`}>
+                                      {user.active !== false ? 'Active' : 'Inactive'}
+                                    </span>
+                                  </div>
                                 </td>
                               )}
                               {variant === 'super_admin' && (
@@ -1430,6 +1469,75 @@ export default function SuperAdminSettings() {
           }}
           onSave={(clinicIds) => handleSaveAssignClinics(assignClinicUser, clinicIds)}
         />
+      )}
+
+      {showToggleActiveModal && userToToggleActive && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">Change active status</h2>
+              <button
+                onClick={() => {
+                  setShowToggleActiveModal(false)
+                  setUserToToggleActive(null)
+                  setToggleActivePassword('')
+                  setToggleActiveError('')
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-gray-700">
+                {userToToggleActive.active !== false
+                  ? `Deactivate ${userToToggleActive.email}?`
+                  : `Activate ${userToToggleActive.email}?`}
+                {' '}Enter your password to confirm.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Your password (super admin)</label>
+                <input
+                  type="password"
+                  value={toggleActivePassword}
+                  onChange={(e) => {
+                    setToggleActivePassword(e.target.value)
+                    setToggleActiveError('')
+                  }}
+                  placeholder="Enter your password"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
+                  disabled={toggleActiveLoading}
+                />
+                {toggleActiveError && (
+                  <p className="text-sm text-red-600 mt-1">{toggleActiveError}</p>
+                )}
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowToggleActiveModal(false)
+                    setUserToToggleActive(null)
+                    setToggleActivePassword('')
+                    setToggleActiveError('')
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  disabled={toggleActiveLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmToggleActive}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  disabled={toggleActiveLoading}
+                >
+                  {toggleActiveLoading ? 'Updating...' : 'Confirm'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {showDeleteUserModal && userToDelete && (
