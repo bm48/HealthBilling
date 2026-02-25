@@ -1919,7 +1919,7 @@ export default function ClinicDetail() {
             canEdit={canEdit}
             isInSplitScreen={!!splitScreen}
             isLockPatients={isLockPatients}
-            // onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
+            onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
             onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockPatients && isPatientColumnLocked(columnName as keyof IsLockPatients)
                 ? (isLockPatients[`${columnName}_comment` as keyof IsLockPatients] as string | null) || ''
@@ -1940,7 +1940,7 @@ export default function ClinicDetail() {
             isLockBillingTodo={isLockBillingTodo}
             isInSplitScreen={!!splitScreen}
             exportRef={billingTodoExportRef}
-            // onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
+            onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
             onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockBillingTodo && isBillingTodoColumnLocked(columnName as keyof IsLockBillingTodo)
                 ? (isLockBillingTodo[`${columnName}_comment` as keyof IsLockBillingTodo] as string | null) || ''
@@ -1960,7 +1960,7 @@ export default function ClinicDetail() {
             canEdit={canEdit}
             isInSplitScreen={!!splitScreen}
             isLockAccountsReceivable={isLockAccountsReceivable}
-            // onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
+            onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
             onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockAccountsReceivable && isARColumnLocked(columnName as keyof IsLockAccountsReceivable)
                 ? (isLockAccountsReceivable[`${columnName}_comment` as keyof IsLockAccountsReceivable] as string | null) || ''

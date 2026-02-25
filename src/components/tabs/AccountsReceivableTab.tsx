@@ -15,13 +15,14 @@ interface AccountsReceivableTabProps {
   clinicPayroll?: 1 | 2
   canEdit: boolean
   onDelete?: (arId: string) => void
+  onRegisterUndo?: (undo: () => void) => void
   isLockAccountsReceivable?: IsLockAccountsReceivable | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockAccountsReceivable) => boolean
   isInSplitScreen?: boolean
 }
 
-export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, canEdit, onDelete, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen }: AccountsReceivableTabProps) {
+export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, canEdit, onDelete, onRegisterUndo, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen }: AccountsReceivableTabProps) {
   const { userProfile } = useAuth()
   const [accountsReceivable, setAccountsReceivable] = useState<AccountsReceivable[]>([])
   const [statusColors, setStatusColors] = useState<StatusColor[]>([])
@@ -859,6 +860,8 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       setTableContextMenu(null)
       return
     }
+    const deletedAR = { ...ar }
+    const idxInAR = accountsReceivable.findIndex(a => a.id === ar.id)
     if (ar.id.startsWith('empty-') || ar.id.startsWith('new-')) {
       const updated = accountsReceivable.filter(a => a.id !== ar.id)
       const emptyNeeded = Math.max(0, 200 - updated.length)
@@ -870,11 +873,38 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       setAccountsReceivable(toSave)
       setStructureVersion(v => v + 1)
       saveAccountsReceivable(toSave).catch(err => console.error('saveAccountsReceivable after delete row', err))
+      if (idxInAR >= 0) {
+        onRegisterUndo?.(() => {
+          setAccountsReceivable(prev => {
+            const next = [...prev.slice(0, idxInAR), deletedAR, ...prev.slice(idxInAR)]
+            accountsReceivableRef.current = next
+            saveAccountsReceivable(next).catch(err => console.error('saveAccountsReceivable after undo delete row', err))
+            return next
+          })
+          setStructureVersion(v => v + 1)
+        })
+      }
     } else {
+      if (idxInAR >= 0) {
+        onRegisterUndo?.(() => {
+          supabase
+            .from('accounts_receivables')
+            .insert(deletedAR)
+            .then(() => {
+              // Restore at original position in state instead of refetching (fetchAccountsReceivable would append and put row at bottom)
+              setAccountsReceivable(prev => {
+                const next = [...prev.slice(0, idxInAR), deletedAR, ...prev.slice(idxInAR)]
+                accountsReceivableRef.current = next
+                return next
+              })
+              setStructureVersion(v => v + 1)
+            }, (err: unknown) => console.error('Undo delete AR: re-insert failed', err))
+        })
+      }
       handleDeleteAR(ar.id)
     }
     setTableContextMenu(null)
-  }, [tableContextMenu, displayAR, accountsReceivable, createEmptyAR, saveAccountsReceivable, handleDeleteAR])
+  }, [tableContextMenu, displayAR, accountsReceivable, createEmptyAR, saveAccountsReceivable, handleDeleteAR, onRegisterUndo])
 
   // ResizeObserver for split screen: fill table height (must run before any early return)
   useEffect(() => {

@@ -12,6 +12,7 @@ interface BillingTodoTabProps {
   clinicId: string
   canEdit: boolean
   onDelete?: (todoId: string) => void
+  onRegisterUndo?: (undo: () => void) => void
   isLockBillingTodo?: IsLockBillingTodo | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockBillingTodo) => boolean
@@ -19,7 +20,7 @@ interface BillingTodoTabProps {
   exportRef?: MutableRefObject<{ exportToCSV: () => void } | null>
 }
 
-export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBillingTodo, onLockColumn, isColumnLocked, isInSplitScreen, exportRef }: BillingTodoTabProps) {
+export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegisterUndo, isLockBillingTodo, onLockColumn, isColumnLocked, isInSplitScreen, exportRef }: BillingTodoTabProps) {
   const { userProfile } = useAuth()
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -842,6 +843,8 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
   const handleContextMenuDeleteRow = useCallback(async () => {
     if (tableContextMenu == null) return
     const { todoId } = tableContextMenu
+    const deletedTodo = todos.find(t => t.id === todoId)
+    const insertIndex = deletedTodo != null ? todos.findIndex(t => t.id === todoId) : -1
     setTableContextMenu(null)
     if (todoId.startsWith('empty-') || todoId.startsWith('new-')) {
       const updated = todos.filter(t => t.id !== todoId)
@@ -854,14 +857,40 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBill
       setTodos(toSave)
       setStructureVersion(v => v + 1)
       saveTodos(toSave).catch(err => console.error('saveTodos after delete row', err))
+      if (deletedTodo != null && insertIndex >= 0) {
+        onRegisterUndo?.(() => {
+          setTodos(prev => {
+            const next = [...prev.slice(0, insertIndex), deletedTodo, ...prev.slice(insertIndex)].slice(0, 200)
+            todosRef.current = next
+            saveTodos(next).catch(err => console.error('saveTodos after undo delete row', err))
+            return next
+          })
+          setStructureVersion(v => v + 1)
+        })
+      }
     } else {
+      if (deletedTodo != null && insertIndex >= 0) {
+        onRegisterUndo?.(() => {
+          void Promise.resolve(
+            supabase.from('todo_lists').insert(deletedTodo)
+          ).then(() => {
+            // Restore at original position in state instead of refetching (fetchTodos would append and put row at bottom)
+            setTodos(prev => {
+              const next = [...prev.slice(0, insertIndex), deletedTodo, ...prev.slice(insertIndex)].slice(0, 200)
+              todosRef.current = next
+              return next
+            })
+            setStructureVersion(v => v + 1)
+          }).catch((err: unknown) => console.error('Undo delete todo: re-insert failed', err))
+        })
+      }
       if (saveTodosTimeoutRef.current) {
         clearTimeout(saveTodosTimeoutRef.current)
         saveTodosTimeoutRef.current = null
       }
       await handleDeleteTodo(todoId)
     }
-  }, [tableContextMenu, todos, createEmptyTodo, saveTodos, handleDeleteTodo])
+  }, [tableContextMenu, todos, createEmptyTodo, saveTodos, handleDeleteTodo, onRegisterUndo])
 
   // ResizeObserver for split screen: fill table height (must run before any early return)
   useEffect(() => {

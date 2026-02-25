@@ -13,13 +13,14 @@ interface PatientsTabProps {
   clinicId: string
   canEdit: boolean
   onDelete?: (patientId: string) => void
+  onRegisterUndo?: (undo: () => void) => void
   isLockPatients?: IsLockPatients | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockPatients) => boolean
   isInSplitScreen?: boolean
 }
 
-export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen }: PatientsTabProps) {
+export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUndo, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen }: PatientsTabProps) {
   const { userProfile } = useAuth()
   const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
@@ -470,12 +471,12 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
   }
 
   const patientsColumns = [
-    { data: 0, title: 'Patient ID', type: 'text' as const, width: 120, readOnly: !canEdit || getReadOnly('patient_id') },
-    { data: 1, title: 'Patient First', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('first_name') },
-    { data: 2, title: 'Patient Last', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('last_name') },
-    { data: 3, title: 'Insurance', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('insurance') },
-    { data: 4, title: 'Copay', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: !canEdit || getReadOnly('copay') },
-    { data: 5, title: 'Coinsurance', type: 'numeric' as const, width: 100, renderer: percentCellRenderer, readOnly: !canEdit || getReadOnly('coinsurance') },
+    { data: 0, title: 'Patient ID', type: 'text' as const, width: 120, readOnly: !canEdit || getReadOnly('patient_id'), columnSorting: { indicator: true } },
+    { data: 1, title: 'Patient First', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('first_name'), columnSorting: { headerAction: false } },
+    { data: 2, title: 'Patient Last', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('last_name'), columnSorting: { headerAction: false } },
+    { data: 3, title: 'Insurance', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('insurance'), columnSorting: { headerAction: false } },
+    { data: 4, title: 'Copay', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: !canEdit || getReadOnly('copay'), columnSorting: { headerAction: false } },
+    { data: 5, title: 'Coinsurance', type: 'numeric' as const, width: 100, renderer: percentCellRenderer, readOnly: !canEdit || getReadOnly('coinsurance'), columnSorting: { headerAction: false } },
   ]
   
   const handlePatientsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
@@ -523,7 +524,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
     }, 500)
   }, [patients, savePatients, createEmptyPatient])
 
-  const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
+  const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number; patientId: string } | null>(null)
   const tableContextMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -542,13 +543,14 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
     if (!canEdit) return
     const patient = patients[row]
     if (patient) {
-      setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row })
+      setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row, patientId: patient.id })
     }
   }, [patients, canEdit])
 
   const handleContextMenuAddRowBelow = useCallback(() => {
     if (tableContextMenu == null) return
-    const { rowIndex } = tableContextMenu
+    const rowIndex = patients.findIndex(p => p.id === tableContextMenu.patientId)
+    if (rowIndex === -1) { setTableContextMenu(null); return }
     const existingEmptyCount = patients.filter(p => p.id.startsWith('empty-')).length
     const newRow = createEmptyPatient(existingEmptyCount)
     const updated = [...patients.slice(0, rowIndex + 1), newRow, ...patients.slice(rowIndex + 1)]
@@ -564,7 +566,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
 
   const handleContextMenuAddRowAbove = useCallback(() => {
     if (tableContextMenu == null) return
-    const { rowIndex } = tableContextMenu
+    const rowIndex = patients.findIndex(p => p.id === tableContextMenu.patientId)
+    if (rowIndex === -1) { setTableContextMenu(null); return }
     const existingEmptyCount = patients.filter(p => p.id.startsWith('empty-')).length
     const newRow = createEmptyPatient(existingEmptyCount)
     const updated = [...patients.slice(0, rowIndex), newRow, ...patients.slice(rowIndex)]
@@ -580,13 +583,15 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
 
   const handleContextMenuDeleteRow = useCallback(() => {
     if (tableContextMenu == null) return
-    const patient = patients[tableContextMenu.rowIndex]
+    const rowIndex = patients.findIndex(p => p.id === tableContextMenu.patientId)
+    const patient = rowIndex >= 0 ? patients[rowIndex] : null
     if (!patient) {
       setTableContextMenu(null)
       return
     }
+    const deletedPatient = { ...patient }
     if (patient.id.startsWith('empty-') || patient.id.startsWith('new-')) {
-      const updated = patients.filter((_, i) => i !== tableContextMenu.rowIndex)
+      const updated = patients.filter(p => p.id !== tableContextMenu.patientId)
       const emptyNeeded = Math.max(0, 200 - updated.length)
       const existingEmpty = updated.filter(p => p.id.startsWith('empty-')).length
       const toSave = emptyNeeded > existingEmpty
@@ -596,11 +601,34 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       setPatients(toSave)
       setStructureVersion(v => v + 1)
       savePatients(toSave).catch(err => console.error('savePatients after delete row', err))
+      onRegisterUndo?.(() => {
+        setPatients(prev => {
+          const next = [...prev.slice(0, rowIndex), deletedPatient, ...prev.slice(rowIndex)].slice(0, 200)
+          patientsRef.current = next
+          savePatients(next).catch(err => console.error('savePatients after undo delete row', err))
+          return next
+        })
+        setStructureVersion(v => v + 1)
+      })
     } else {
+      onRegisterUndo?.(() => {
+        supabase
+          .from('patients')
+          .insert(deletedPatient)
+          .then(() => {
+            // Restore at original position in state instead of refetching (fetchPatients would append and put row at bottom)
+            setPatients(prev => {
+              const next = [...prev.slice(0, rowIndex), deletedPatient, ...prev.slice(rowIndex)].slice(0, 200)
+              patientsRef.current = next
+              return next
+            })
+            setStructureVersion(v => v + 1)
+          }, (err: unknown) => console.error('Undo delete patient: re-insert failed', err))
+      })
       handleDeletePatient(patient.id)
     }
     setTableContextMenu(null)
-  }, [tableContextMenu, patients, createEmptyPatient, savePatients, handleDeletePatient])
+  }, [tableContextMenu, patients, createEmptyPatient, savePatients, handleDeletePatient, onRegisterUndo])
 
   // ResizeObserver for split screen: fill table height (must run before any early return)
   useEffect(() => {
@@ -657,9 +685,10 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
           getCellIsHighlighted={getCellIsHighlighted}
           cells={patientsCellsCallback}
           enableFormula={true}
+          columnSorting={{ indicator: true }}
           readOnly={!canEdit}
           style={{ backgroundColor: '#d2dbe5' }}
-          className="handsontable-custom"
+          className="handsontable-custom billing-todo-sortable"
         />
       </div>
 
