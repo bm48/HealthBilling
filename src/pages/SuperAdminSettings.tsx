@@ -2026,7 +2026,7 @@ function ClinicFormModal({
     npi: clinic?.npi ?? '',
     ein: clinic?.ein ?? '',
     payroll: (clinic?.payroll ?? 1) as 1 | 2,
-    invoice_rate: clinic?.invoice_rate != null ? String(clinic.invoice_rate * 100) : '',
+    invoice_rate: clinic?.invoice_rate != null ? (Math.round(clinic.invoice_rate * 10000) / 100).toFixed(2) : '',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
