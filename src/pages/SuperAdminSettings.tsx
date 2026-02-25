@@ -668,9 +668,9 @@ export default function SuperAdminSettings() {
 
         if (error) throw error
       }
-      await fetchClinics()
       setShowClinicForm(false)
       setEditingClinic(null)
+      await fetchClinics()
     } catch (error) {
       console.error('Error saving clinic:', error)
       alert('Failed to save clinic. Please try again.')
@@ -2047,6 +2047,7 @@ function ClinicFormModal({
       payroll: formData.payroll,
       invoice_rate: rateNum != null && Number.isFinite(rateNum) ? rateNum / 100 : null,
     })
+    onClose()
   }
 
   return (
