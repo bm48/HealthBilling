@@ -386,7 +386,7 @@ export default function Invoices() {
                                 {row.payment_status}
                               </span>
                             </td>
-                            <td>{row.payment_date ? formatDate(row.payment_date) : '—'}</td>
+                            <td>{formatDate(row.payment_date) || '—'}</td>
                             <td className="max-w-[200px] truncate" title={invoiceNotes[row.clinic_id] ?? ''}>
                               {invoiceNotes[row.clinic_id] ?? '—'}
                             </td>
@@ -559,7 +559,7 @@ export default function Invoices() {
                             <td>{invoice.patient_name}</td>
                             <td>{invoice.clinic_name}</td>
                             <td>{invoice.provider_name}</td>
-                            <td>{invoice.appointment_date ? formatDate(invoice.appointment_date) : '-'}</td>
+                            <td>{formatDate(invoice.appointment_date) || '-'}</td>
                             <td>{formatCurrency(invoice.invoice_amount)}</td>
                             <td>{formatCurrency(invoice.collected_from_patient)}</td>
                             <td>
@@ -567,7 +567,7 @@ export default function Invoices() {
                                 {invoice.patient_pay_status}
                               </span>
                             </td>
-                            <td>{invoice.payment_date ? formatDate(invoice.payment_date) : '-'}</td>
+                            <td>{formatDate(invoice.payment_date) || '-'}</td>
                           </tr>
                         ))
                       )}

@@ -16,8 +16,10 @@ export function formatCurrency(amount: number | string | null | undefined): stri
 }
 
 export function formatDate(date: string | null | undefined): string {
-  if (!date) return ''
-  return new Date(date).toLocaleDateString('en-US', {
+  if (date == null || date === '') return ''
+  const d = new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -25,8 +27,10 @@ export function formatDate(date: string | null | undefined): string {
 }
 
 export function formatDateTime(date: string | null | undefined): string {
-  if (!date) return ''
-  return new Date(date).toLocaleString('en-US', {
+  if (date == null || date === '') return ''
+  const d = new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
