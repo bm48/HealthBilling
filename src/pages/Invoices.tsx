@@ -24,6 +24,8 @@ interface InvoiceRow {
 interface ClinicInvoiceSummaryRow {
   clinic_id: string
   clinic_name: string
+  clinic_address_1: string
+  clinic_address_2: string
   insurance_payment_total: number
   patient_payment_total: number
   accounts_receivable_total: number
@@ -32,6 +34,7 @@ interface ClinicInvoiceSummaryRow {
   invoice_rate: number | null
   payment_status: string
   payment_date: string | null
+  note?: string
 }
 
 export default function Invoices() {
@@ -50,6 +53,9 @@ export default function Invoices() {
   })
   const [clinicSummaries, setClinicSummaries] = useState<ClinicInvoiceSummaryRow[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
+  const [invoiceNotes, setInvoiceNotes] = useState<Record<string, string>>({})
+  const [selectedClinicForNote, setSelectedClinicForNote] = useState<string>('')
+  const [noteText, setNoteText] = useState<string>('')
 
   useEffect(() => {
     fetchClinics()
@@ -62,6 +68,10 @@ export default function Invoices() {
   useEffect(() => {
     if (isSuperAdmin) fetchClinicSummaries()
   }, [selectedMonth, isSuperAdmin])
+
+  useEffect(() => {
+    setNoteText(selectedClinicForNote ? (invoiceNotes[selectedClinicForNote] ?? '') : '')
+  }, [selectedClinicForNote, invoiceNotes])
 
   const fetchClinics = async () => {
     if (!userProfile) return
@@ -87,7 +97,7 @@ export default function Invoices() {
     try {
       const month = selectedMonth.getMonth() + 1
       const year = selectedMonth.getFullYear()
-      const { data: allClinicsData, error: clinicsErr } = await supabase.from('clinics').select('id, name, invoice_rate').order('name')
+      const { data: allClinicsData, error: clinicsErr } = await supabase.from('clinics').select('id, name, address, address_line_2, invoice_rate').order('name')
       if (clinicsErr) throw clinicsErr
       const allClinics = allClinicsData || []
       const { data: sheetsData, error: sheetsError } = await supabase
@@ -145,6 +155,8 @@ export default function Invoices() {
         return {
           clinic_id: clinic.id,
           clinic_name: clinic.name,
+          clinic_address_1: clinic.address ?? '',
+          clinic_address_2: clinic.address_line_2 ?? '',
           insurance_payment_total: insurance,
           patient_payment_total: patient,
           accounts_receivable_total: ar,
@@ -156,8 +168,19 @@ export default function Invoices() {
         }
       })
       setClinicSummaries(summaries)
+      const { data: notesData } = await supabase
+        .from('clinic_invoice_notes')
+        .select('clinic_id, note')
+        .eq('month', month)
+        .eq('year', year)
+      const notesMap: Record<string, string> = {}
+      ;(notesData || []).forEach((r: { clinic_id: string; note: string | null }) => {
+        notesMap[r.clinic_id] = r.note ?? ''
+      })
+      setInvoiceNotes(notesMap)
     } catch (error) {
       setClinicSummaries([])
+      setInvoiceNotes({})
     } finally {
       setSummaryLoading(false)
     }
@@ -258,7 +281,8 @@ export default function Invoices() {
 
   async function handleDownloadClinicInvoice(row: ClinicInvoiceSummaryRow) {
     try {
-      const pdf = await generateClinicInvoicePdf(row, selectedMonth)
+      const rowWithNote = { ...row, note: invoiceNotes[row.clinic_id] ?? '' }
+      const pdf = await generateClinicInvoicePdf(rowWithNote, selectedMonth)
       const monthStr = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`
       const safeName = row.clinic_name.replace(/[^a-z0-9-_]/gi, '_')
       pdf.save(`Invoice_${safeName}_${monthStr}.pdf`)
@@ -337,13 +361,14 @@ export default function Invoices() {
                         <th>Invoice Total</th>
                         <th>Payment Status</th>
                         <th>Payment Date</th>
+                        <th>Note</th>
                         <th className="w-20">Download</th>
                       </tr>
                     </thead>
                     <tbody>
                       {clinicSummaries.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="text-center text-white/70 py-8">
+                          <td colSpan={10} className="text-center text-white/70 py-8">
                             No data for this month
                           </td>
                         </tr>
@@ -362,6 +387,9 @@ export default function Invoices() {
                               </span>
                             </td>
                             <td>{row.payment_date ? formatDate(row.payment_date) : '—'}</td>
+                            <td className="max-w-[200px] truncate" title={invoiceNotes[row.clinic_id] ?? ''}>
+                              {invoiceNotes[row.clinic_id] ?? '—'}
+                            </td>
                             <td>
                               <button
                                 type="button"
@@ -377,6 +405,71 @@ export default function Invoices() {
                       )}
                     </tbody>
                   </table>
+                </div>
+              )}
+              {/* Add note: select clinic + textarea (super admin only) */}
+              {isSuperAdmin && (
+                <div className="mt-6 p-4 bg-white/5 rounded-lg border border-white/20">
+                  <div className='flex flex-row items-center justify-center gap-4'>
+                    <div className='w-[60%]'>
+                      <label className="block text-sm font-medium text-white/70 mb-2">Select clinic</label>
+                      <select
+                        value={selectedClinicForNote}
+                        onChange={(e) => setSelectedClinicForNote(e.target.value)}
+                        className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white backdrop-blur-sm"
+                      >
+                        <option value="" className="bg-slate-900">Select clinic...</option>
+                        {clinicSummaries.map((row) => (
+                          <option key={row.clinic_id} value={row.clinic_id} className="bg-slate-900">
+                            {row.clinic_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className='w-[40%] flex items-end justify-end mt-4'>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!selectedClinicForNote) return
+                          const month = selectedMonth.getMonth() + 1
+                          const year = selectedMonth.getFullYear()
+                          const { error } = await supabase
+                            .from('clinic_invoice_notes')
+                            .upsert(
+                              {
+                                clinic_id: selectedClinicForNote,
+                                month,
+                                year,
+                                note: noteText,
+                                updated_at: new Date().toISOString(),
+                              },
+                              { onConflict: 'clinic_id,month,year' }
+                            )
+                          if (error) {
+                            console.error(error)
+                            alert('Failed to save note.')
+                            return
+                          }
+                          setInvoiceNotes((prev) => ({ ...prev, [selectedClinicForNote]: noteText }))
+                        }}
+                        disabled={!selectedClinicForNote}
+                        className="mt-2 px-4 py-2 bg-white/20 hover:bg-white/30 disabled:opacity-50 disabled:pointer-events-none border border-white/20 rounded-lg text-white text-sm"
+                      >
+                        Save note
+                      </button>
+                    </div>
+                  </div>
+                    <div className="md:col-span-1">
+                      <label className="block text-sm font-medium text-white/70 mb-2">Add note</label>
+                      <textarea
+                        value={noteText}
+                        onChange={(e) => setNoteText(e.target.value)}
+                        placeholder="Enter note for this clinic's invoice..."
+                        rows={3}
+                        className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 backdrop-blur-sm resize-y"
+                      />
+                    </div>
                 </div>
               )}
             </div>
