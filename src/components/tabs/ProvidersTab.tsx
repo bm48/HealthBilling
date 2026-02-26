@@ -48,9 +48,9 @@ interface ProvidersTabProps {
   onReorderProviderRows?: (providerId: string, movedRows: number[], finalIndex: number) => void
   /** When true (e.g. official_staff), only columns ID through Date of Service are editable; rest read-only */
   restrictEditToSchedulingColumns?: boolean
-  /** When true (office_staff), show only columns ID through Appt/Note Status and Collected from PT through PT Payment AR Ref Date */
+  /** When true (office_staff), show only columns ID through Appt/Note Status and Collected from PT through PT Payment AR Ref Date; office staff can edit Patient ID, First Name, LI, Date of Service, and payment columns. */
   officeStaffView?: boolean
-  /** When true (super_admin only), user can edit/remove/resolve comments in the modal and "See comment" context menu is shown */
+  /** When true (super_admin or office_staff), user can add/see/edit comments in the modal and "See comment" context menu is shown */
   canEditComment?: boolean
   /** Current user's highlight color (from User Management). Used to paint highlighted cells. Super admin uses #2d7e83; default yellow (#eab308). */
   userHighlightColor?: string | null
@@ -396,9 +396,10 @@ export default function ProvidersTab({
     return Boolean(lockData[columnName])
   }
 
-  /** For official_staff: only columns 0-6 (ID through Date of Service) are editable. For office_staff: only columns 9-11 (Collected from PT, PT Pay Status, PT Payment AR Ref Date) are editable. */
+  /** For official_staff: only columns 0-6 (ID through Date of Service) are editable. For office_staff: columns 0,1,2,6 (Patient ID, First Name, LI, Date of Service) and 9-11 (Collected from PT, PT Pay Status, PT Payment AR Ref Date) are editable. */
   const isSchedulingColumn = (dataIndex: number) => dataIndex <= 6
-  const isOfficeStaffEditableColumn = (dataIndex: number) => dataIndex === 9 || dataIndex === 10 || dataIndex === 11
+  const isOfficeStaffEditableColumn = (dataIndex: number) =>
+    dataIndex === 0 || dataIndex === 1 || dataIndex === 2 || dataIndex === 6 || dataIndex === 9 || dataIndex === 10 || dataIndex === 11
   const getReadOnlyForColumn = (dataIndex: number, baseReadOnly: boolean) => {
     if (officeStaffView) return baseReadOnly || !isOfficeStaffEditableColumn(dataIndex)
     return baseReadOnly || (restrictEditToSchedulingColumns && !isSchedulingColumn(dataIndex))

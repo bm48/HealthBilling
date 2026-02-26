@@ -2001,7 +2001,7 @@ export default function ClinicDetail() {
           <ProvidersTab
             clinicId={clinicId}
             clinicPayroll={clinic?.payroll ?? 1}
-            canEditComment={userProfile?.role === 'super_admin'}
+            canEditComment={userProfile?.role === 'super_admin' || userProfile?.role === 'office_staff'}
             userHighlightColor={userProfile?.role === 'super_admin' ? '#2d7e83' : (userProfile?.highlight_color ?? '#eab308')}
             providers={providers}
             providerSheetRows={providerSheetRows}
