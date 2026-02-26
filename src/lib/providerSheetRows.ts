@@ -11,8 +11,8 @@ export interface ProviderSheetRowDb {
   patient_last_name: string | null
   last_initial: string | null
   patient_insurance: string | null
-  patient_copay: number | null
-  patient_coinsurance: number | null
+  patient_copay: string | null
+  patient_coinsurance: string | null
   appointment_date: string | null
   appointment_time: string | null
   visit_type: string | null

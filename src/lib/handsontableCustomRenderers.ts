@@ -51,6 +51,60 @@ export function percentCellRenderer(
 }
 
 /**
+ * Co-pay as text: if value is numeric show as currency; otherwise show as plain text (e.g. N/A, TBD).
+ */
+export function copayTextCellRenderer(
+  _instance: any,
+  td: HTMLElement,
+  _row: number,
+  _col: number,
+  _prop: string | number,
+  value: any,
+  cellProperties: any
+) {
+  const textRenderer = Handsontable.renderers.TextRenderer
+  let display = ''
+  if (value !== null && value !== undefined && value !== '' && value !== 'null') {
+    const str = String(value).trim()
+    const num = parseFloat(str)
+    if (str !== '' && !Number.isNaN(num)) {
+      display = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num)
+    } else {
+      display = str
+    }
+  }
+  textRenderer(_instance, td as HTMLTableCellElement, _row, _col, _prop, display, cellProperties)
+  td.style.color = '#111827'
+}
+
+/**
+ * Co-insurance as text: if value is numeric show as percentage; otherwise show as plain text (e.g. N/A, TBD).
+ */
+export function coinsuranceTextCellRenderer(
+  _instance: any,
+  td: HTMLElement,
+  _row: number,
+  _col: number,
+  _prop: string | number,
+  value: any,
+  cellProperties: any
+) {
+  const textRenderer = Handsontable.renderers.TextRenderer
+  let display = ''
+  if (value !== null && value !== undefined && value !== '' && value !== 'null') {
+    const str = String(value).trim()
+    const num = parseFloat(str)
+    if (str !== '' && !Number.isNaN(num)) {
+      display = `${num}%`
+    } else {
+      display = str
+    }
+  }
+  textRenderer(_instance, td as HTMLTableCellElement, _row, _col, _prop, display, cellProperties)
+  td.style.color = '#111827'
+}
+
+/**
  * Custom renderer for dropdown cells with background colors (full cell fill)
  */
 export function createColoredDropdownRenderer(colorMap: (value: string) => { color: string; textColor: string } | null) {

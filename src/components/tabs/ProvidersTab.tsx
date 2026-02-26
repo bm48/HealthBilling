@@ -2,7 +2,7 @@ import { Provider, SheetRow, BillingCode, StatusColor, Patient, IsLockProviders 
 import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
-import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor, currencyCellRenderer, copayTextCellRenderer, coinsuranceTextCellRenderer } from '@/lib/handsontableCustomRenderers'
+import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor, currencyCellRenderer, percentCellRenderer } from '@/lib/handsontableCustomRenderers'
 import { useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
@@ -766,8 +766,8 @@ export default function ProvidersTab({
         { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name')) },
         { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: getReadOnlyForColumn(2, !canEdit || getReadOnly('last_initial')) },
         { data: 3, title: 'Ins', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance')) },
-        { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay')) },
-        { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance')) },
+        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay')) },
+        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance')) },
         { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyForColumn(6, !canEdit || getReadOnly('date_of_service')) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyForColumn(7, !canEdit || getReadOnly('cpt_code')) },
         { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 150, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyForColumn(8, !canEdit || getReadOnly('appointment_note_status')) },
@@ -782,8 +782,8 @@ export default function ProvidersTab({
         { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
         { data: 2, title: 'LI', type: 'text' as const, width: 80, readOnly: getReadOnlyProviderView(2) },
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
-        { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
-        { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyProviderView(5) },
+        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(4) },
+        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyProviderView(5) },
         { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyProviderView(6) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyProviderView(7) },
         { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
@@ -795,8 +795,8 @@ export default function ProvidersTab({
         { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
         { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: getReadOnlyProviderView(2) },
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
-        { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
-        { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyProviderView(5) },
+        { data: 4, title: 'Co-pay', type: 'numeric' as const, width: 80, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(4) },
+        { data: 5, title: 'Co-Ins', type: 'numeric' as const, width: 80, renderer: percentCellRenderer, readOnly: getReadOnlyProviderView(5) },
         { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyProviderView(6) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyProviderView(7) },
         { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 150, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
@@ -845,17 +845,17 @@ export default function ProvidersTab({
       { 
         data: 4, 
         title: 'Co-pay', 
-        type: 'text' as const, 
+        type: 'numeric' as const, 
         width: 80,
-        renderer: copayTextCellRenderer,
+        renderer: currencyCellRenderer,
         readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay'))
       },
       { 
         data: 5, 
         title: 'Co-Ins', 
-        type: 'text' as const, 
+        type: 'numeric' as const, 
         width: 80,
-        renderer: coinsuranceTextCellRenderer,
+        renderer: percentCellRenderer,
         readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance'))
       },
       { 
@@ -1082,14 +1082,11 @@ export default function ProvidersTab({
             merged.patient_first_name = patient.first_name || null
             merged.last_initial = patient.last_name ? patient.last_name.charAt(0) : null
             merged.patient_insurance = patient.insurance || null
-            merged.patient_copay = patient.copay ?? null
-            merged.patient_coinsurance = patient.coinsurance ?? null
+            merged.patient_copay = patient.copay ?? 0
+            merged.patient_coinsurance = patient.coinsurance ?? 0
           }
           updatedRows[row] = merged as SheetRow
-        } else if (field === 'patient_copay' || field === 'patient_coinsurance') {
-          const strValue = (newValue === '' || newValue === null || newValue === 'null' || newValue === undefined) ? null : String(newValue)
-          updatedRows[row] = { ...sheetRow, id: newId, [field]: strValue, updated_at: new Date().toISOString() } as SheetRow
-        } else if (field === 'total') {
+        } else if (field === 'patient_copay' || field === 'patient_coinsurance' || field === 'total') {
           const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: numValue, updated_at: new Date().toISOString() } as SheetRow
         } else if (field === 'insurance_payment' || field === 'collected_from_patient') {
@@ -1245,10 +1242,8 @@ export default function ProvidersTab({
           if (row[field] !== originalRow[field]) {
             if (field === 'patient_id') {
               onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as string | null)
-            } else if (field === 'patient_copay' || field === 'patient_coinsurance') {
-              onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as string | null)
-            } else if (field === 'total') {
-              onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as string | null)
+            } else if (field === 'patient_copay' || field === 'patient_coinsurance' || field === 'total') {
+              onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as number | null)
             } else if (field === 'appointment_date') {
               onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as string | null)
             } else {
@@ -1273,10 +1268,8 @@ export default function ProvidersTab({
           if (row[field] !== null && row[field] !== '') {
             if (field === 'patient_id') {
               onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
-            } else if (field === 'patient_copay' || field === 'patient_coinsurance') {
-              onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
-            } else if (field === 'total') {
-              onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
+            } else if (field === 'patient_copay' || field === 'patient_coinsurance' || field === 'total') {
+              onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as number | null)
             } else if (field === 'appointment_date') {
               onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
     } else {

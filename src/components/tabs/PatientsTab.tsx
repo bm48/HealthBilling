@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { Plus, Trash2 } from 'lucide-react'
-import { copayTextCellRenderer, coinsuranceTextCellRenderer } from '@/lib/handsontableCustomRenderers'
+import { currencyCellRenderer, percentCellRenderer } from '@/lib/handsontableCustomRenderers'
 import { toDisplayValue, toStoredString } from '@/lib/utils'
 
 interface PatientsTabProps {
@@ -251,8 +251,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
               first_name: (savedPatient.first_name != null && savedPatient.first_name !== 'null') ? savedPatient.first_name : '',
               last_name: (savedPatient.last_name != null && savedPatient.last_name !== 'null') ? savedPatient.last_name : '',
               insurance: (savedPatient.insurance != null && savedPatient.insurance !== 'null') ? savedPatient.insurance : null,
-              copay: (savedPatient.copay != null && savedPatient.copay !== 'null') ? savedPatient.copay : null,
-              coinsurance: (savedPatient.coinsurance != null && savedPatient.coinsurance !== 'null') ? savedPatient.coinsurance : null,
             }
           }
           return patient // Keep all other patients exactly as they are
@@ -477,8 +475,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     { data: 1, title: 'Patient First', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('first_name'), columnSorting: { headerAction: false } },
     { data: 2, title: 'Patient Last', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('last_name'), columnSorting: { headerAction: false } },
     { data: 3, title: 'Insurance', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('insurance'), columnSorting: { headerAction: false } },
-    { data: 4, title: 'Copay', type: 'text' as const, width: 100, renderer: copayTextCellRenderer, readOnly: !canEdit || getReadOnly('copay'), columnSorting: { headerAction: false } },
-    { data: 5, title: 'Coinsurance', type: 'text' as const, width: 100, renderer: coinsuranceTextCellRenderer, readOnly: !canEdit || getReadOnly('coinsurance'), columnSorting: { headerAction: false } },
+    { data: 4, title: 'Copay', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: !canEdit || getReadOnly('copay'), columnSorting: { headerAction: false } },
+    { data: 5, title: 'Coinsurance', type: 'numeric' as const, width: 100, renderer: percentCellRenderer, readOnly: !canEdit || getReadOnly('coinsurance'), columnSorting: { headerAction: false } },
   ]
   
   const handlePatientsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
@@ -497,8 +495,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       if (patient) {
         const field = fields[col as number]
         if (field === 'copay' || field === 'coinsurance') {
-          const strValue = (newValue === '' || newValue === null || newValue === 'null' || newValue === undefined) ? null : String(newValue)
-          updatedPatients[row] = { ...patient, [field]: strValue, updated_at: new Date().toISOString() } as Patient
+          const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
+          updatedPatients[row] = { ...patient, [field]: numValue, updated_at: new Date().toISOString() } as Patient
         } else if (field === 'insurance') {
           updatedPatients[row] = { ...patient, [field]: toStoredString(String(newValue ?? '')), updated_at: new Date().toISOString() } as Patient
         } else if (field) {
