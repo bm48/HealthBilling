@@ -145,8 +145,8 @@ export default function ProviderSchedulePage() {
     const withNullDate = (resNull.data || []) as Array<ProviderScheduleEntry & { copay?: number | string | null; coinsurance?: number | string | null }>
     const toEntry = (e: typeof inRange[0]): ProviderScheduleEntry => ({
       ...e,
-      copay: e.copay != null ? String(e.copay) : null,
-      coinsurance: e.coinsurance != null ? String(e.coinsurance) : null,
+      copay: e.copay != null ? e.copay : null,
+      coinsurance: e.coinsurance != null ? e.coinsurance : null,
     })
     const seen = new Set<string>()
     const list: ProviderScheduleEntry[] = []

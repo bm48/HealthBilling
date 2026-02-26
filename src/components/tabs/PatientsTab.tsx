@@ -251,8 +251,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
               first_name: (savedPatient.first_name != null && savedPatient.first_name !== 'null') ? savedPatient.first_name : '',
               last_name: (savedPatient.last_name != null && savedPatient.last_name !== 'null') ? savedPatient.last_name : '',
               insurance: (savedPatient.insurance != null && savedPatient.insurance !== 'null') ? savedPatient.insurance : null,
-              copay: (savedPatient.copay != null && savedPatient.copay !== 'null') ? savedPatient.copay : null,
-              coinsurance: (savedPatient.coinsurance != null && savedPatient.coinsurance !== 'null') ? savedPatient.coinsurance : null,
+              copay: (savedPatient.copay != null && String(savedPatient.copay) !== 'null') ? savedPatient.copay : null,
+              coinsurance: (savedPatient.coinsurance != null && String(savedPatient.coinsurance) !== 'null') ? savedPatient.coinsurance : null,
             }
           }
           return patient // Keep all other patients exactly as they are

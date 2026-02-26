@@ -95,8 +95,8 @@ export interface Patient {
   last_name: string
   subscriber_id: string | null
   insurance: string | null
-  copay: number | null
-  coinsurance: number | null
+  copay: string | number | null
+  coinsurance: string | number | null
   date_of_birth: string | null
   phone: string | null
   email: string | null
@@ -113,8 +113,8 @@ export interface ProviderScheduleEntry {
   patient_id: string | null
   patient_name: string | null
   insurance: string | null
-  copay: number | null
-  coinsurance: number | null
+  copay: string | number | null
+  coinsurance: string | number | null
   date_of_service: string | null
   created_at: string
   updated_at: string
@@ -139,8 +139,8 @@ export interface SheetRow {
   patient_first_name: string | null
   patient_last_name: string | null
   patient_insurance: string | null
-  patient_copay: number | null
-  patient_coinsurance: number | null
+  patient_copay: string | number | null
+  patient_coinsurance: string | number | null
   appointment_date: string | null
   appointment_time: string | null
   visit_type: string | null

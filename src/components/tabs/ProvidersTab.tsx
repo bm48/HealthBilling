@@ -1274,7 +1274,7 @@ export default function ProvidersTab({
             if (field === 'patient_id') {
               onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
             } else if (field === 'patient_copay' || field === 'patient_coinsurance') {
-              onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
+              onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | number | null)
             } else if (field === 'total') {
               onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
             } else if (field === 'appointment_date') {
