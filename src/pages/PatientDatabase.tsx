@@ -508,13 +508,14 @@ export default function PatientDatabase() {
                       </td>
                       <td>
                         <input
-                          type="text"
-                          value={patient.copay ?? ''}
-                          onChange={(e) => handleUpdatePatient(patient.id, 'copay', e.target.value.trim() || null)}
+                          type="number"
+                          step="0.01"
+                          value={patient.copay || ''}
+                          onChange={(e) => handleUpdatePatient(patient.id, 'copay', e.target.value ? parseFloat(e.target.value) : null)}
                           onBlur={() => saveImmediately()}
                           disabled={!canEdit}
                           className="w-full currency patient-input-edit"
-                          placeholder={canEdit ? '0.00 or N/A' : '-'}
+                          placeholder={canEdit ? '0.00' : '-'}
                           style={{ 
                             color: '#000000', 
                             backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
@@ -526,13 +527,14 @@ export default function PatientDatabase() {
                       </td>
                       <td>
                         <input
-                          type="text"
-                          value={patient.coinsurance ?? ''}
-                          onChange={(e) => handleUpdatePatient(patient.id, 'coinsurance', e.target.value.trim() || null)}
+                          type="number"
+                          step="0.01"
+                          value={patient.coinsurance || ''}
+                          onChange={(e) => handleUpdatePatient(patient.id, 'coinsurance', e.target.value ? parseFloat(e.target.value) : null)}
                           onBlur={() => saveImmediately()}
                           disabled={!canEdit}
                           className="w-full currency patient-input-edit"
-                          placeholder={canEdit ? '0.00 or N/A' : '-'}
+                          placeholder={canEdit ? '0.00' : '-'}
                           style={{ 
                             color: '#000000', 
                             backgroundColor: canEdit ? 'rgba(255, 255, 255, 0.9)' : 'transparent',

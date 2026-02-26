@@ -141,25 +141,20 @@ export default function ProviderSchedulePage() {
       setEntries([])
       return
     }
-    const inRange = (resRange.data || []) as Array<ProviderScheduleEntry & { copay?: number | string | null; coinsurance?: number | string | null }>
-    const withNullDate = (resNull.data || []) as Array<ProviderScheduleEntry & { copay?: number | string | null; coinsurance?: number | string | null }>
-    const toEntry = (e: typeof inRange[0]): ProviderScheduleEntry => ({
-      ...e,
-      copay: e.copay != null ? String(e.copay) : null,
-      coinsurance: e.coinsurance != null ? String(e.coinsurance) : null,
-    })
+    const inRange = (resRange.data || []) as ProviderScheduleEntry[]
+    const withNullDate = (resNull.data || []) as ProviderScheduleEntry[]
     const seen = new Set<string>()
     const list: ProviderScheduleEntry[] = []
     inRange.forEach((e) => {
       if (!seen.has(e.id)) {
         seen.add(e.id)
-        list.push(toEntry(e))
+        list.push(e)
       }
     })
     withNullDate.forEach((e) => {
       if (!seen.has(e.id)) {
         seen.add(e.id)
-        list.push(toEntry(e))
+        list.push(e)
       }
     })
     list.sort((a, b) => {
@@ -223,20 +218,17 @@ export default function ProviderSchedulePage() {
     if (isNew && !hasData) return
     setSaving(true)
     try {
-      // provider_schedules table has numeric copay/coinsurance; send number when parseable, else null
-        const copayNum = entry.copay != null && entry.copay.toString().trim() !== '' ? Number(entry.copay) : null
-        const coinsNum = entry.coinsurance != null && entry.coinsurance.toString().trim() !== '' ? Number(entry.coinsurance) : null
-        const payload = {
-          clinic_id: cid,
-          provider_id: provider.id,
-          patient_id: (entry.patient_id ?? '').toString().trim() || null,
-          patient_name: (entry.patient_name ?? '').toString().trim() || null,
-          insurance: (entry.insurance ?? '').toString().trim() || null,
-          copay: copayNum != null && !Number.isNaN(copayNum) ? copayNum : null,
-          coinsurance: coinsNum != null && !Number.isNaN(coinsNum) ? coinsNum : null,
-          date_of_service: (entry.date_of_service ?? '').toString().trim() || null,
-          updated_at: new Date().toISOString(),
-        }
+      const payload = {
+        clinic_id: cid,
+        provider_id: provider.id,
+        patient_id: (entry.patient_id ?? '').toString().trim() || null,
+        patient_name: (entry.patient_name ?? '').toString().trim() || null,
+        insurance: (entry.insurance ?? '').toString().trim() || null,
+        copay: entry.copay != null ? Number(entry.copay) : null,
+        coinsurance: entry.coinsurance != null ? Number(entry.coinsurance) : null,
+        date_of_service: (entry.date_of_service ?? '').toString().trim() || null,
+        updated_at: new Date().toISOString(),
+      }
       if (isNew) {
         const { data, error: err } = await supabase
           .from('provider_schedules')
@@ -247,7 +239,7 @@ export default function ProviderSchedulePage() {
           console.error('Schedule insert error:', err)
           throw err
         }
-        setEntries(prev => prev.map(e => (e.id === entry.id ? { ...data, copay: (data as any).copay != null ? String((data as any).copay) : null, coinsurance: (data as any).coinsurance != null ? String((data as any).coinsurance) : null } as ProviderScheduleEntry : e)))
+        setEntries(prev => prev.map(e => (e.id === entry.id ? (data as ProviderScheduleEntry) : e)))
       } else {
         const { error: err } = await supabase
           .from('provider_schedules')
@@ -379,8 +371,8 @@ export default function ProviderSchedulePage() {
       if (!entry || !provider) return
       const field = fields[col as number]
       if (field === 'copay' || field === 'coinsurance') {
-        const str = (newValue === '' || newValue == null) ? null : String(newValue)
-        ;(entry as any)[field] = str
+        const num = newValue === '' || newValue == null ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
+        ;(entry as any)[field] = num
       } else if (field) {
         ;(entry as any)[field] = newValue === '' || newValue == null ? null : String(newValue)
       }
