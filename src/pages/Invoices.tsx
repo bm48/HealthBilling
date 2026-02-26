@@ -29,6 +29,7 @@ interface ClinicInvoiceSummaryRow {
   insurance_payment_total: number
   patient_payment_total: number
   accounts_receivable_total: number
+  additional_fee: number
   total: number
   invoice_total: number
   invoice_rate: number | null
@@ -54,8 +55,10 @@ export default function Invoices() {
   const [clinicSummaries, setClinicSummaries] = useState<ClinicInvoiceSummaryRow[]>([])
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [invoiceNotes, setInvoiceNotes] = useState<Record<string, string>>({})
+  const [invoiceAdditionalFees, setInvoiceAdditionalFees] = useState<Record<string, number>>({})
   const [selectedClinicForNote, setSelectedClinicForNote] = useState<string>('')
   const [noteText, setNoteText] = useState<string>('')
+  const [additionalFeeText, setAdditionalFeeText] = useState<string>('0.00')
 
   useEffect(() => {
     fetchClinics()
@@ -72,6 +75,10 @@ export default function Invoices() {
   useEffect(() => {
     setNoteText(selectedClinicForNote ? (invoiceNotes[selectedClinicForNote] ?? '') : '')
   }, [selectedClinicForNote, invoiceNotes])
+  useEffect(() => {
+    const fee = selectedClinicForNote ? (invoiceAdditionalFees[selectedClinicForNote] ?? 0) : 0
+    setAdditionalFeeText(fee === 0 ? '0.00' : fee.toFixed(2))
+  }, [selectedClinicForNote, invoiceAdditionalFees])
 
   const fetchClinics = async () => {
     if (!userProfile) return
@@ -136,12 +143,27 @@ export default function Invoices() {
           if (row.patient_pay_status) agg.statuses.add(row.patient_pay_status)
         })
       })
+      const { data: notesData } = await supabase
+        .from('clinic_invoice_notes')
+        .select('clinic_id, note, additional_fee')
+        .eq('month', month)
+        .eq('year', year)
+      const notesMap: Record<string, string> = {}
+      const additionalFeesMap: Record<string, number> = {}
+      ;(notesData || []).forEach((r: { clinic_id: string; note: string | null; additional_fee?: number | null }) => {
+        notesMap[r.clinic_id] = r.note ?? ''
+        const fee = r.additional_fee != null ? Number(r.additional_fee) : 0
+        additionalFeesMap[r.clinic_id] = Number.isFinite(fee) ? fee : 0
+      })
+      setInvoiceNotes(notesMap)
+      setInvoiceAdditionalFees(additionalFeesMap)
       const summaries: ClinicInvoiceSummaryRow[] = allClinics.map((clinic) => {
         const agg = byClinic.get(clinic.id)
         const insurance = agg?.insurance ?? 0
         const patient = agg?.patient ?? 0
         const ar = agg?.ar ?? 0
-        const total = insurance + patient + ar
+        const additionalFee = additionalFeesMap[clinic.id] ?? 0
+        const total = insurance + patient + ar + additionalFee
         const rate = clinic.invoice_rate != null ? Number(clinic.invoice_rate) : 0
         const invoice_total = total * rate
         const paymentDate = agg?.paymentDates?.length
@@ -160,6 +182,7 @@ export default function Invoices() {
           insurance_payment_total: insurance,
           patient_payment_total: patient,
           accounts_receivable_total: ar,
+          additional_fee: additionalFee,
           total,
           invoice_total,
           invoice_rate: clinic.invoice_rate != null ? clinic.invoice_rate : null,
@@ -168,19 +191,10 @@ export default function Invoices() {
         }
       })
       setClinicSummaries(summaries)
-      const { data: notesData } = await supabase
-        .from('clinic_invoice_notes')
-        .select('clinic_id, note')
-        .eq('month', month)
-        .eq('year', year)
-      const notesMap: Record<string, string> = {}
-      ;(notesData || []).forEach((r: { clinic_id: string; note: string | null }) => {
-        notesMap[r.clinic_id] = r.note ?? ''
-      })
-      setInvoiceNotes(notesMap)
     } catch (error) {
       setClinicSummaries([])
       setInvoiceNotes({})
+      setInvoiceAdditionalFees({})
     } finally {
       setSummaryLoading(false)
     }
@@ -281,7 +295,7 @@ export default function Invoices() {
 
   async function handleDownloadClinicInvoice(row: ClinicInvoiceSummaryRow) {
     try {
-      const rowWithNote = { ...row, note: invoiceNotes[row.clinic_id] ?? '' }
+      const rowWithNote = { ...row, note: invoiceNotes[row.clinic_id] ?? '', additional_fee: row.additional_fee ?? 0 }
       const pdf = await generateClinicInvoicePdf(rowWithNote, selectedMonth)
       const monthStr = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`
       const safeName = row.clinic_name.replace(/[^a-z0-9-_]/gi, '_')
@@ -354,9 +368,10 @@ export default function Invoices() {
                     <thead>
                       <tr>
                         <th>Clinic</th>
-                        <th>Insurance Payment Total</th>
-                        <th>Patient Payment Total</th>
-                        <th>Accounts Receivable Total</th>
+                        <th>Ins Pay Total</th>
+                        <th>PP Total</th>
+                        <th>AR Total</th>
+                        <th>Additional Fee</th>
                         <th>Total</th>
                         <th>Invoice Total</th>
                         <th>Payment Status</th>
@@ -368,7 +383,7 @@ export default function Invoices() {
                     <tbody>
                       {clinicSummaries.length === 0 ? (
                         <tr>
-                          <td colSpan={10} className="text-center text-white/70 py-8">
+                          <td colSpan={11} className="text-center text-white/70 py-8">
                             No data for this month
                           </td>
                         </tr>
@@ -379,6 +394,7 @@ export default function Invoices() {
                             <td>{formatCurrency(row.insurance_payment_total)}</td>
                             <td>{formatCurrency(row.patient_payment_total)}</td>
                             <td>{formatCurrency(row.accounts_receivable_total)}</td>
+                            <td>{formatCurrency(row.additional_fee)}</td>
                             <td>{formatCurrency(row.total)}</td>
                             <td>{formatCurrency(row.invoice_total)}</td>
                             <td>
@@ -434,6 +450,7 @@ export default function Invoices() {
                           if (!selectedClinicForNote) return
                           const month = selectedMonth.getMonth() + 1
                           const year = selectedMonth.getFullYear()
+                          const additionalFee = parseFloat(String(additionalFeeText).replace(/[$,]/g, '')) || 0
                           const { error } = await supabase
                             .from('clinic_invoice_notes')
                             .upsert(
@@ -442,6 +459,7 @@ export default function Invoices() {
                                 month,
                                 year,
                                 note: noteText,
+                                additional_fee: additionalFee,
                                 updated_at: new Date().toISOString(),
                               },
                               { onConflict: 'clinic_id,month,year' }
@@ -452,15 +470,35 @@ export default function Invoices() {
                             return
                           }
                           setInvoiceNotes((prev) => ({ ...prev, [selectedClinicForNote]: noteText }))
+                          setInvoiceAdditionalFees((prev) => ({ ...prev, [selectedClinicForNote]: additionalFee }))
+                          setClinicSummaries((prev) =>
+                            prev.map((r) =>
+                              r.clinic_id === selectedClinicForNote
+                                ? { ...r, additional_fee: additionalFee, total: r.insurance_payment_total + r.patient_payment_total + r.accounts_receivable_total + additionalFee }
+                                : r
+                            )
+                          )
                         }}
                         disabled={!selectedClinicForNote}
                         className="mt-2 px-4 py-2 bg-white/20 hover:bg-white/30 disabled:opacity-50 disabled:pointer-events-none border border-white/20 rounded-lg text-white text-sm"
                       >
-                        Save note
+                        Save
                       </button>
                     </div>
                   </div>
-                    <div className="md:col-span-1">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                      <div>
+                        <label className="block text-sm font-medium text-white/70 mb-2">Additional fee ($)</label>
+                        <input
+                          type="text"
+                          value={additionalFeeText}
+                          onChange={(e) => setAdditionalFeeText(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 backdrop-blur-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="md:col-span-1 mt-4">
                       <label className="block text-sm font-medium text-white/70 mb-2">Add note</label>
                       <textarea
                         value={noteText}
