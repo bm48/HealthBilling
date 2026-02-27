@@ -29,6 +29,10 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   /** Stable temporary patient_id per row id so multiple cell edits on a new row upsert one record, not one per edit */
   const pendingPatientIdByRowIdRef = useRef<Map<string, string>>(new Map())
   const savePatientsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveInProgressRef = useRef(false)
+  const savePendingRef = useRef(false)
+  const [runPendingSaveTrigger, setRunPendingSaveTrigger] = useState(0)
+  const savePatientsRef = useRef<(p: Patient[]) => Promise<void>>(null as any)
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0)
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
@@ -156,6 +160,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       return
     }
 
+    saveInProgressRef.current = true
     try {
       // Store saved patients with their database responses to update in place
       const savedPatientsMap = new Map<string, Patient>() // Map old ID -> new Patient data
@@ -238,13 +243,12 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       }
 
       // Update patients in place without reordering - preserve exact row positions
-      // Clear pending ref only inside setState so we don't clear before state has updated (would cause next save to generate new patient_id and insert again)
+      // Do NOT delete from pendingPatientIdByRowIdRef here: a racing save (before state/ref update) may still see empty-X and would then generate a new patient_id and insert a duplicate. Keeping the mapping lets the racing save reuse the same patient_id and upsert one record.
       console.log('[savePatients] Updating saved patients in place without reordering...')
       setPatients(currentPatients => {
         return currentPatients.map(patient => {
           const savedPatient = savedPatientsMap.get(patient.id)
           if (savedPatient) {
-            pendingPatientIdByRowIdRef.current.delete(patient.id)
             // Normalize string "null" from DB so table never displays "null"
             return {
               ...savedPatient,
@@ -263,8 +267,22 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     } catch (error: any) {
       console.error('[savePatients] Error saving patients:', error)
       alert(error?.message || 'Failed to save patient. Please try again.')
+    } finally {
+      saveInProgressRef.current = false
+      if (savePendingRef.current) {
+        savePendingRef.current = false
+        setRunPendingSaveTrigger(t => t + 1)
+      }
     }
   }, [clinicId, userProfile, fetchPatients])
+
+  savePatientsRef.current = savePatients
+  useEffect(() => {
+    if (runPendingSaveTrigger === 0) return
+    savePatientsRef.current(patientsRef.current).catch(err => {
+      console.error('[PatientsTab] Error in pending save:', err)
+    })
+  }, [runPendingSaveTrigger])
 
   // Note: savePatientsImmediately removed - we now call savePatients directly with updated data
   // Note: handleUpdatePatient removed - state is updated directly in handlePatientsHandsontableChange
@@ -521,6 +539,10 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     if (savePatientsTimeoutRef.current) clearTimeout(savePatientsTimeoutRef.current)
     savePatientsTimeoutRef.current = setTimeout(() => {
       savePatientsTimeoutRef.current = null
+      if (saveInProgressRef.current) {
+        savePendingRef.current = true
+        return
+      }
       savePatients(patientsRef.current).catch(err => {
         console.error('[handlePatientsHandsontableChange] Error in savePatients:', err)
       })
