@@ -24,19 +24,13 @@ interface AccountsReceivableTabProps {
 
 export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, canEdit, onDelete, onRegisterUndo, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen }: AccountsReceivableTabProps) {
   const { userProfile } = useAuth()
+  const [accountsReceivable, setAccountsReceivable] = useState<AccountsReceivable[]>([])
   const [statusColors, setStatusColors] = useState<StatusColor[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState<Date>(() => new Date())
   const [selectedPayroll, setSelectedPayroll] = useState<1 | 2>(1)
   const fetchIdRef = useRef(0)
-  /** Full list (all months) for save and month switching - like Patients has one list, we keep "all" in ref */
-  const fullListRef = useRef<AccountsReceivable[]>([])
-  /** Displayed list (current month, 200 rows) - same as Patients: state = what we show, grid row index = array index */
-  const [displayedAR, setDisplayedAR] = useState<AccountsReceivable[]>([])
-  const displayedARRef = useRef<AccountsReceivable[]>([])
-  /** Stable temporary new- id per row (by current row id) so multiple cell edits on one row insert one record, not one per edit - same as Patients pendingPatientIdByRowIdRef */
-  const pendingNewIdByRowIdRef = useRef<Map<string, string>>(new Map())
-  const saveARTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const accountsReceivableRef = useRef<AccountsReceivable[]>([])
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0)
@@ -71,16 +65,19 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
     return parsed.getMonth() === month && parsed.getFullYear() === year
   }, [])
 
-  // Use isLockAccountsReceivable from props directly - it will update when parent refreshes
-  const lockData = isLockAccountsReceivable || null
-
-  /** Build displayed list (200 rows) for selected month from full list - same pattern as Patients: one list = what we show */
-  const buildDisplayedFromFull = useCallback((): AccountsReceivable[] => {
-    const full = fullListRef.current
-    let list = full.filter(ar => isARInMonth(ar, selectedMonth))
+  const filteredAR = useMemo(() => {
+    let list = accountsReceivable.filter(ar => isARInMonth(ar, selectedMonth))
+    // When clinic has payroll 2, only show rows that match the selected payroll (safeguard if backend returns wrong rows)
     if (clinicPayroll === 2) {
-      list = list.filter(ar => (ar.payroll ?? 1) === selectedPayroll)
+      const payrollForFilter = selectedPayroll
+      list = list.filter(ar => (ar.payroll ?? 1) === payrollForFilter)
     }
+    return list
+  }, [accountsReceivable, selectedMonth, isARInMonth, clinicPayroll, selectedPayroll])
+
+  // Display list: allow more than 200 rows. Pad to 200 only when filtered has fewer than 200.
+  const displayAR = useMemo(() => {
+    const list = filteredAR
     if (list.length >= 200) return list
     const need = 200 - list.length
     const monthKey = selectedMonth.getTime()
@@ -99,7 +96,10 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       updated_at: new Date().toISOString(),
     }))
     return [...list, ...placeholders]
-  }, [selectedMonth, clinicPayroll, selectedPayroll, clinicId, isARInMonth])
+  }, [filteredAR, selectedMonth.getTime(), clinicId, clinicPayroll, selectedPayroll])
+
+  // Use isLockAccountsReceivable from props directly - it will update when parent refreshes
+  const lockData = isLockAccountsReceivable || null
 
   const currentPayrollForAR = clinicPayroll === 2 ? selectedPayroll : 1
   const createEmptyAR = useCallback((index: number): AccountsReceivable => ({
@@ -166,41 +166,43 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       }))
 
       if (clinicPayroll === 1) {
-        const currentAR = fullListRef.current
-        const preservedOrder: AccountsReceivable[] = []
-        currentAR.forEach(ar => {
-          if (ar.id.startsWith('new-') || ar.id.startsWith('empty-')) {
-            preservedOrder.push(ar)
-          } else {
-            const freshData = fetchedARMap.get(ar.id)
-            if (freshData) {
-              preservedOrder.push({
-                ...freshData,
-                name: (freshData.name != null && freshData.name !== 'null') ? freshData.name : null,
-                date_of_service: (freshData.date_of_service != null && freshData.date_of_service !== 'null') ? freshData.date_of_service : null,
-                date_recorded: (freshData.date_recorded != null && freshData.date_recorded !== 'null') ? freshData.date_recorded : null,
-                type: (freshData.type != null && (freshData.type as unknown) !== 'null') ? freshData.type : null,
-                notes: (freshData.notes != null && freshData.notes !== 'null') ? freshData.notes : null,
-              })
-              fetchedARMap.delete(ar.id)
+        setAccountsReceivable(currentAR => {
+          const preservedOrder: AccountsReceivable[] = []
+          currentAR.forEach(ar => {
+            if (ar.id.startsWith('new-') || ar.id.startsWith('empty-')) {
+              preservedOrder.push(ar)
+            } else {
+              const freshData = fetchedARMap.get(ar.id)
+              if (freshData) {
+                preservedOrder.push({
+                  ...freshData,
+                  name: (freshData.name != null && freshData.name !== 'null') ? freshData.name : null,
+                  date_of_service: (freshData.date_of_service != null && freshData.date_of_service !== 'null') ? freshData.date_of_service : null,
+                  date_recorded: (freshData.date_recorded != null && freshData.date_recorded !== 'null') ? freshData.date_recorded : null,
+                  type: (freshData.type != null && (freshData.type as unknown) !== 'null') ? freshData.type : null,
+                  notes: (freshData.notes != null && freshData.notes !== 'null') ? freshData.notes : null,
+                })
+                fetchedARMap.delete(ar.id)
+              }
             }
-          }
+          })
+          const remainingFetched = Array.from(fetchedARMap.values()).map(ax => ({
+            ...ax,
+            name: (ax.name != null && ax.name !== 'null') ? ax.name : null,
+            date_of_service: (ax.date_of_service != null && ax.date_of_service !== 'null') ? ax.date_of_service : null,
+            date_recorded: (ax.date_recorded != null && ax.date_recorded !== 'null') ? ax.date_recorded : null,
+            type: (ax.type != null && (ax.type as unknown) !== 'null') ? ax.type : null,
+            notes: (ax.notes != null && ax.notes !== 'null') ? ax.notes : null,
+          }))
+          const updated = [...preservedOrder, ...remainingFetched]
+          const emptyRowsNeeded = Math.max(0, 200 - updated.length)
+          const existingEmptyCount = updated.filter(ar => ar.id.startsWith('empty-')).length
+          const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) =>
+            createEmptyAR(existingEmptyCount + i)
+          )
+          accountsReceivableRef.current = fetchedAR
+          return [...updated, ...newEmptyRows]
         })
-        const remainingFetched = Array.from(fetchedARMap.values()).map(ax => ({
-          ...ax,
-          name: (ax.name != null && ax.name !== 'null') ? ax.name : null,
-          date_of_service: (ax.date_of_service != null && ax.date_of_service !== 'null') ? ax.date_of_service : null,
-          date_recorded: (ax.date_recorded != null && ax.date_recorded !== 'null') ? ax.date_recorded : null,
-          type: (ax.type != null && (ax.type as unknown) !== 'null') ? ax.type : null,
-          notes: (ax.notes != null && ax.notes !== 'null') ? ax.notes : null,
-        }))
-        const updated = [...preservedOrder, ...remainingFetched]
-        const emptyRowsNeeded = Math.max(0, 200 - updated.length)
-        const existingEmptyCount = updated.filter(ar => ar.id.startsWith('empty-')).length
-        const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) =>
-          createEmptyAR(existingEmptyCount + i)
-        )
-        fullListRef.current = [...updated, ...newEmptyRows]
       } else {
         const updated = [...newFetchedAR]
         const emptyRowsNeeded = Math.max(0, 200 - updated.length)
@@ -208,9 +210,9 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
         const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) =>
           createEmptyAR(existingEmptyCount + i)
         )
-        fullListRef.current = [...updated, ...newEmptyRows]
+        accountsReceivableRef.current = fetchedAR
+        setAccountsReceivable([...updated, ...newEmptyRows])
       }
-      setDisplayedAR(buildDisplayedFromFull())
     } catch (error) {
       console.error('Error fetching accounts receivable:', error)
     } finally {
@@ -218,35 +220,17 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
         setLoading(false)
       }
     }
-  }, [clinicId, clinicPayroll, selectedPayroll, createEmptyAR, buildDisplayedFromFull])
+  }, [clinicId, clinicPayroll, selectedPayroll, createEmptyAR])
 
   useEffect(() => {
     if (!clinicId) return
     if (clinicPayroll === 2) {
-      fullListRef.current = []
-      setDisplayedAR([])
+      setAccountsReceivable([])
       setLoading(true)
     }
     fetchStatusColors()
     fetchAccountsReceivable()
   }, [clinicId, clinicPayroll, selectedPayroll, fetchStatusColors, fetchAccountsReceivable])
-
-  /** Sync displayed ref from state - same as PatientsTab */
-  useEffect(() => {
-    displayedARRef.current = displayedAR
-  }, [displayedAR])
-
-  const prevSelectedMonthRef = useRef<number>(selectedMonth.getTime())
-  /** When user changes month: merge current displayed back into full list, then show new month */
-  useEffect(() => {
-    const currentMonthKey = selectedMonth.getTime()
-    if (prevSelectedMonthRef.current === currentMonthKey) return
-    prevSelectedMonthRef.current = currentMonthKey
-    const otherMonths = fullListRef.current.filter(ar => !isARInMonth(ar, selectedMonth))
-    const currentMonthRows = displayedARRef.current.filter(ar => !ar.id.startsWith('empty-'))
-    fullListRef.current = [...otherMonths, ...currentMonthRows]
-    setDisplayedAR(buildDisplayedFromFull())
-  }, [selectedMonth.getTime(), buildDisplayedFromFull, isARInMonth])
 
   const saveAccountsReceivable = useCallback(async (arToSave: AccountsReceivable[]) => {
     if (!clinicId || !userProfile) {
@@ -306,7 +290,6 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
           if (!updateError && updateData && updateData.length > 0) {
             savedAR = updateData[0] as AccountsReceivable
             savedARMap.set(oldId, savedAR)
-            pendingNewIdByRowIdRef.current.delete(oldId)
             continue
           }
         }
@@ -325,27 +308,30 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
         if (insertedAR) {
           savedAR = insertedAR as AccountsReceivable
           savedARMap.set(oldId, savedAR)
-          pendingNewIdByRowIdRef.current.delete(oldId)
-        }
+        } 
       }
 
-      console.log('[saveAR] loop done savedARMap.size=', savedARMap.size, 'applying update in place')
-      // Update full list in place (like PatientsTab), then refresh displayed list
-      fullListRef.current = fullListRef.current.map(ar => {
-        const savedAR = savedARMap.get(ar.id)
-        if (savedAR) {
-          return {
-            ...savedAR,
-            name: (savedAR.name != null && savedAR.name !== 'null') ? savedAR.name : null,
-            date_of_service: (savedAR.date_of_service != null && savedAR.date_of_service !== 'null') ? savedAR.date_of_service : null,
-            date_recorded: (savedAR.date_recorded != null && savedAR.date_recorded !== 'null') ? savedAR.date_recorded : null,
-            type: (savedAR.type != null && (savedAR.type as unknown) !== 'null') ? savedAR.type : null,
-            notes: (savedAR.notes != null && savedAR.notes !== 'null') ? savedAR.notes : null,
+      console.log('[saveAR] loop done savedARMap.size=', savedARMap.size, 'applying setAccountsReceivable')
+      // Base the new state on arToSave (the list we saved), not currentAR, so the newly
+      // inserted row is never dropped if state was overwritten before save completed.
+      setAccountsReceivable(() =>
+        arToSave.map(ar => {
+          const savedAR = savedARMap.get(ar.id)
+          if (savedAR) {
+            return {
+              ...savedAR,
+              name: (savedAR.name != null && savedAR.name !== 'null') ? savedAR.name : null,
+              date_of_service: (savedAR.date_of_service != null && savedAR.date_of_service !== 'null') ? savedAR.date_of_service : null,
+              date_recorded: (savedAR.date_recorded != null && savedAR.date_recorded !== 'null') ? savedAR.date_recorded : null,
+              type: (savedAR.type != null && (savedAR.type as unknown) !== 'null') ? savedAR.type : null,
+              notes: (savedAR.notes != null && savedAR.notes !== 'null') ? savedAR.notes : null,
+            }
           }
-        }
-        return ar
-      })
-      setDisplayedAR(buildDisplayedFromFull())
+          return ar
+        })
+      )
+      
+      accountsReceivableRef.current = arToSave
       console.log('[saveAR] success complete')
     } catch (error: any) {
       console.error('[saveAR] catch error=', error, 'message=', error?.message, 'code=', error?.code, 'details=', error?.details)
@@ -353,39 +339,11 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       if (error?.stack) console.error('[saveAR] stack:', error.stack)
       alert(error?.message || 'Failed to save accounts receivable. Please try again.')
     }
-  }, [clinicId, userProfile, clinicPayroll, selectedPayroll, buildDisplayedFromFull])
-
-  // Flush pending save when tab is left so data isn't lost on switch (same as PatientsTab)
-  useEffect(() => {
-    return () => {
-      if (saveARTimeoutRef.current) {
-        clearTimeout(saveARTimeoutRef.current)
-        saveARTimeoutRef.current = null
-        const displayed = displayedARRef.current
-        const otherMonths = fullListRef.current.filter(ar => !isARInMonth(ar, selectedMonth))
-        const currentMonthRows = displayed.filter(ar => !ar.id.startsWith('placeholder-'))
-        fullListRef.current = [...otherMonths, ...currentMonthRows]
-        saveAccountsReceivable(fullListRef.current).catch(err => {
-          console.error('[AccountsReceivableTab unmount] Error flushing save:', err)
-        })
-      }
-    }
-  }, [saveAccountsReceivable, selectedMonth, isARInMonth])
+  }, [clinicId, userProfile, clinicPayroll, selectedPayroll])
 
   const handleDeleteAR = useCallback(async (arId: string) => {
     if (arId.startsWith('new-')) {
-      const next = displayedARRef.current.filter(a => a.id !== arId)
-      const emptyNeeded = Math.max(0, 200 - next.length)
-      const existingEmpty = next.filter(a => a.id.startsWith('empty-')).length
-      const toDisplay = emptyNeeded > existingEmpty
-        ? [...next, ...Array.from({ length: emptyNeeded - existingEmpty }, (_, i) => createEmptyAR(existingEmpty + i))]
-        : next
-      displayedARRef.current = toDisplay
-      setDisplayedAR(toDisplay)
-      fullListRef.current = [
-        ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-        ...toDisplay.filter(a => !a.id.startsWith('empty-')),
-      ]
+      setAccountsReceivable(prev => prev.filter(a => a.id !== arId))
       setStructureVersion(v => v + 1)
       return
     }
@@ -404,7 +362,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       console.error('Error deleting accounts receivable:', error)
       alert('Failed to delete accounts receivable record. Please try again.')
     }
-  }, [fetchAccountsReceivable, onDelete, createEmptyAR, isARInMonth, selectedMonth])
+  }, [fetchAccountsReceivable, onDelete])
 
   // Type color mapping
   const getTypeColor = useCallback((type: string | null): { color: string; textColor: string } | null => {
@@ -426,9 +384,9 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
     return null
   }, [statusColors])
 
-  /** Same as PatientsTab: data from state (displayed list) */
+  // Convert AR to Handsontable data format (displayAR is always 200 rows); never show "null"
   const getARHandsontableData = useCallback(() => {
-    return displayedAR.map(ar => [
+    return displayAR.map(ar => [
       toDisplayValue(ar.ar_id),
       toDisplayValue(ar.name),
       toDisplayDate(ar.date_of_service),
@@ -437,7 +395,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       toDisplayValue(ar.type),
       toDisplayValue(ar.notes),
     ])
-  }, [displayedAR])
+  }, [displayAR])
 
   // Column field names mapping to is_lock_accounts_receivable table columns
   const columnFields: Array<keyof IsLockAccountsReceivable> = ['ar_id', 'name', 'date_of_service', 'amount', 'date_recorded', 'type', 'notes']
@@ -607,28 +565,28 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
 
   const arCellsCallback = useCallback(
     (row: number, col: number) => {
-      const ar = displayedAR[row]
+      const ar = displayAR[row]
       const colKey = columnFields[col]
       if (!colKey) return {}
       const key = `${ar?.id ?? `row-${row}`}:${colKey}`
       return highlightedCells.has(key) ? { className: 'cell-highlight-yellow' } : {}
     },
-    [displayedAR, columnFields, highlightedCells]
+    [displayAR, columnFields, highlightedCells]
   )
 
   const getCellIsHighlighted = useCallback(
     (row: number, col: number) => {
-      const ar = displayedAR[row]
+      const ar = displayAR[row]
       const colKey = columnFields[col]
       if (!colKey) return false
       const key = `${ar?.id ?? `row-${row}`}:${colKey}`
       return highlightedCells.has(key)
     },
-    [displayedAR, columnFields, highlightedCells]
+    [displayAR, columnFields, highlightedCells]
   )
 
   const handleCellHighlight = useCallback((row: number, col: number) => {
-    const ar = displayedAR[row]
+    const ar = displayAR[row]
     const colKey = columnFields[col]
     if (!colKey) return
     const key = `${ar?.id ?? `row-${row}`}:${colKey}`
@@ -638,116 +596,134 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       else next.add(key)
       return next
     })
-  }, [displayedAR, columnFields])
+  }, [displayAR, columnFields])
 
   const firstDayOfSelectedMonth = useMemo(() => {
     return `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}-01`
   }, [selectedMonth])
 
   const handleARRowMove = useCallback((movedRows: number[], finalIndex: number) => {
-    const arr = [...(displayedARRef.current.length > 0 ? displayedARRef.current : displayedAR)]
-    const toMove = movedRows.map(i => arr[i])
-    movedRows.sort((a, b) => b - a).forEach(i => arr.splice(i, 1))
-    const insertAt = Math.min(finalIndex, arr.length)
-    toMove.forEach((item, i) => arr.splice(insertAt + i, 0, item))
-    displayedARRef.current = arr
-    setDisplayedAR(arr)
-    fullListRef.current = [
-      ...fullListRef.current.filter(ar => !isARInMonth(ar, selectedMonth)),
-      ...arr.filter(ar => !ar.id.startsWith('empty-')),
-    ]
-    const realAR = arr.filter(ar => !ar.id.startsWith('new-') && !ar.id.startsWith('empty-'))
-    if (realAR.length > 0) {
-      const baseTime = Date.now()
-      Promise.all(
-        realAR.map((ar, i) =>
-          supabase
-            .from('accounts_receivables')
-            .update({ created_at: new Date(baseTime - i * 1000).toISOString() })
-            .eq('id', ar.id)
-        )
-      ).catch(err => console.error('Failed to persist AR order', err))
-    }
-    setStructureVersion(v => v + 1)
-  }, [displayedAR, selectedMonth, isARInMonth])
+    setAccountsReceivable(prev => {
+      const filtered = prev.filter(ar => isARInMonth(ar, selectedMonth))
+      const notThisMonth = prev.filter(ar => !isARInMonth(ar, selectedMonth))
+      const need = Math.max(0, 200 - filtered.length)
+      const monthKey = selectedMonth.getTime()
+      const placeholders: AccountsReceivable[] = Array.from({ length: need }, (_, i) => ({
+        id: `placeholder-${monthKey}-${i}`,
+        clinic_id: clinicId,
+        ar_id: '',
+        name: null,
+        date_of_service: null,
+        amount: null,
+        date_recorded: null,
+        type: null,
+        notes: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }))
+      const display = [...filtered, ...placeholders]
+      const arr = [...display]
+      const toMove = movedRows.map(i => arr[i])
+      movedRows.sort((a, b) => b - a).forEach(i => arr.splice(i, 1))
+      const insertAt = Math.min(finalIndex, arr.length)
+      toMove.forEach((item, i) => arr.splice(insertAt + i, 0, item))
+      const reorderedMonth = arr.filter((ar): ar is AccountsReceivable => !ar.id.startsWith('placeholder-'))
+      const next = [...notThisMonth, ...reorderedMonth]
+      const realAR = reorderedMonth.filter(ar => !ar.id.startsWith('new-') && !ar.id.startsWith('empty-'))
+      if (realAR.length > 0) {
+        const baseTime = Date.now()
+        Promise.all(
+          realAR.map((ar, i) =>
+            supabase
+              .from('accounts_receivables')
+              .update({ created_at: new Date(baseTime - i * 1000).toISOString() })
+              .eq('id', ar.id)
+          )
+        ).catch(err => console.error('Failed to persist AR order', err))
+      }
+      return next
+    })
+  }, [selectedMonth, isARInMonth, clinicId])
 
-  /** Same as PatientsTab: grid row index = array index, ref = source of truth, then merge into full list and save */
   const handleARHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData') return
 
     const fields: Array<keyof AccountsReceivable> = ['ar_id', 'name', 'date_of_service', 'amount', 'date_recorded', 'type', 'notes']
-    const hadDateColumnEdit = changes.some(([, col]) => col === 2 || col === 4)
+    const hadDateColumnEdit = changes.some(([, col]) => col === 2 || col === 4) // date_of_service=2, date_recorded=4
 
-    const currentDisplayed = displayedARRef.current.length > 0 ? displayedARRef.current : displayedAR
-    const updatedDisplayed = [...currentDisplayed]
+    setAccountsReceivable(currentAR => {
+      const filtered = currentAR.filter(ar => isARInMonth(ar, selectedMonth))
+      const updatedAR = [...currentAR]
+      let idCounter = 0
+      const placeholderChangesByRow = new Map<number, Array<{ col: number; newValue: any }>>()
 
-    changes.forEach(([row, col, , newValue]) => {
-      const rowNum = typeof row === 'number' ? row : 0
-      const colNum = typeof col === 'number' ? col : 0
-      while (updatedDisplayed.length <= rowNum) {
-        const existingEmptyCount = updatedDisplayed.filter(ar => ar.id.startsWith('empty-')).length
-        updatedDisplayed.push({
-          ...createEmptyAR(existingEmptyCount),
-          date_of_service: firstDayOfSelectedMonth,
-        })
-      }
-      const ar = updatedDisplayed[rowNum]
-      if (!ar) return
-      const field = fields[colNum]
-      const needsNewId = ar.id.startsWith('empty-') || ar.id.startsWith('placeholder-')
-      let newId: string
-      if (needsNewId) {
-        const existing = pendingNewIdByRowIdRef.current.get(ar.id)
-        if (existing) {
-          newId = existing
-        } else {
-          newId = `new-${Date.now()}-${rowNum}-${Math.random()}`
-          pendingNewIdByRowIdRef.current.set(ar.id, newId)
+      changes.forEach(([row, col, , newValue]) => {
+        const rowNum = typeof row === 'number' ? row : 0
+        const colNum = typeof col === 'number' ? col : 0
+        if (rowNum >= filtered.length) {
+          if (!placeholderChangesByRow.has(rowNum)) placeholderChangesByRow.set(rowNum, [])
+          placeholderChangesByRow.get(rowNum)!.push({ col: colNum, newValue })
+          return
         }
-      } else {
-        newId = ar.id
-      }
+        const ar = filtered[rowNum]
+        if (!ar) return
+        const fullIndex = updatedAR.findIndex(a => a.id === ar.id)
+        if (fullIndex < 0) return
 
-      if (field === 'amount') {
-        const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
-        updatedDisplayed[rowNum] = { ...ar, id: newId, [field]: numValue, updated_at: new Date().toISOString() } as AccountsReceivable
-      } else if (field === 'date_of_service' || field === 'date_recorded' || field === 'type' || field === 'notes') {
-        const value = toStoredString(String(newValue ?? ''))
-        updatedDisplayed[rowNum] = { ...ar, id: newId, [field]: value, updated_at: new Date().toISOString() } as AccountsReceivable
-      } else if (field === 'ar_id') {
-        const value = (newValue === '' || newValue === 'null') ? '' : String(newValue)
-        updatedDisplayed[rowNum] = { ...ar, id: newId, [field]: value, updated_at: new Date().toISOString() } as AccountsReceivable
-      } else if (field) {
-        const value = toStoredString(String(newValue ?? ''))
-        updatedDisplayed[rowNum] = { ...ar, id: newId, [field]: value, updated_at: new Date().toISOString() } as AccountsReceivable
-      }
+        const field = fields[colNum]
+        const needsNewId = ar.id.startsWith('empty-')
+        const newId = needsNewId ? `new-${Date.now()}-${idCounter++}-${Math.random()}` : ar.id
+        const item = updatedAR[fullIndex]
+
+        if (field === 'amount') {
+          const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
+          updatedAR[fullIndex] = { ...item, id: newId, [field]: numValue, updated_at: new Date().toISOString() } as AccountsReceivable
+        } else if (field === 'date_of_service' || field === 'date_recorded' || field === 'type' || field === 'notes') {
+          const value = toStoredString(String(newValue ?? ''))
+          updatedAR[fullIndex] = { ...item, id: newId, [field]: value, updated_at: new Date().toISOString() } as AccountsReceivable
+        } else if (field === 'ar_id') {
+          const value = (newValue === '' || newValue === 'null') ? '' : String(newValue)
+          updatedAR[fullIndex] = { ...item, id: newId, [field]: value, updated_at: new Date().toISOString() } as AccountsReceivable
+        } else if (field) {
+          const value = toStoredString(String(newValue ?? ''))
+          updatedAR[fullIndex] = { ...item, id: newId, [field]: value, updated_at: new Date().toISOString() } as AccountsReceivable
+        }
+      })
+
+      let emptyIdx = updatedAR.filter(ar => ar.id.startsWith('empty-')).length
+      placeholderChangesByRow.forEach((changesForRow) => {
+        const newRow: AccountsReceivable = {
+          ...createEmptyAR(emptyIdx++),
+          date_of_service: firstDayOfSelectedMonth,
+        }
+        changesForRow.forEach(({ col, newValue }) => {
+          const field = fields[col as number]
+          if (field === 'amount') {
+            const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
+            ;(newRow as any)[field] = numValue
+          } else if (field === 'date_of_service' || field === 'date_recorded' || field === 'type' || field === 'notes') {
+            ;(newRow as any)[field] = toStoredString(String(newValue ?? ''))
+          } else if (field === 'ar_id') {
+            ;(newRow as any)[field] = (newValue === '' || newValue === 'null') ? '' : String(newValue)
+          } else if (field) {
+            ;(newRow as any)[field] = toStoredString(String(newValue ?? ''))
+          }
+        })
+        newRow.updated_at = new Date().toISOString()
+        updatedAR.push(newRow)
+      })
+
+      setTimeout(() => {
+        saveAccountsReceivable(updatedAR).catch(err => {
+          console.error('[handleARHandsontableChange] Error in saveAccountsReceivable:', err)
+        })
+      }, 0)
+
+      return updatedAR
     })
 
-    if (updatedDisplayed.length < 200) {
-      const emptyRowsNeeded = 200 - updatedDisplayed.length
-      const existingEmptyCount = updatedDisplayed.filter(ar => ar.id.startsWith('empty-')).length
-      updatedDisplayed.push(...Array.from({ length: emptyRowsNeeded }, (_, i) =>
-        createEmptyAR(existingEmptyCount + i)
-      ))
-    }
-
-    displayedARRef.current = updatedDisplayed
-    setDisplayedAR(updatedDisplayed)
-
-    const otherMonths = fullListRef.current.filter(ar => !isARInMonth(ar, selectedMonth))
-    const currentMonthRows = updatedDisplayed.filter(ar => !ar.id.startsWith('placeholder-'))
-    fullListRef.current = [...otherMonths, ...currentMonthRows]
-
-    if (saveARTimeoutRef.current) clearTimeout(saveARTimeoutRef.current)
-    saveARTimeoutRef.current = setTimeout(() => {
-      saveARTimeoutRef.current = null
-      saveAccountsReceivable(fullListRef.current).catch(err => {
-        console.error('[handleARHandsontableChange] Error in saveAccountsReceivable:', err)
-      })
-    }, 250)
-
     if (hadDateColumnEdit) setStructureVersion((v) => v + 1)
-  }, [displayedAR, saveAccountsReceivable, selectedMonth, isARInMonth, createEmptyAR, firstDayOfSelectedMonth, clinicId, clinicPayroll, selectedPayroll])
+  }, [saveAccountsReceivable, selectedMonth, isARInMonth, createEmptyAR, firstDayOfSelectedMonth])
 
   const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
   const tableContextMenuRef = useRef<HTMLDivElement>(null)
@@ -766,129 +742,169 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
   const handleARHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
     event.preventDefault()
     if (!canEdit) return
-    const ar = displayedAR[row]
+    const ar = displayAR[row]
     if (ar) {
       setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row })
     }
-  }, [displayedAR, canEdit])
+  }, [displayAR, canEdit])
 
   const handleContextMenuAddRowBelow = useCallback(() => {
     if (tableContextMenu == null) return
     const { rowIndex } = tableContextMenu
-    const ar = displayedAR[rowIndex]
+    const ar = displayAR[rowIndex]
     if (!ar) {
       setTableContextMenu(null)
       return
     }
-    const existingEmptyCount = displayedAR.filter(a => a.id.startsWith('empty-')).length
-    const newRow: AccountsReceivable = { ...createEmptyAR(existingEmptyCount) }
-    const updated = [...displayedAR.slice(0, rowIndex + 1), newRow, ...displayedAR.slice(rowIndex + 1)]
-    const toDisplay =
+    const existingEmptyCount = accountsReceivable.filter(a => a.id.startsWith('empty-')).length
+    const newRow: AccountsReceivable = {
+      ...createEmptyAR(existingEmptyCount),
+      // No initial date_of_service: row stays in the selected month view and user can fill later
+    }
+    // Insert new row at display index rowIndex + 1 (right below clicked row) by rebuilding
+    // the selected-month block so save order matches table order.
+    const insertDisplayIndex = rowIndex + 1
+    const newFiltered =
+      insertDisplayIndex <= filteredAR.length
+        ? [...filteredAR.slice(0, insertDisplayIndex), newRow, ...filteredAR.slice(insertDisplayIndex)]
+        : [...filteredAR, newRow]
+    const inMonthSet = new Set(filteredAR.map(a => a.id))
+    const firstMonthIndex = accountsReceivable.findIndex(a => inMonthSet.has(a.id))
+    const lastMonthIndex = accountsReceivable.length - 1 - [...accountsReceivable].reverse().findIndex(a => inMonthSet.has(a.id))
+    const updated =
+      firstMonthIndex >= 0 && lastMonthIndex >= firstMonthIndex
+        ? [
+            ...accountsReceivable.slice(0, firstMonthIndex),
+            ...newFiltered,
+            ...accountsReceivable.slice(lastMonthIndex + 1),
+          ]
+        : [...accountsReceivable, newRow]
+    const toSave =
       updated.length < 200
-        ? [...updated, ...Array.from({ length: 200 - updated.length }, (_, i) => createEmptyAR(existingEmptyCount + 1 + i))]
+        ? [
+            ...updated,
+            ...Array.from(
+              { length: 200 - updated.length },
+              (_, i) => createEmptyAR(existingEmptyCount + 1 + i)
+            ),
+          ]
         : updated
-    displayedARRef.current = toDisplay
-    setDisplayedAR(toDisplay)
-    fullListRef.current = [
-      ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-      ...toDisplay.filter(a => !a.id.startsWith('empty-')),
-    ]
+    accountsReceivableRef.current = toSave
     scrollToRowAfterUpdateRef.current = rowIndex + 1
+    setAccountsReceivable(toSave)
     setStructureVersion(v => v + 1)
     setTableContextMenu(null)
-    saveAccountsReceivable(fullListRef.current).catch(err =>
+    saveAccountsReceivable(toSave).catch(err =>
       console.error('saveAccountsReceivable after add row', err)
     )
-  }, [tableContextMenu, displayedAR, createEmptyAR, saveAccountsReceivable, selectedMonth, isARInMonth])
+  }, [tableContextMenu, displayAR, accountsReceivable, filteredAR, createEmptyAR, saveAccountsReceivable])
 
   const handleContextMenuAddRowAbove = useCallback(() => {
     if (tableContextMenu == null) return
     const { rowIndex } = tableContextMenu
-    const ar = displayedAR[rowIndex]
+    const ar = displayAR[rowIndex]
     if (!ar) {
       setTableContextMenu(null)
       return
     }
-    const existingEmptyCount = displayedAR.filter(a => a.id.startsWith('empty-')).length
-    const newRow: AccountsReceivable = { ...createEmptyAR(existingEmptyCount) }
-    const updated = [...displayedAR.slice(0, rowIndex), newRow, ...displayedAR.slice(rowIndex)]
-    const toDisplay =
+    const existingEmptyCount = accountsReceivable.filter(a => a.id.startsWith('empty-')).length
+    const newRow: AccountsReceivable = {
+      ...createEmptyAR(existingEmptyCount),
+      // No initial date_of_service: row stays in the selected month view and user can fill later
+    }
+    // Insert new row at display index rowIndex (right above clicked row) by rebuilding the selected-month block.
+    const insertDisplayIndex = ar.id.startsWith('placeholder-') ? Math.min(rowIndex, filteredAR.length) : rowIndex
+    const newFiltered =
+      insertDisplayIndex <= filteredAR.length
+        ? [...filteredAR.slice(0, insertDisplayIndex), newRow, ...filteredAR.slice(insertDisplayIndex)]
+        : [...filteredAR, newRow]
+    const inMonthSet = new Set(filteredAR.map(a => a.id))
+    const firstMonthIndex = accountsReceivable.findIndex(a => inMonthSet.has(a.id))
+    const lastMonthIndex = accountsReceivable.length - 1 - [...accountsReceivable].reverse().findIndex(a => inMonthSet.has(a.id))
+    const updated =
+      firstMonthIndex >= 0 && lastMonthIndex >= firstMonthIndex
+        ? [
+            ...accountsReceivable.slice(0, firstMonthIndex),
+            ...newFiltered,
+            ...accountsReceivable.slice(lastMonthIndex + 1),
+          ]
+        : [...accountsReceivable, newRow]
+    const toSave =
       updated.length < 200
-        ? [...updated, ...Array.from({ length: 200 - updated.length }, (_, i) => createEmptyAR(existingEmptyCount + 1 + i))]
+        ? [
+            ...updated,
+            ...Array.from(
+              { length: 200 - updated.length },
+              (_, i) => createEmptyAR(existingEmptyCount + 1 + i)
+            ),
+          ]
         : updated
-    displayedARRef.current = toDisplay
-    setDisplayedAR(toDisplay)
-    fullListRef.current = [
-      ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-      ...toDisplay.filter(a => !a.id.startsWith('empty-')),
-    ]
+    accountsReceivableRef.current = toSave
     scrollToRowAfterUpdateRef.current = rowIndex
+    setAccountsReceivable(toSave)
     setStructureVersion(v => v + 1)
     setTableContextMenu(null)
-    saveAccountsReceivable(fullListRef.current).catch(err =>
+    saveAccountsReceivable(toSave).catch(err =>
       console.error('saveAccountsReceivable after add row', err)
     )
-  }, [tableContextMenu, displayedAR, createEmptyAR, saveAccountsReceivable, selectedMonth, isARInMonth])
+  }, [tableContextMenu, displayAR, accountsReceivable, filteredAR, createEmptyAR, saveAccountsReceivable])
 
   const handleContextMenuDeleteRow = useCallback(() => {
     if (tableContextMenu == null) return
-    const rowIndex = tableContextMenu.rowIndex
-    const ar = displayedAR[rowIndex]
+    const ar = displayAR[tableContextMenu.rowIndex]
     if (!ar) {
       setTableContextMenu(null)
       return
     }
-    if (ar.id.startsWith('empty-')) {
+    if (ar.id.startsWith('placeholder-')) {
       setTableContextMenu(null)
       return
     }
     const deletedAR = { ...ar }
-    if (ar.id.startsWith('new-')) {
-      const updated = displayedAR.filter(a => a.id !== ar.id)
+    const idxInAR = accountsReceivable.findIndex(a => a.id === ar.id)
+    if (ar.id.startsWith('empty-') || ar.id.startsWith('new-')) {
+      const updated = accountsReceivable.filter(a => a.id !== ar.id)
       const emptyNeeded = Math.max(0, 200 - updated.length)
       const existingEmpty = updated.filter(a => a.id.startsWith('empty-')).length
-      const toDisplay = emptyNeeded > existingEmpty
+      const toSave = emptyNeeded > existingEmpty
         ? [...updated, ...Array.from({ length: emptyNeeded - existingEmpty }, (_, i) => createEmptyAR(existingEmpty + i))]
         : updated
-      displayedARRef.current = toDisplay
-      setDisplayedAR(toDisplay)
-      fullListRef.current = [
-        ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-        ...toDisplay.filter(a => !a.id.startsWith('empty-')),
-      ]
+      accountsReceivableRef.current = toSave
+      setAccountsReceivable(toSave)
       setStructureVersion(v => v + 1)
-      saveAccountsReceivable(fullListRef.current).catch(err => console.error('saveAccountsReceivable after delete row', err))
-      onRegisterUndo?.(() => {
-        const next = [...displayedARRef.current.slice(0, rowIndex), deletedAR, ...displayedARRef.current.slice(rowIndex)].slice(0, 200)
-        displayedARRef.current = next
-        setDisplayedAR(next)
-        fullListRef.current = [
-          ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-          ...next.filter(a => !a.id.startsWith('empty-')),
-        ]
-        saveAccountsReceivable(fullListRef.current).catch(e => console.error(e))
-        setStructureVersion(v => v + 1)
-      })
+      saveAccountsReceivable(toSave).catch(err => console.error('saveAccountsReceivable after delete row', err))
+      if (idxInAR >= 0) {
+        onRegisterUndo?.(() => {
+          setAccountsReceivable(prev => {
+            const next = [...prev.slice(0, idxInAR), deletedAR, ...prev.slice(idxInAR)]
+            accountsReceivableRef.current = next
+            saveAccountsReceivable(next).catch(err => console.error('saveAccountsReceivable after undo delete row', err))
+            return next
+          })
+          setStructureVersion(v => v + 1)
+        })
+      }
     } else {
-      onRegisterUndo?.(() => {
-        supabase
-          .from('accounts_receivables')
-          .insert(deletedAR)
-          .then(() => {
-            const next = [...displayedARRef.current.slice(0, rowIndex), deletedAR, ...displayedARRef.current.slice(rowIndex)].slice(0, 200)
-            displayedARRef.current = next
-            setDisplayedAR(next)
-            fullListRef.current = [
-              ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-              ...next.filter(a => !a.id.startsWith('empty-')),
-            ]
-            setStructureVersion(v => v + 1)
-          }, (err: unknown) => console.error('Undo delete AR: re-insert failed', err))
-      })
+      if (idxInAR >= 0) {
+        onRegisterUndo?.(() => {
+          supabase
+            .from('accounts_receivables')
+            .insert(deletedAR)
+            .then(() => {
+              // Restore at original position in state instead of refetching (fetchAccountsReceivable would append and put row at bottom)
+              setAccountsReceivable(prev => {
+                const next = [...prev.slice(0, idxInAR), deletedAR, ...prev.slice(idxInAR)]
+                accountsReceivableRef.current = next
+                return next
+              })
+              setStructureVersion(v => v + 1)
+            }, (err: unknown) => console.error('Undo delete AR: re-insert failed', err))
+        })
+      }
       handleDeleteAR(ar.id)
     }
     setTableContextMenu(null)
-  }, [tableContextMenu, displayedAR, createEmptyAR, saveAccountsReceivable, handleDeleteAR, onRegisterUndo, selectedMonth, isARInMonth])
+  }, [tableContextMenu, displayAR, accountsReceivable, createEmptyAR, saveAccountsReceivable, handleDeleteAR, onRegisterUndo])
 
   // ResizeObserver for split screen: fill table height (must run before any early return)
   useEffect(() => {

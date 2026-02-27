@@ -25,11 +25,9 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [loading, setLoading] = useState(true)
   const todosRef = useRef<TodoItem[]>([])
-  const isInitialLoadRef = useRef(true) // Track if we're still in initial load phase; skip scheduling save only, never drop edits
+  const isInitialLoadRef = useRef(true) // Track if we're still in initial load phase
   const saveTodosTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sessionIdRef = useRef<string>(`${Date.now()}`) // Stable id prefix for new rows (one id per row index, prevents multi-insert)
-  /** Stable temporary new- id per row (by current row id) so multiple cell edits on one row insert one record - same as AR/Patients */
-  const pendingNewIdByRowIdRef = useRef<Map<string, string>>(new Map())
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0) // Bump on add/delete row so grid refreshes immediately
@@ -149,13 +147,22 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
       console.error('Error fetching todos:', error)
     } finally {
       setLoading(false)
-      isInitialLoadRef.current = false
+      // Mark initial load as complete after a short delay to allow Handsontable to initialize
+      setTimeout(() => {
+        isInitialLoadRef.current = false
+      }, 500)
     }
   }, [clinicId, createEmptyTodo])
 
   useEffect(() => {
     todosRef.current = todos
   }, [todos])
+
+  useEffect(() => {
+    return () => {
+      if (saveTodosTimeoutRef.current) clearTimeout(saveTodosTimeoutRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (clinicId) {
@@ -247,7 +254,6 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
           if (updateData && updateData.length > 0) {
             savedTodo = updateData[0] as TodoItem
             savedTodosMap.set(oldId, savedTodo)
-            pendingNewIdByRowIdRef.current.delete(oldId)
             continue
           }
           // Update matched 0 rows (e.g. row was deleted in DB); skip, do not insert
@@ -278,7 +284,6 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
         if (insertedTodo) {
           savedTodo = insertedTodo as TodoItem
           savedTodosMap.set(oldId, savedTodo) // Map old ID to new todo data
-          pendingNewIdByRowIdRef.current.delete(oldId)
         }
       }
 
@@ -324,19 +329,6 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
       }
     }
   }, [clinicId, userProfile, createEmptyTodo, loading])
-
-  // Flush pending save when tab is left so data isn't lost on switch (same as PatientsTab/AR)
-  useEffect(() => {
-    return () => {
-      if (saveTodosTimeoutRef.current) {
-        clearTimeout(saveTodosTimeoutRef.current)
-        saveTodosTimeoutRef.current = null
-        saveTodos(todosRef.current).catch(err => {
-          console.error('[BillingTodoTab unmount] Error flushing save:', err)
-        })
-      }
-    }
-  }, [saveTodos])
 
   const handleDeleteTodo = useCallback(async (todoId: string) => {
     if (todoId.startsWith('new-') || todoId.startsWith('empty-')) {
@@ -692,7 +684,9 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
     // Skip programmatic data load so we never run save after "delete all" refill (avoids inserting 100 empty records)
     if (source === 'loadData' || source === 'populateFromArray') return
 
-    // Use ref as single source of truth so rapid edits don't see stale state (always apply edits, never drop)
+    if (isInitialLoadRef.current || loading) return
+
+    // Use ref as single source of truth so rapid edits don't see stale state
     const currentTodos = todosRef.current.length > 0 ? todosRef.current : todos
     const updatedTodos = [...currentTodos]
     const fields: Array<'id' | 'status' | 'issue' | 'notes' | 'followup_notes'> = ['id', 'status', 'issue', 'notes', 'followup_notes']
@@ -707,19 +701,8 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
       if (todo) {
         const field = fields[col as number]
         const needsNewId = todo.id.startsWith('empty-')
-        // Stable id per row (same as AR/Patients) so multiple cell edits = one insert
-        let newId: string
-        if (needsNewId) {
-          const existing = pendingNewIdByRowIdRef.current.get(todo.id)
-          if (existing) {
-            newId = existing
-          } else {
-            newId = `new-row-${row}-${sessionIdRef.current}`
-            pendingNewIdByRowIdRef.current.set(todo.id, newId)
-          }
-        } else {
-          newId = todo.id
-        }
+        // Stable id per row index so multiple cell edits = one row, one insert (no multi-insert)
+        const newId = needsNewId ? `new-row-${row}-${sessionIdRef.current}` : todo.id
 
         if (field === 'status') {
           updatedTodos[row] = { ...todo, id: newId, status: String(newValue || ''), updated_at: new Date().toISOString() }
@@ -787,17 +770,17 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
     setTodos(updatedTodos)
     if (statusChanged) setStructureVersion((v) => v + 1)
 
-    // Schedule save when change touched issue, notes, followup_notes, or status (skip only during initial load so we don't lose edits)
+    // Schedule save when change touched issue, notes, followup_notes, or status (so status and order persist).
     const hasMeaningfulChange = changes.some(([, col]) => col === 1 || col === 2 || col === 3 || col === 4)
-    if (hasMeaningfulChange && !isInitialLoadRef.current && !loading) {
-      if (saveTodosTimeoutRef.current) clearTimeout(saveTodosTimeoutRef.current)
-      saveTodosTimeoutRef.current = setTimeout(() => {
-        saveTodosTimeoutRef.current = null
-        saveTodos(todosRef.current).catch(err => {
-          console.error('[handleTodosHandsontableChange] Error in saveTodos:', err)
-        })
-      }, 250)
-    }
+    if (!hasMeaningfulChange) return
+
+    if (saveTodosTimeoutRef.current) clearTimeout(saveTodosTimeoutRef.current)
+    saveTodosTimeoutRef.current = setTimeout(() => {
+      saveTodosTimeoutRef.current = null
+      saveTodos(todosRef.current).catch(err => {
+        console.error('[handleTodosHandsontableChange] Error in saveTodos:', err)
+      })
+    }, 600)
   }, [saveTodos, createEmptyTodo, loading, todos])
 
   const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number; todoId: string } | null>(null)
