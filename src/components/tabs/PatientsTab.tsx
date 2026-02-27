@@ -33,6 +33,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   const savePendingRef = useRef(false)
   const [runPendingSaveTrigger, setRunPendingSaveTrigger] = useState(0)
   const savePatientsRef = useRef<(p: Patient[]) => Promise<void>>(null as any)
+  /** Snapshot of last saved data per patient id so we only send changed rows to the DB */
+  const lastSavedSnapshotRef = useRef<Map<string, { patient_id: string; first_name: string; last_name: string; insurance: string | null; copay: string | number | null; coinsurance: string | number | null }>>(new Map())
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0)
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
@@ -67,7 +69,26 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
 
       if (error) throw error
       const fetchedPatients = data || []
-      
+      // Comprehensive log: data loaded from DB for Patient Info tab (super admin / clinic)
+      console.log('[PatientData] FETCH from database:', {
+        source: 'PatientsTab',
+        clinicId,
+        totalRows: fetchedPatients.length,
+        columns: fetchedPatients.length > 0 ? Object.keys(fetchedPatients[0]) : [],
+        sampleRow: fetchedPatients.length > 0 ? { id: fetchedPatients[0].id, patient_id: fetchedPatients[0].patient_id, first_name: fetchedPatients[0].first_name, last_name: fetchedPatients[0].last_name } : null,
+      })
+      // Seed "last saved" snapshot so we only save rows that change after load
+      fetchedPatients.forEach(p => {
+        lastSavedSnapshotRef.current.set(p.id, {
+          patient_id: p.patient_id ?? '',
+          first_name: (p.first_name != null && p.first_name !== 'null') ? p.first_name : '',
+          last_name: (p.last_name != null && p.last_name !== 'null') ? p.last_name : '',
+          insurance: (p.insurance != null && p.insurance !== 'null') ? p.insurance : null,
+          copay: p.copay != null ? p.copay : null,
+          coinsurance: p.coinsurance != null ? p.coinsurance : null,
+        })
+      })
+
       setPatients(currentPatients => {
         const fetchedPatientsMap = new Map<string, Patient>()
         fetchedPatients.forEach(p => fetchedPatientsMap.set(p.id, p))
@@ -113,7 +134,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         return [...result, ...newEmptyRows]
       })
     } catch (error) {
-      console.error('Error fetching patients:', error)
+      console.error('[PatientData] Error fetching patients:', error)
     } finally {
       setLoading(false)
     }
@@ -123,9 +144,16 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     patientsRef.current = patients
   }, [patients])
 
+  // On unmount (or before clinicId change), flush any pending debounced save so the last edit is not lost
   useEffect(() => {
     return () => {
-      if (savePatientsTimeoutRef.current) clearTimeout(savePatientsTimeoutRef.current)
+      if (savePatientsTimeoutRef.current) {
+        clearTimeout(savePatientsTimeoutRef.current)
+        savePatientsTimeoutRef.current = null
+        savePatientsRef.current?.(patientsRef.current)?.catch(err => {
+          console.error('[PatientData] Flush save on unmount failed:', err)
+        })
+      }
     }
   }, [])
 
@@ -138,27 +166,34 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   const savePatients = useCallback(async (patientsToSave: Patient[]) => {
 
     if (!clinicId || !userProfile) {
-      console.log('[savePatients] Early return - missing clinicId or userProfile', { clinicId, hasUserProfile: !!userProfile })
+      console.log('[PatientData] Early return - missing clinicId or userProfile', { clinicId, hasUserProfile: !!userProfile })
       return
     }
 
-    // Filter out only truly empty rows (empty- patients with no data)
-    // Allow empty- patients that have data to be processed (they'll be inserted as new patients)
+    // Only process: (1) new/empty rows with data, (2) existing rows that are dirty vs last saved snapshot
+    const normalize = (p: Patient) => ({
+      patient_id: p.patient_id ?? '',
+      first_name: (p.first_name != null && p.first_name !== 'null') ? p.first_name : '',
+      last_name: (p.last_name != null && p.last_name !== 'null') ? p.last_name : '',
+      insurance: (p.insurance != null && p.insurance !== 'null') ? p.insurance : null,
+      copay: p.copay != null ? p.copay : null,
+      coinsurance: p.coinsurance != null ? p.coinsurance : null,
+    })
     const patientsToProcess = patientsToSave.filter(p => {
       const hasData = p.patient_id || p.first_name || p.last_name || p.insurance || p.copay !== null || p.coinsurance !== null
-      // If it's an empty- patient, only include it if it has data
-      if (p.id.startsWith('empty-')) {
-        return hasData
-      }
-      // For all other patients (new- or real IDs), include if they have data
-      return hasData
+      if (!hasData) return false
+      if (p.id.startsWith('empty-') || p.id.startsWith('new-')) return true
+      const snap = lastSavedSnapshotRef.current.get(p.id)
+      const current = normalize(p)
+      if (!snap) return true
+      return snap.patient_id !== current.patient_id || snap.first_name !== current.first_name || snap.last_name !== current.last_name || snap.insurance !== current.insurance || snap.copay !== current.copay || snap.coinsurance !== current.coinsurance
     })
-    
-    
+
     if (patientsToProcess.length === 0) {
-      console.log('[savePatients] No patients to process - all filtered out')
+      console.log('[PatientData] No patients to process - no changes (only dirty rows are saved)')
       return
     }
+    console.log('[PatientData] SAVE START — dirty rows to save:', patientsToProcess.length, 'clinicId:', clinicId)
 
     saveInProgressRef.current = true
     try {
@@ -201,25 +236,35 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
 
         // If patient has a real database ID (not new- or empty-), update by ID
         if (!patient.id.startsWith('new-') && !patient.id.startsWith('empty-')) {
+          console.log('[PatientData] PAYLOAD SENT TO DATABASE (UPDATE by id):', { id: patient.id, payload: JSON.stringify(patientData, null, 2) })
           const { error: updateError, data: updateData } = await supabase
             .from('patients')
             .update(patientData)
             .eq('id', patient.id)
             .select()
 
-
           if (!updateError && updateData && updateData.length > 0) {
             savedPatient = updateData[0] as Patient
             savedPatientsMap.set(oldId, savedPatient)
+            lastSavedSnapshotRef.current.set(savedPatient.id, {
+              patient_id: savedPatient.patient_id ?? '',
+              first_name: (savedPatient.first_name != null && savedPatient.first_name !== 'null') ? savedPatient.first_name : '',
+              last_name: (savedPatient.last_name != null && savedPatient.last_name !== 'null') ? savedPatient.last_name : '',
+              insurance: (savedPatient.insurance != null && savedPatient.insurance !== 'null') ? savedPatient.insurance : null,
+              copay: savedPatient.copay != null ? savedPatient.copay : null,
+              coinsurance: savedPatient.coinsurance != null ? savedPatient.coinsurance : null,
+            })
+            if (oldId !== savedPatient.id) lastSavedSnapshotRef.current.delete(oldId)
+            console.log('[PatientData] DB RESPONSE (UPDATE):', { id: savedPatient.id, patient_id: savedPatient.patient_id, rowStored: savedPatient })
             continue // Update successful, move to next patient
           }
-          console.log(`[savePatients] UPDATE failed, will try UPSERT:`, updateError)
+          console.log('[PatientData] UPDATE failed, will try UPSERT:', updateError)
           // If update failed (e.g., patient not found), fall through to upsert
         }
 
         // Use upsert for new patients (new- or empty- IDs) or when update by ID fails
         // Upsert handles the unique constraint (clinic_id, patient_id) automatically
-        console.log(`[savePatients] Attempting UPSERT for patient_id: ${finalPatientId} (patient ID: ${patient.id})`)
+        console.log('[PatientData] PAYLOAD SENT TO DATABASE (UPSERT):', { patient_id: finalPatientId, rowId: patient.id, payload: JSON.stringify(patientData, null, 2) })
         const { error: upsertError, data: upsertData } = await supabase
           .from('patients')
           .upsert(patientData, {
@@ -228,29 +273,42 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
           })
           .select()
 
-        console.log(`[savePatients] UPSERT result:`, { upsertError, upsertData })
+        console.log('[PatientData] DB RESPONSE (UPSERT):', { upsertError: upsertError?.message ?? null, rowsReturned: upsertData?.length ?? 0, rowStored: upsertData?.[0] ?? null })
 
         if (upsertError) {
-          console.error('[savePatients] Error upserting patient:', upsertError, patientData)
+          console.error('[PatientData] Error upserting patient:', upsertError, patientData)
           throw upsertError
         }
         
         if (upsertData && upsertData.length > 0) {
           savedPatient = upsertData[0] as Patient
           savedPatientsMap.set(oldId, savedPatient) // Map old ID to new patient data
-          console.log(`[savePatients] Successfully saved patient: ${finalPatientId}, new DB ID: ${savedPatient.id}`)
+          lastSavedSnapshotRef.current.set(savedPatient.id, {
+            patient_id: savedPatient.patient_id ?? '',
+            first_name: (savedPatient.first_name != null && savedPatient.first_name !== 'null') ? savedPatient.first_name : '',
+            last_name: (savedPatient.last_name != null && savedPatient.last_name !== 'null') ? savedPatient.last_name : '',
+            insurance: (savedPatient.insurance != null && savedPatient.insurance !== 'null') ? savedPatient.insurance : null,
+            copay: savedPatient.copay != null ? savedPatient.copay : null,
+            coinsurance: savedPatient.coinsurance != null ? savedPatient.coinsurance : null,
+          })
+          if (oldId !== savedPatient.id) lastSavedSnapshotRef.current.delete(oldId)
+          console.log('[PatientData] SAVED TO DB (UPSERT):', { patient_id: finalPatientId, newDbId: savedPatient.id, rowStored: savedPatient })
         }
       }
 
-      // Update patients in place without reordering - preserve exact row positions
-      // Do NOT delete from pendingPatientIdByRowIdRef here: a racing save (before state/ref update) may still see empty-X and would then generate a new patient_id and insert a duplicate. Keeping the mapping lets the racing save reuse the same patient_id and upsert one record.
-      console.log('[savePatients] Updating saved patients in place without reordering...')
+      // Update patients in place: only apply id/created_at/updated_at from DB so we don't overwrite in-flight user edits (e.g. user typed copay while insurance save was in progress).
+      // Look up by current row id or by the new id we just saved (savedPatientsMap is keyed by oldId).
+      console.log('[PatientData] Updating UI state with data from database — savedCount:', savedPatientsMap.size)
       setPatients(currentPatients => {
+        const byNewId = new Map<string, Patient>()
+        savedPatientsMap.forEach((saved, oldId) => {
+          byNewId.set(saved.id, saved)
+          if (oldId !== saved.id) byNewId.set(oldId, saved)
+        })
         return currentPatients.map(patient => {
-          const savedPatient = savedPatientsMap.get(patient.id)
+          const savedPatient = savedPatientsMap.get(patient.id) ?? byNewId.get(patient.id)
           if (savedPatient) {
-            // Normalize string "null" from DB so table never displays "null"
-            return {
+            const normalized = {
               ...savedPatient,
               first_name: (savedPatient.first_name != null && savedPatient.first_name !== 'null') ? savedPatient.first_name : '',
               last_name: (savedPatient.last_name != null && savedPatient.last_name !== 'null') ? savedPatient.last_name : '',
@@ -258,14 +316,34 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
               copay: (savedPatient.copay != null && String(savedPatient.copay) !== 'null') ? savedPatient.copay : null,
               coinsurance: (savedPatient.coinsurance != null && String(savedPatient.coinsurance) !== 'null') ? savedPatient.coinsurance : null,
             }
+            // Merge: keep current row's editable fields so in-flight edits aren't overwritten; only apply id and timestamps from DB
+            return {
+              ...patient,
+              id: normalized.id,
+              created_at: normalized.created_at,
+              updated_at: normalized.updated_at,
+              patient_id: normalized.patient_id,
+              clinic_id: normalized.clinic_id,
+              subscriber_id: normalized.subscriber_id,
+              date_of_birth: normalized.date_of_birth,
+              phone: normalized.phone,
+              email: normalized.email,
+              address: normalized.address,
+              // Prefer current state for table-edited fields so typing during save is not clobbered
+              first_name: patient.first_name !== undefined ? patient.first_name : normalized.first_name,
+              last_name: patient.last_name !== undefined ? patient.last_name : normalized.last_name,
+              insurance: patient.insurance !== undefined ? patient.insurance : normalized.insurance,
+              copay: patient.copay !== undefined ? patient.copay : normalized.copay,
+              coinsurance: patient.coinsurance !== undefined ? patient.coinsurance : normalized.coinsurance,
+            }
           }
-          return patient // Keep all other patients exactly as they are
+          return patient
         })
       })
       
-      console.log('[savePatients] All patients updated in place - positions preserved')
+      console.log('[PatientData] SAVE COMPLETE — UI state synced with database')
     } catch (error: any) {
-      console.error('[savePatients] Error saving patients:', error)
+      console.error('[PatientData] SAVE FAILED — error writing to database:', error)
       alert(error?.message || 'Failed to save patient. Please try again.')
     } finally {
       saveInProgressRef.current = false
@@ -306,7 +384,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       setStructureVersion(v => v + 1)
       if (onDelete) onDelete(patientId)
     } catch (error) {
-      console.error('Error deleting patient:', error)
+      console.error('[PatientData] Error deleting patient:', error)
       alert(`Failed to delete patient: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }, [fetchPatients, onDelete])
@@ -506,6 +584,12 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     const currentPatients = patientsRef.current.length > 0 ? patientsRef.current : patients
     const updatedPatients = [...currentPatients]
     const fields: Array<keyof Patient> = ['patient_id', 'first_name', 'last_name', 'insurance', 'copay', 'coinsurance']
+
+    // Log every user input so super admin can trace what was typed → what gets stored
+    changes.forEach(([row, col, , newValue]) => {
+      const field = fields[col as number]
+      console.log('[PatientData] USER INPUT (cell edit):', { source: 'PatientsTab', row, col, field, newValue, valueType: typeof newValue })
+    })
 
     changes.forEach(([row, col, , newValue]) => {
       while (updatedPatients.length <= row) {

@@ -46,9 +46,18 @@ export default function PatientDatabase() {
 
       const { data, error } = await query
       if (error) throw error
-      setPatients(data || [])
+      const list = data || []
+      setPatients(list)
+      // Comprehensive log: how data from DB looks when loaded on patient info page
+      console.log('[PatientData] FETCH from database:', {
+        source: 'PatientDatabase',
+        role: userProfile.role,
+        totalRows: list.length,
+        columns: list.length > 0 ? Object.keys(list[0]) : [],
+        sampleRow: list.length > 0 ? { id: list[0].id, patient_id: list[0].patient_id, first_name: list[0].first_name, last_name: list[0].last_name, clinic_id: list[0].clinic_id } : null,
+      })
     } catch (error) {
-      console.error('Error fetching patients:', error)
+      console.error('[PatientData] Error fetching patients:', error)
     } finally {
       setLoading(false)
     }
@@ -143,21 +152,22 @@ export default function PatientDatabase() {
         }
 
         if (existingPatient) {
-          console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} existing record found, UPDATING id=${existingPatient.id}`)
+          const updatePayload = {
+            first_name: patient.first_name || '',
+            last_name: patient.last_name || '',
+            subscriber_id: patient.subscriber_id || null,
+            insurance: patient.insurance || null,
+            copay: patient.copay || null,
+            coinsurance: patient.coinsurance || null,
+            date_of_birth: patient.date_of_birth || null,
+            phone: patient.phone || null,
+            email: patient.email || null,
+            address: patient.address || null,
+          }
+          console.log(`[PatientData] PAYLOAD SENT TO DATABASE (UPDATE existing) row ${idx + 1} id=${existingPatient.id}:`, JSON.stringify(updatePayload, null, 2))
           const { error: updateError } = await supabase
             .from('patients')
-            .update({
-              first_name: patient.first_name || '',
-              last_name: patient.last_name || '',
-              subscriber_id: patient.subscriber_id || null,
-              insurance: patient.insurance || null,
-              copay: patient.copay || null,
-              coinsurance: patient.coinsurance || null,
-              date_of_birth: patient.date_of_birth || null,
-              phone: patient.phone || null,
-              email: patient.email || null,
-              address: patient.address || null,
-            })
+            .update(updatePayload)
             .eq('id', existingPatient.id)
 
           if (updateError) {
@@ -166,23 +176,24 @@ export default function PatientDatabase() {
           }
           console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} update existing OK`)
         } else {
-          console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} INSERT`, { clinic_id: patientClinicId, patient_id: finalPatientId })
+          const insertPayload = {
+            patient_id: finalPatientId,
+            first_name: patient.first_name || '',
+            last_name: patient.last_name || '',
+            subscriber_id: patient.subscriber_id || null,
+            insurance: patient.insurance || null,
+            copay: patient.copay || null,
+            coinsurance: patient.coinsurance || null,
+            date_of_birth: patient.date_of_birth || null,
+            phone: patient.phone || null,
+            email: patient.email || null,
+            address: patient.address || null,
+            clinic_id: patientClinicId,
+          }
+          console.log(`[PatientData] PAYLOAD SENT TO DATABASE (INSERT) row ${idx + 1}:`, JSON.stringify(insertPayload, null, 2))
           const { error: insertError } = await supabase
             .from('patients')
-            .insert({
-              patient_id: finalPatientId,
-              first_name: patient.first_name || '',
-              last_name: patient.last_name || '',
-              subscriber_id: patient.subscriber_id || null,
-              insurance: patient.insurance || null,
-              copay: patient.copay || null,
-              coinsurance: patient.coinsurance || null,
-              date_of_birth: patient.date_of_birth || null,
-              phone: patient.phone || null,
-              email: patient.email || null,
-              address: patient.address || null,
-              clinic_id: patientClinicId,
-            })
+            .insert(insertPayload)
 
           if (insertError) {
             if (insertError.code === '23505') {
@@ -237,22 +248,23 @@ export default function PatientDatabase() {
       // Update existing patients
       for (let idx = 0; idx < patientsToUpdate.length; idx++) {
         const patient = patientsToUpdate[idx]
-        console.log(`[PatientDatabase savePatients] UPDATE ROW ${idx + 1}/${patientsToUpdate.length}`, { id: patient.id, patient_id: patient.patient_id, name: `${patient.first_name} ${patient.last_name}` })
+        const updatePayload = {
+          patient_id: patient.patient_id,
+          first_name: patient.first_name,
+          last_name: patient.last_name,
+          subscriber_id: patient.subscriber_id || null,
+          insurance: patient.insurance || null,
+          copay: patient.copay || null,
+          coinsurance: patient.coinsurance || null,
+          date_of_birth: patient.date_of_birth || null,
+          phone: patient.phone || null,
+          email: patient.email || null,
+          address: patient.address || null,
+        }
+        console.log(`[PatientData] PAYLOAD SENT TO DATABASE (UPDATE) row ${idx + 1}/${patientsToUpdate.length} id=${patient.id}:`, JSON.stringify(updatePayload, null, 2))
         const { error } = await supabase
           .from('patients')
-          .update({
-            patient_id: patient.patient_id,
-            first_name: patient.first_name,
-            last_name: patient.last_name,
-            subscriber_id: patient.subscriber_id || null,
-            insurance: patient.insurance || null,
-            copay: patient.copay || null,
-            coinsurance: patient.coinsurance || null,
-            date_of_birth: patient.date_of_birth || null,
-            phone: patient.phone || null,
-            email: patient.email || null,
-            address: patient.address || null,
-          })
+          .update(updatePayload)
           .eq('id', patient.id)
 
         if (error) {
@@ -263,12 +275,12 @@ export default function PatientDatabase() {
       }
 
       if (newPatientsToCreate.length > 0 || patientsToUpdate.length > 0) {
-        console.log('[PatientDatabase savePatients] Refreshing list (fetchPatients)')
+        console.log('[PatientData] Refreshing list from database after save (fetchPatients)')
         await fetchPatients()
       }
-      console.log('[PatientDatabase savePatients] END success')
+      console.log('[PatientData] SAVE COMPLETE — data stored in database:', { created: newPatientsToCreate.length, updated: patientsToUpdate.length })
     } catch (error: any) {
-      console.error('[PatientDatabase savePatients] END error:', error)
+      console.error('[PatientData] SAVE FAILED — error writing to database:', error)
       let errorMessage = 'Failed to save patient. Please try again.'
       
       if (error?.code === '23505') {
@@ -284,6 +296,8 @@ export default function PatientDatabase() {
   const { saveImmediately } = useDebouncedSave<Patient[]>(savePatients, patients, 1000, editingCell !== null)
 
   const handleUpdatePatient = useCallback((patientId: string, field: string, value: any) => {
+    // Log every user input so super admin can trace what was typed → what gets stored
+    console.log('[PatientData] USER INPUT (cell edit):', { patientId, field, value, valueType: typeof value })
     setPatients(prevPatients => {
       return prevPatients.map(patient => {
         if (patient.id === patientId) {
@@ -323,15 +337,17 @@ export default function PatientDatabase() {
     }
 
     try {
+      console.log('[PatientData] DELETE from database:', { id: patient.id, patient_id: patient.patient_id, name: `${patient.first_name} ${patient.last_name}` })
       const { error } = await supabase
         .from('patients')
         .delete()
         .eq('id', patient.id)
 
       if (error) throw error
+      console.log('[PatientData] DELETE success, refreshing list')
       await fetchPatients()
     } catch (error) {
-      console.error('Error deleting patient:', error)
+      console.error('[PatientData] Error deleting patient:', error)
       alert('Failed to delete patient. Please try again.')
     }
   }

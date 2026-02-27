@@ -25,10 +25,19 @@ export default function PatientForm({ patient, onClose, onSave }: PatientFormPro
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
+    // Log form data as entered by user before it is sent to save/database
+    console.log('[PatientData] USER INPUT (form submit):', {
+      source: 'PatientForm',
+      mode: patient ? 'edit' : 'create',
+      patientId: patient?.id ?? 'new',
+      formData: { ...formData },
+    })
     try {
       await onSave(formData)
+      console.log('[PatientData] Form save completed — data passed to onSave (parent handles DB write)')
       onClose()
     } catch (error) {
+      console.error('[PatientData] Form save failed:', error)
       alert('Failed to save patient. Please try again.')
     } finally {
       setSaving(false)
