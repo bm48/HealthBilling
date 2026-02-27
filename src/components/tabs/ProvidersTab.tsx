@@ -125,14 +125,11 @@ export default function ProvidersTab({
 
   // Ref for latest table data from change handler so we don't pass stale data when parent re-renders before state updates
   const latestTableDataRef = useRef<any[][] | null>(null)
-  /** Latest rows from change handler so rapid edits accumulate and flush-on-unmount has current data (like PatientsTab patientsRef). */
-  const latestProviderRowsRef = useRef<{ providerId: string; rows: SheetRow[] } | null>(null)
   const saveProviderSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingProviderSheetSaveRef = useRef<{ providerId: string; rows: SheetRow[] } | null>(null)
 
   useEffect(() => {
     latestTableDataRef.current = null
-    latestProviderRowsRef.current = null
   }, [activeProvider?.id, selectedMonth.getTime()])
 
   // Load persisted highlights and comments for this clinic (so they survive reload and show for providers)
@@ -1003,11 +1000,8 @@ export default function ProvidersTab({
         : (showCondenseButton && isCondensed ? fieldsFull.slice(0, 9) : fieldsFull)
     
     const dateFields: (keyof SheetRow)[] = ['appointment_date', 'submit_date', 'payment_date', 'ar_date']
-    // Start from latest ref when same provider so rapid edits accumulate (parent state may not have updated yet)
-    const baseRows = (latestProviderRowsRef.current?.providerId === activeProvider.id)
-      ? latestProviderRowsRef.current.rows
-      : activeProviderRows
-    const updatedRows = [...baseRows]
+    // Compute all changes locally first
+    const updatedRows = [...activeProviderRows]
     let idCounter = 0
     let hadPatientIdMerge = false
     let hadDateColumnEdit = false
@@ -1198,9 +1192,8 @@ export default function ProvidersTab({
       updatedRows.push(...newEmptyRows)
     }
 
-    // Store latest table data and rows so next render and flush-on-unmount have current data
+    // Store latest table data so next render passes fresh data even if parent state hasn't updated yet
     latestTableDataRef.current = getTableDataFromRows(updatedRows)
-    latestProviderRowsRef.current = { providerId: activeProvider.id, rows: updatedRows }
 
     // Auto add/remove highlight when Ins Pay or Collected from PT is set to 0 / "00" or changed
     if (zeroHighlightUpdates.length > 0 && clinicId) {
@@ -1323,25 +1316,19 @@ export default function ProvidersTab({
     }
   }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, patients, getTableDataFromRows, clinicId, userHighlightColor, userProfile?.id])
 
-  // Flush pending save when tab is left so data isn't lost on switch (prefer latest ref like PatientsTab flush)
+  // Flush pending save when tab is left so data isn't lost on switch
   useEffect(() => {
     return () => {
       if (saveProviderSheetTimeoutRef.current) {
         clearTimeout(saveProviderSheetTimeoutRef.current)
         saveProviderSheetTimeoutRef.current = null
-      }
-      const pending = pendingProviderSheetSaveRef.current
-      const latest = latestProviderRowsRef.current
-      const providerIdToSave = pending?.providerId ?? latest?.providerId
-      const rowsToSave = (latest?.providerId === providerIdToSave && latest?.rows?.length)
-        ? latest.rows
-        : pending?.rows
-      if (providerIdToSave && rowsToSave?.length) {
-        pendingProviderSheetSaveRef.current = null
-        latestProviderRowsRef.current = null
-        onSaveProviderSheetRowsDirect(providerIdToSave, rowsToSave).catch(err => {
-          console.error('[ProvidersTab unmount] Error flushing save:', err)
-        })
+        const pending = pendingProviderSheetSaveRef.current
+        if (pending) {
+          pendingProviderSheetSaveRef.current = null
+          onSaveProviderSheetRowsDirect(pending.providerId, pending.rows).catch(err => {
+            console.error('[ProvidersTab unmount] Error flushing save:', err)
+          })
+        }
       }
     }
   }, [onSaveProviderSheetRowsDirect])
