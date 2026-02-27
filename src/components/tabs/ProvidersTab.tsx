@@ -30,7 +30,7 @@ interface ProvidersTabProps {
   isInSplitScreen: boolean
   /** When true, show provider columns. providerLevel 1 = columns up to Appt/Note Status; providerLevel 2 = all columns. */
   isProviderView?: boolean
-  /** Provider level (1 or 2). Level 1 sees only up to Appt/Note Status and can edit CPT Code and Appt/Note Status; level 2 (full access) sees all columns but cannot edit any column. */
+  /** Provider level (1 or 2). Level 1 (partial) sees columns up to Appt/Note Status; level 2 (full access) sees all columns. Both can edit only Date of Service, CPT Code, Appt/Note Status. */
   providerLevel?: 1 | 2
   onUpdateProviderSheetRow: (providerId: string, rowId: string, field: string, value: any) => void
   onSaveProviderSheetRowsDirect: (providerId: string, rows: SheetRow[]) => Promise<void>
@@ -386,9 +386,9 @@ export default function ProvidersTab({
     : isProviderView
       ? (providerLevel === 2 ? columnTitlesFull : columnTitlesProviderView)
       : (showCondenseButton && isCondensed ? columnTitlesFull.slice(0, 9) : columnTitlesFull)
-  /** In provider view, level 1 can edit only CPT Code (7) and Appt/Note Status (8); level 2 (full access) can edit ID (0), First Name (1), and Date of Service (6) */
+  /** In provider view (full and partial), providers can edit only Date of Service (6), CPT Code (7), Appt/Note Status (8); other columns are read-only */
   const isProviderEditableColumn = (dataIndex: number) =>
-    providerLevel === 1 ? dataIndex === 6 : (dataIndex === 0 || dataIndex === 1 || dataIndex === 6)
+    dataIndex === 6 || dataIndex === 7 || dataIndex === 8
   const getReadOnlyProviderView = (dataIndex: number) =>
     !canEdit || !isProviderEditableColumn(dataIndex)
 

@@ -338,35 +338,46 @@
 .providers-handsontable table.htCore thead th:nth-child(4),
 .providers-handsontable table.htCore thead th:nth-child(5),
 .providers-handsontable table.htCore thead th:nth-child(6),
-.providers-handsontable table.htCore thead th:nth-child(7) {
+.providers-handsontable table.htCore thead th:nth-child(7),
+.providers-handsontable table.htCore thead th:nth-child(8) {
   background-color: #f5cbcc !important;
   color: #000000 !important;
 }
 
-.providers-handsontable table.htCore thead th:nth-child(8),
-.providers-handsontable table.htCore thead th:nth-child(9) {
+
+/* .providers-handsontable table.htCore thead th:nth-child(9) {
   background-color: #fce5cd !important;
   color: #000000 !important;
-}
+} */
 
-.providers-handsontable table.htCore thead th:nth-child(10),
-.providers-handsontable table.htCore thead th:nth-child(11) {
+
+.providers-handsontable table.htCore thead th:nth-child(9),
+.providers-handsontable table.htCore thead th:nth-child(10) {
   background-color: #ead1dd !important;
   color: #000000 !important;
 }
 
-.providers-handsontable table.htCore thead th:nth-child(12),
-.providers-handsontable table.htCore thead th:nth-child(13),
-.providers-handsontable table.htCore thead th:nth-child(14),
-.providers-handsontable table.htCore thead th:nth-child(18) {
+
+.providers-handsontable table.htCore thead th:nth-child(11),
+.providers-handsontable table.htCore thead th:nth-child(12){
   background-color: #d9d2e9 !important;
   color: #000000 !important;
 }
 
-.providers-handsontable table.htCore thead th:nth-child(15),
-.providers-handsontable table.htCore thead th:nth-child(16),
-.providers-handsontable table.htCore thead th:nth-child(17) {
+
+
+.providers-handsontable table.htCore thead th:nth-child(13),
+.providers-handsontable table.htCore thead th:nth-child(14),
+.providers-handsontable table.htCore thead th:nth-child(15){
   background-color: #b191cd !important;
+  color: #000000 !important;
+}
+
+
+.providers-handsontable table.htCore thead th:nth-child(16),
+.providers-handsontable table.htCore thead th:nth-child(17),
+.providers-handsontable table.htCore thead th:nth-child(18) {
+  background-color: #fce5cd !important;
   color: #000000 !important;
 }
 
