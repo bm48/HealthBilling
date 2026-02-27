@@ -246,7 +246,7 @@ export default function ProvidersTab({
           toDisplayValue(row.cpt_code),
           toDisplayValue(row.appointment_status),
           toDisplayValue(row.claim_status),
-          toDisplayDate(row.submit_date),
+          toDisplayValue(row.submit_date),
           toDisplayValue(row.insurance_payment),
           toDisplayValue(row.payment_date),
           toDisplayValue(row.insurance_adjustment),
@@ -268,7 +268,7 @@ export default function ProvidersTab({
         toDisplayValue(row.cpt_code),
         toDisplayValue(row.appointment_status),
         toDisplayValue(row.claim_status),
-        toDisplayDate(row.submit_date),
+        toDisplayValue(row.submit_date),
         toDisplayValue(row.insurance_payment),
         toDisplayValue(row.payment_date),
         toDisplayValue(row.insurance_adjustment),
@@ -398,13 +398,14 @@ export default function ProvidersTab({
     return Boolean(lockData[columnName])
   }
 
-  /** For official_staff: only columns 0-6 (ID through Date of Service) are editable. For office_staff: columns 0,1,2,6 (Patient ID, First Name, LI, Date of Service) and 9-11 (Collected from PT, PT Pay Status, PT Payment AR Ref Date) are editable. */
+  /** For official_staff: columns 0-6 (ID through Date of Service) and 10 (Most Recent) are editable. For office_staff: columns 0,1,2,6 and 9-11 are editable. */
   const isSchedulingColumn = (dataIndex: number) => dataIndex <= 6
+  const isMostRecentColumn = (dataIndex: number) => dataIndex === 10
   const isOfficeStaffEditableColumn = (dataIndex: number) =>
     dataIndex === 0 || dataIndex === 1 || dataIndex === 2 || dataIndex === 6 || dataIndex === 9 || dataIndex === 10 || dataIndex === 11
   const getReadOnlyForColumn = (dataIndex: number, baseReadOnly: boolean) => {
     if (officeStaffView) return baseReadOnly || !isOfficeStaffEditableColumn(dataIndex)
-    return baseReadOnly || (restrictEditToSchedulingColumns && !isSchedulingColumn(dataIndex))
+    return baseReadOnly || (restrictEditToSchedulingColumns && !isSchedulingColumn(dataIndex) && !isMostRecentColumn(dataIndex))
   }
 
   // Right-click on column headers to lock/unlock (no lock icon in header)
@@ -804,7 +805,7 @@ export default function ProvidersTab({
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyProviderView(7) },
         { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 150, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
         { data: 9, title: 'Claim Status', type: 'dropdown' as const, width: 120, selectOptions: ['Claim Sent', 'RS', 'IP', 'Pending Pay', 'Paid', 'Deductible', 'N/A', 'PP', 'Denial', 'Rejected', 'No Coverage'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'claim')) as any, readOnly: getReadOnlyProviderView(9) },
-        { data: 10, title: 'Most Recent Submit Date', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(10) },
+        { data: 10, title: 'Most Recent Submit Date', type: 'text' as const, width: 120, editor: 'text', readOnly: getReadOnlyProviderView(10) },
         { data: 11, title: 'Ins Pay', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(11) },
         { data: 12, title: 'Ins Pay Date', type: 'dropdown' as const, width: 100, selectOptions: months, renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any, readOnly: getReadOnlyProviderView(12) },
         { data: 13, title: 'PT RES', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(13) },
@@ -902,6 +903,7 @@ export default function ProvidersTab({
         title: 'Most Recent', 
         type: 'text' as const, 
         width: 120,
+        editor: 'text',
         readOnly: getReadOnlyForColumn(10, !canEdit || getReadOnly('most_recent_submit_date'))
       },
       { 
@@ -1114,7 +1116,11 @@ export default function ProvidersTab({
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
         } else if (field) {
           if (dateFields.includes(field)) hadDateColumnEdit = true
-          const value = (newValue === '' || newValue === 'null') ? null : String(newValue)
+          let value = (newValue === '' || newValue === 'null') ? null : String(newValue)
+          if (field === 'submit_date') {
+            const s = (value ?? '').trim()
+            if (s !== '' && /^-?\d*\.?\d*$/.test(s)) value = sheetRow.submit_date ?? null
+          }
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
         }
       }
