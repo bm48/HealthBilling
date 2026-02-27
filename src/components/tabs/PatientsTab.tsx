@@ -260,19 +260,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     }
   }, [clinicId, userProfile, fetchPatients])
 
-  // Flush pending save when tab is left so data isn't lost on switch
-  useEffect(() => {
-    return () => {
-      if (savePatientsTimeoutRef.current) {
-        clearTimeout(savePatientsTimeoutRef.current)
-        savePatientsTimeoutRef.current = null
-        savePatients(patientsRef.current).catch(err => {
-          console.error('[PatientsTab unmount] Error flushing save:', err)
-        })
-      }
-    }
-  }, [savePatients])
-
   // Note: savePatientsImmediately removed - we now call savePatients directly with updated data
   // Note: handleUpdatePatient removed - state is updated directly in handlePatientsHandsontableChange
 
@@ -530,7 +517,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       savePatients(patientsRef.current).catch(err => {
         console.error('[handlePatientsHandsontableChange] Error in savePatients:', err)
       })
-    }, 250)
+    }, 500)
   }, [patients, savePatients, createEmptyPatient])
 
   const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number; patientId: string } | null>(null)
