@@ -173,8 +173,6 @@ export default function ClinicDetail() {
   }, [clinicId, activeTab, providerId])
 
   const prevMonthKeyRef = useRef<string | null>(null)
-  /** Tracks (clinicId, providerId, monthKey) so we only skip fetch when cache is for this clinic (fixes same content across clinics). */
-  const lastProviderSheetContextRef = useRef<{ clinicId: string; providerId: string | null; monthKey: string } | null>(null)
   // When month changes: use cached data if available, otherwise fetch (no full-page loading when only month changed)
   useEffect(() => {
     const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
@@ -184,16 +182,14 @@ export default function ClinicDetail() {
 
     const cacheForMonth = providerSheetRowsByMonth[monthKey]
     const hasCached = cacheForMonth != null && Object.keys(cacheForMonth).length > 0
-    const ref = lastProviderSheetContextRef.current
-    const contextMatches = ref && ref.clinicId === clinicId && ref.monthKey === monthKey && ref.providerId === (providerId ?? null)
-    // When month didn't change and not initial load: only skip fetch if we have data for this exact (clinic, provider, month)
+    // When month didn't change and not initial load: only skip fetch if we have data for current context
     if (!monthChanged && !isInitialLoad) {
       if (providerId) {
-        // Single-provider view: skip only if cache is for this clinic and this provider
-        if (contextMatches && cacheForMonth?.[providerId]?.length) return
+        // Single-provider view: skip only if we already have rows for this provider
+        if (cacheForMonth?.[providerId]?.length) return
       } else {
-        // Clinic view: skip only if cache is for this clinic
-        if (contextMatches && hasCached) return
+        // Clinic view: skip if we have any cache for this month
+        if (hasCached) return
       }
     }
     if (hasCached && monthChanged) return
@@ -1252,7 +1248,6 @@ export default function ClinicDetail() {
       const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
       setProviderSheetRowsByMonth(prev => ({ ...prev, [monthKey]: { ...(prev[monthKey] ?? {}), [providerId]: allRows } }))
       setProviderSheetsByMonth(prev => ({ ...prev, [monthKey]: { ...(prev[monthKey] ?? {}), [providerId]: sheet } }))
-      lastProviderSheetContextRef.current = { clinicId: clinicId!, providerId, monthKey }
     } catch (error) {
       console.error('Error fetching provider sheet data:', error)
     } finally {
@@ -1484,7 +1479,6 @@ export default function ClinicDetail() {
       const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
       setProviderSheetsByMonth(prev => ({ ...prev, [monthKey]: sheetsMap }))
       setProviderSheetRowsByMonth(prev => ({ ...prev, [monthKey]: rowsMap }))
-      lastProviderSheetContextRef.current = { clinicId, providerId: null, monthKey }
     } catch (error) {
       console.error('Error fetching provider sheets:', error)
     } finally {
