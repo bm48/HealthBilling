@@ -1118,18 +1118,17 @@ export default function ProvidersTab({
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
         }
       }
-      // Auto highlight when 0 or "00" is entered in Ins Pay or Collected from PT ("00" in Collected from PT → yellow)
+      // Auto highlight when 0 or "00" is entered in Ins Pay or PT Paid (Collected from PT). PT Paid: any 0 → yellow. Ins Pay: 0 → user color.
       if (field === 'insurance_payment' || field === 'collected_from_patient') {
         const finalRow = updatedRows[row]
         const rowId = finalRow?.id ?? sheetRow?.id ?? `row-${row}`
         const colKey = field === 'insurance_payment' ? 'ins_pay' : 'collected_from_pt'
-        const rawStr = String(newValue ?? '').trim()
         const num = (newValue === '' || newValue === null || newValue === undefined) ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)))
         const isZero = num === 0
-        // Collected from PT: "00" → yellow; 0 → user color. Ins Pay: 0 → user color.
         const highlightColor = (userHighlightColor || '').trim() || YELLOW_HIGHLIGHT
-        const useYellowFor00 = field === 'collected_from_patient' && rawStr === '00'
-        const colorToUse = isZero ? (useYellowFor00 ? YELLOW_HIGHLIGHT : highlightColor) : highlightColor
+        // PT Paid (collected_from_patient): 0 or "0" or "00" → yellow. Ins Pay: 0 → user color.
+        const useYellow = field === 'collected_from_patient' && isZero
+        const colorToUse = isZero ? (useYellow ? YELLOW_HIGHLIGHT : highlightColor) : highlightColor
         zeroHighlightUpdates.push({ rowId, colKey, isZero, highlightColor: colorToUse })
       }
     })
