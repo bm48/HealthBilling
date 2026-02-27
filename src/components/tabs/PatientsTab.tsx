@@ -266,6 +266,22 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     }
   }, [clinicId, userProfile, fetchPatients])
 
+<<<<<<< HEAD
+=======
+  // Flush pending save when tab is left so data isn't lost on switch
+  useEffect(() => {
+    return () => {
+      if (savePatientsTimeoutRef.current) {
+        clearTimeout(savePatientsTimeoutRef.current)
+        savePatientsTimeoutRef.current = null
+        savePatients(patientsRef.current).catch(err => {
+          console.error('[PatientsTab unmount] Error flushing save:', err)
+        })
+      }
+    }
+  }, [savePatients])
+
+>>>>>>> parent of 3803efb (ENHANCE: improve patient save logic and error handling in PatientsTab and PatientDatabase components)
   // Note: savePatientsImmediately removed - we now call savePatients directly with updated data
   // Note: handleUpdatePatient removed - state is updated directly in handlePatientsHandsontableChange
 
@@ -472,15 +488,23 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     return Boolean(lockData[columnName])
   }
 
+<<<<<<< HEAD
   // Memoize so HandsontableWrapper doesn't call updateSettings({ columns }) on every render (which would reset column sort when typing)
   const patientsColumns = useMemo(() => [
+=======
+  const patientsColumns = [
+>>>>>>> parent of 3803efb (ENHANCE: improve patient save logic and error handling in PatientsTab and PatientDatabase components)
     { data: 0, title: 'Patient ID', type: 'text' as const, width: 120, readOnly: !canEdit || getReadOnly('patient_id'), columnSorting: { indicator: true } },
     { data: 1, title: 'Patient First', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('first_name'), columnSorting: { headerAction: false } },
     { data: 2, title: 'Patient Last', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('last_name'), columnSorting: { headerAction: false } },
     { data: 3, title: 'Insurance', type: 'text' as const, width: 150, readOnly: !canEdit || getReadOnly('insurance'), columnSorting: { headerAction: false } },
     { data: 4, title: 'Copay', type: 'text' as const, width: 100, renderer: copayTextCellRenderer, readOnly: !canEdit || getReadOnly('copay'), columnSorting: { headerAction: false } },
     { data: 5, title: 'Coinsurance', type: 'text' as const, width: 100, renderer: coinsuranceTextCellRenderer, readOnly: !canEdit || getReadOnly('coinsurance'), columnSorting: { headerAction: false } },
+<<<<<<< HEAD
   ], [canEdit, lockData])
+=======
+  ]
+>>>>>>> parent of 3803efb (ENHANCE: improve patient save logic and error handling in PatientsTab and PatientDatabase components)
   
   const handlePatientsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData') return

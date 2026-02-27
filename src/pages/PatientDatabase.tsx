@@ -59,39 +59,38 @@ export default function PatientDatabase() {
   }, [fetchPatients])
 
   const savePatients = useCallback(async (patientsToSave: Patient[]) => {
-    if (!userProfile) {
-      console.log('[PatientDatabase savePatients] SKIP: no userProfile')
-      return
-    }
+    if (!userProfile) return
 
     // Determine clinic_id: use first clinic_id from user, or handle super_admin
     let clinicId: string | null = null
     if (userProfile.role === 'super_admin') {
+      // For super_admin, try to get clinic_id from the patient's clinic_id if it exists
+      // Or use the first clinic_id from userProfile if available
       clinicId = userProfile.clinic_ids?.[0] || null
     } else {
       if (!userProfile.clinic_ids?.[0]) {
-        console.warn('[PatientDatabase savePatients] Cannot save: No clinic assigned')
+        console.warn('Cannot save: No clinic assigned')
         return
       }
       clinicId = userProfile.clinic_ids[0]
     }
 
-    console.log('[PatientDatabase savePatients] START', { role: userProfile.role, clinicId, totalInBatch: patientsToSave.length })
-
     try {
       const newPatientsToCreate: Patient[] = []
       const patientsToUpdate: Patient[] = []
-
+      
       // Separate new and existing patients
       for (const patient of patientsToSave) {
         if (patient.id.startsWith('new-')) {
+          // Only create if it has at least patient_id or first_name/last_name
           if (patient.patient_id || (patient.first_name && patient.last_name)) {
             newPatientsToCreate.push(patient)
           }
         } else {
+          // Update existing patient - check if it has changed
           const originalPatient = patients.find(p => p.id === patient.id)
           if (originalPatient) {
-            const hasChanged =
+            const hasChanged = 
               originalPatient.patient_id !== patient.patient_id ||
               originalPatient.first_name !== patient.first_name ||
               originalPatient.last_name !== patient.last_name ||
@@ -99,7 +98,7 @@ export default function PatientDatabase() {
               originalPatient.insurance !== patient.insurance ||
               originalPatient.copay !== patient.copay ||
               originalPatient.coinsurance !== patient.coinsurance
-
+            
             if (hasChanged) {
               patientsToUpdate.push(patient)
             }
@@ -107,29 +106,25 @@ export default function PatientDatabase() {
         }
       }
 
-      console.log('[PatientDatabase savePatients] SPLIT', { toCreate: newPatientsToCreate.length, toUpdate: patientsToUpdate.length })
-      console.log('[PatientDatabase savePatients] toCreate rows:', newPatientsToCreate.map((p, i) => ({ index: i, id: p.id, patient_id: p.patient_id, name: `${p.first_name} ${p.last_name}`, clinic_id: p.clinic_id })))
-      console.log('[PatientDatabase savePatients] toUpdate rows:', patientsToUpdate.map((p, i) => ({ index: i, id: p.id, patient_id: p.patient_id, name: `${p.first_name} ${p.last_name}` })))
-
       // Create new patients
-      for (let idx = 0; idx < newPatientsToCreate.length; idx++) {
-        const patient = newPatientsToCreate[idx]
-        console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1}/${newPatientsToCreate.length}`, { id: patient.id, patient_id: patient.patient_id, name: `${patient.first_name} ${patient.last_name}` })
-
+      for (const patient of newPatientsToCreate) {
+        // Use patient's clinic_id if it exists (for super_admin), otherwise use determined clinicId
         const patientClinicId = patient.clinic_id || clinicId
         if (!patientClinicId) {
-          console.error(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} SKIP: No clinic_id`, patient)
+          console.error('Cannot create patient: No clinic_id available')
           continue
         }
 
+        // Generate a unique patient_id if it's empty
         let finalPatientId = patient.patient_id || ''
         if (!finalPatientId) {
+          // Generate a unique patient_id based on first_name, last_name, and timestamp
           const timestamp = Date.now().toString().slice(-6)
           const initials = `${(patient.first_name || '').charAt(0)}${(patient.last_name || '').charAt(0)}`.toUpperCase() || 'PT'
           finalPatientId = `${initials}${timestamp}`
-          console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} generated patient_id:`, finalPatientId)
         }
 
+        // Check if a patient with the same clinic_id and patient_id already exists
         const { data: existingPatient, error: checkError } = await supabase
           .from('patients')
           .select('id')
@@ -137,13 +132,13 @@ export default function PatientDatabase() {
           .eq('patient_id', finalPatientId)
           .maybeSingle()
 
-        if (checkError && checkError.code !== 'PGRST116') {
-          console.error(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} check existing error:`, checkError)
+        if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "not found" which is fine
+          console.error('Error checking for existing patient:', checkError)
           throw checkError
         }
 
         if (existingPatient) {
-          console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} existing record found, UPDATING id=${existingPatient.id}`)
+          // Patient already exists, update it instead
           const { error: updateError } = await supabase
             .from('patients')
             .update({
@@ -159,14 +154,13 @@ export default function PatientDatabase() {
               address: patient.address || null,
             })
             .eq('id', existingPatient.id)
-
+          
           if (updateError) {
-            console.error(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} update existing error:`, updateError)
+            console.error('Error updating existing patient:', updateError)
             throw updateError
           }
-          console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} update existing OK`)
         } else {
-          console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} INSERT`, { clinic_id: patientClinicId, patient_id: finalPatientId })
+          // Insert new patient
           const { error: insertError } = await supabase
             .from('patients')
             .insert({
@@ -183,10 +177,10 @@ export default function PatientDatabase() {
               address: patient.address || null,
               clinic_id: patientClinicId,
             })
-
+          
           if (insertError) {
+            // If it's a duplicate key error, try to find and update the existing patient
             if (insertError.code === '23505') {
-              console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} duplicate (23505), finding and updating`)
               const { data: existingPatientData, error: findError } = await supabase
                 .from('patients')
                 .select('id')
@@ -195,11 +189,12 @@ export default function PatientDatabase() {
                 .maybeSingle()
 
               if (findError && findError.code !== 'PGRST116') {
-                console.error(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} find after duplicate error:`, findError)
+                console.error('Error finding existing patient after duplicate error:', findError)
                 throw insertError
               }
 
               if (existingPatientData) {
+                // Update the existing patient
                 const { error: updateError } = await supabase
                   .from('patients')
                   .update({
@@ -215,29 +210,25 @@ export default function PatientDatabase() {
                     address: patient.address || null,
                   })
                   .eq('id', existingPatientData.id)
-
+                
                 if (updateError) {
-                  console.error(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} update after duplicate error:`, updateError)
+                  console.error('Error updating existing patient after duplicate error:', updateError)
                   throw updateError
                 }
-                console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} update after duplicate OK`)
               } else {
+                // Couldn't find the existing patient, throw the original error
                 throw insertError
               }
             } else {
-              console.error(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} insert error:`, insertError)
+              console.error('Error creating patient:', insertError)
               throw insertError
             }
-          } else {
-            console.log(`[PatientDatabase savePatients] CREATE ROW ${idx + 1} INSERT OK`)
           }
         }
       }
 
       // Update existing patients
-      for (let idx = 0; idx < patientsToUpdate.length; idx++) {
-        const patient = patientsToUpdate[idx]
-        console.log(`[PatientDatabase savePatients] UPDATE ROW ${idx + 1}/${patientsToUpdate.length}`, { id: patient.id, patient_id: patient.patient_id, name: `${patient.first_name} ${patient.last_name}` })
+      for (const patient of patientsToUpdate) {
         const { error } = await supabase
           .from('patients')
           .update({
@@ -254,21 +245,19 @@ export default function PatientDatabase() {
             address: patient.address || null,
           })
           .eq('id', patient.id)
-
+        
         if (error) {
-          console.error(`[PatientDatabase savePatients] UPDATE ROW ${idx + 1} error:`, error)
+          console.error('Error updating patient:', error)
           throw error
         }
-        console.log(`[PatientDatabase savePatients] UPDATE ROW ${idx + 1} OK`)
       }
 
+      // Refresh the list if we made changes
       if (newPatientsToCreate.length > 0 || patientsToUpdate.length > 0) {
-        console.log('[PatientDatabase savePatients] Refreshing list (fetchPatients)')
         await fetchPatients()
       }
-      console.log('[PatientDatabase savePatients] END success')
     } catch (error: any) {
-      console.error('[PatientDatabase savePatients] END error:', error)
+      console.error('Error saving patients:', error)
       let errorMessage = 'Failed to save patient. Please try again.'
       
       if (error?.code === '23505') {
