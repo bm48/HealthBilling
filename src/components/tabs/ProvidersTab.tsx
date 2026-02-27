@@ -125,6 +125,8 @@ export default function ProvidersTab({
 
   // Ref for latest table data from change handler so we don't pass stale data when parent re-renders before state updates
   const latestTableDataRef = useRef<any[][] | null>(null)
+  const saveProviderSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingProviderSheetSaveRef = useRef<{ providerId: string; rows: SheetRow[] } | null>(null)
 
   useEffect(() => {
     latestTableDataRef.current = null
@@ -1288,12 +1290,19 @@ export default function ProvidersTab({
       }
     })
     
-    // Save with updated data directly - don't wait for state to update
-    setTimeout(() => {
-      onSaveProviderSheetRowsDirect(activeProvider.id, updatedRows).catch(err => {
-        console.error('[handleProviderRowsHandsontableChange] Error in saveProviderSheetRowsDirect:', err)
-      })
-    }, 0)
+    // Debounce save and flush on unmount so data isn't lost when switching tabs
+    pendingProviderSheetSaveRef.current = { providerId: activeProvider.id, rows: updatedRows }
+    if (saveProviderSheetTimeoutRef.current) clearTimeout(saveProviderSheetTimeoutRef.current)
+    saveProviderSheetTimeoutRef.current = setTimeout(() => {
+      saveProviderSheetTimeoutRef.current = null
+      const pending = pendingProviderSheetSaveRef.current
+      if (pending) {
+        pendingProviderSheetSaveRef.current = null
+        onSaveProviderSheetRowsDirect(pending.providerId, pending.rows).catch(err => {
+          console.error('[handleProviderRowsHandsontableChange] Error in saveProviderSheetRowsDirect:', err)
+        })
+      }
+    }, 250)
 
     // When patient_id was merged, a date column was edited, or total was auto-calculated from Ins Pay + Collected from PT,
     // bump so HandsontableWrapper pushes the ref data to the grid (wrapper only updates on dataVersion/length change).
@@ -1301,6 +1310,23 @@ export default function ProvidersTab({
       setStructureVersion((v) => v + 1)
     }
   }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, patients, getTableDataFromRows, clinicId, userHighlightColor, userProfile?.id])
+
+  // Flush pending save when tab is left so data isn't lost on switch
+  useEffect(() => {
+    return () => {
+      if (saveProviderSheetTimeoutRef.current) {
+        clearTimeout(saveProviderSheetTimeoutRef.current)
+        saveProviderSheetTimeoutRef.current = null
+        const pending = pendingProviderSheetSaveRef.current
+        if (pending) {
+          pendingProviderSheetSaveRef.current = null
+          onSaveProviderSheetRowsDirect(pending.providerId, pending.rows).catch(err => {
+            console.error('[ProvidersTab unmount] Error flushing save:', err)
+          })
+        }
+      }
+    }
+  }, [onSaveProviderSheetRowsDirect])
 
   const handleDeleteProviderSheetRow = useCallback((providerId: string, rowId: string) => {
     if (onDeleteRow) onDeleteRow(providerId, rowId)
