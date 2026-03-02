@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MessageCircle, Send, Search, User } from 'lucide-react'
+import { MessageCircle, Send, Search, User, Paperclip } from 'lucide-react'
 
 // Sample users (UI only – not connected to real data)
 const SAMPLE_USERS = [
@@ -168,7 +168,15 @@ export default function Messages() {
 
               {/* Compose area (UI only – does nothing) */}
               <div className="p-4 border-t border-white/10 bg-white/5">
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  <button
+                    type="button"
+                    disabled
+                    className="p-3 rounded-lg bg-white/10 border border-white/20 text-white/60 cursor-not-allowed hover:bg-white/15 transition-colors"
+                    title="Upload file (not implemented yet)"
+                  >
+                    <Paperclip size={20} />
+                  </button>
                   <input
                     type="text"
                     placeholder="Type a message… "
