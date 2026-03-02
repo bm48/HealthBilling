@@ -21,8 +21,7 @@ import {
   ArrowLeft,
   Lock,
   KeyRound,
-  X,
-  MessageCircle
+  X
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -484,18 +483,6 @@ export default function Layout({ children }: LayoutProps) {
                     )}
                   </div>
                 )}
-                <Link
-                  to="/messages"
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mt-1 ${
-                    isActive('/messages')
-                      ? 'bg-primary-600 text-white font-medium shadow-lg'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  } ${sidebarCollapsed ? 'justify-center' : ''}`}
-                  title="Messages"
-                >
-                  <MessageCircle size={20} />
-                  {!sidebarCollapsed && <span>Messages</span>}
-                </Link>
               </>
             ) : (userProfile?.role === 'super_admin' || userProfile?.role === 'admin') ? (
               <>
@@ -706,19 +693,6 @@ export default function Layout({ children }: LayoutProps) {
                     )
                   }
 
-                  <Link
-                    to="/messages"
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
-                      isActive('/messages')
-                        ? 'bg-primary-600 text-white font-medium shadow-lg'
-                        : 'text-white/70 hover:bg-white/10 hover:text-white'
-                    } ${sidebarCollapsed ? 'justify-center' : ''}`}
-                    title="Messages"
-                  >
-                    <MessageCircle size={20} />
-                    {!sidebarCollapsed && <span>Messages</span>}
-                  </Link>
-
                   {/* Settings with submenu */}
                   {!sidebarCollapsed ? (
                   <div className="mb-1">
@@ -879,18 +853,6 @@ export default function Layout({ children }: LayoutProps) {
                     )}
                   </div>
                 )}
-                <Link
-                  to="/messages"
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mt-1 ${
-                    isActive('/messages')
-                      ? 'bg-primary-600 text-white font-medium shadow-lg'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  } ${sidebarCollapsed ? 'justify-center' : ''}`}
-                  title="Messages"
-                >
-                  <MessageCircle size={20} />
-                  {!sidebarCollapsed && <span>Messages</span>}
-                </Link>
               </>
             ) : isBillingStaff ? (
               <>
@@ -1068,18 +1030,6 @@ export default function Layout({ children }: LayoutProps) {
                     <Clock size={20} />
                     {!sidebarCollapsed && <span>Timecards</span>}
                   </Link>
-                  <Link
-                    to="/messages"
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
-                      isActive('/messages')
-                        ? 'bg-primary-600 text-white font-medium shadow-lg'
-                        : 'text-white/70 hover:bg-white/10 hover:text-white'
-                    } ${sidebarCollapsed ? 'justify-center' : ''}`}
-                    title="Messages"
-                  >
-                    <MessageCircle size={20} />
-                    {!sidebarCollapsed && <span>Messages</span>}
-                  </Link>
                 </div>
               </>
             ) : isOfficeStaff ? (
@@ -1110,19 +1060,6 @@ export default function Layout({ children }: LayoutProps) {
                 >
                   <Clock size={20} />
                   {!sidebarCollapsed && <span>Timecards</span>}
-                </Link>
-
-                <Link
-                  to="/messages"
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
-                    isActive('/messages')
-                      ? 'bg-primary-600 text-white font-medium shadow-lg'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  } ${sidebarCollapsed ? 'justify-center' : ''}`}
-                  title="Messages"
-                >
-                  <MessageCircle size={20} />
-                  {!sidebarCollapsed && <span>Messages</span>}
                 </Link>
 
                 {/* <Link

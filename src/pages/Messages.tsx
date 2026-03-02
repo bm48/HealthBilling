@@ -171,7 +171,7 @@ export default function Messages() {
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="Type a message… (UI only)"
+                    placeholder="Type a message… "
                     readOnly
                     className="flex-1 px-4 py-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/40 text-sm cursor-not-allowed"
                   />

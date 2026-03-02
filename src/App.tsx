@@ -17,7 +17,6 @@ import Layout from '@/components/Layout'
 import ProviderDashboardPage from '@/pages/providers/ProviderDashboardPage'
 import ProviderSheetPage from '@/pages/providers/ProviderSheetPage'
 import ProviderSchedulePage from '@/pages/providers/ProviderSchedulePage'
-import Messages from '@/pages/Messages'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -122,16 +121,6 @@ function AppRoutes() {
           <ProtectedRoute>
             <Layout>
               <Timecards />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/messages"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <Messages />
             </Layout>
           </ProtectedRoute>
         }
