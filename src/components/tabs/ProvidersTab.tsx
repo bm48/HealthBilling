@@ -1466,7 +1466,7 @@ export default function ProvidersTab({
       className="p-6" 
       style={isInSplitScreen ? { width: '100%', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 } : {}}
     >
-      <h1 className="text-3xl font-bold text-white">{activeProvider?.first_name} {activeProvider?.last_name}</h1>
+      {/* <h1 className="text-3xl font-bold text-white">{activeProvider?.first_name} {activeProvider?.last_name}</h1> */}
       {/* month selector - background color from status_colors (month type), like Ins Pay Date column */}
       {(() => {
         const monthName = selectedMonth.toLocaleString('en-US', { month: 'long' })
@@ -1502,7 +1502,7 @@ export default function ProvidersTab({
       })()}
 
       {showCondenseButton && (
-        <div className="flex justify-end mb-1">
+        <div className="flex justify-end -mt-6">
           <button
             type="button"
             onClick={() => setIsCondensed(prev => !prev)}

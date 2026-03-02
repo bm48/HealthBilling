@@ -690,8 +690,8 @@ export default function ClinicDetail() {
           throw error
         }
       } else {
-        // Create new record
-        const insertData: any = {
+        // No row in state: upsert so we create or update (avoids 409 when row exists in DB but not in state)
+        const upsertData: any = {
           clinic_id: clinicId,
           patient_id: columnName === 'patient_id' ? isLocked : false,
           first_name: columnName === 'first_name' ? isLocked : false,
@@ -712,25 +712,22 @@ export default function ClinicDetail() {
           pt_payment_ar_ref_date: columnName === 'pt_payment_ar_ref_date' ? isLocked : false,
           total: columnName === 'total' ? isLocked : false,
           notes: columnName === 'notes' ? isLocked : false,
+          updated_at: new Date().toISOString(),
         }
-        
-        // Only include comment if provided
         if (comment !== undefined && comment !== null && comment !== '') {
-          insertData[commentField] = comment
+          upsertData[commentField] = comment
         }
 
         let { error } = await supabase
           .from('is_lock_providers')
-          .insert(insertData)
+          .upsert(upsertData, { onConflict: 'clinic_id' })
 
-        // If error is about missing comment column, retry without comment
         if (error && (error.message?.includes('column') || error.message?.includes('not found') || error.code === 'PGRST204')) {
-          console.warn(`Comment column ${commentField} does not exist. Creating without comment.`)
-          delete insertData[commentField]
+          console.warn(`Comment column ${commentField} does not exist. Upserting without comment.`)
+          delete upsertData[commentField]
           const { error: retryError } = await supabase
             .from('is_lock_providers')
-            .insert(insertData)
-          
+            .upsert(upsertData, { onConflict: 'clinic_id' })
           if (retryError) throw retryError
         } else if (error) {
           throw error
@@ -2208,9 +2205,9 @@ export default function ClinicDetail() {
 
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-2">{`${fullName} - ${clinic?.name}`}</h1>
+          <h1 className="text-xl font-bold text-white mb-2">{`${fullName} - ${clinic?.name}`}</h1>
           {/* {clinic?.address && <p className="text-white/70">{clinic.address}</p>} */}
         </div>
         {((!providerId || userProfile?.role !== 'office_staff') || userProfile?.role === 'office_staff') && (showPatientTab || showBillingTodoTab || !splitScreen) && (

@@ -104,19 +104,31 @@ function syncRowHeaderHeightsToClone(hot: Handsontable) {
   }
 }
 
-/** For providers tab: measure column header row height and set CSS variable so row-number column corner and offset match when header wraps. */
+/** For providers tab: measure column header row height and set CSS variable + corner cell/row height so row-number corner matches when header wraps. */
 function syncColHeaderHeightForProviders(hot: Handsontable) {
   const root = hot?.rootElement as HTMLElement | undefined
   if (!root) return
-  const container = root.closest?.('.providers-handsontable') as HTMLElement | null
-  if (!container) return
   const headerRow =
     root.querySelector('.ht_clone_top table.htCore thead tr') as HTMLTableRowElement | null ||
     root.querySelector('.ht_master table.htCore thead tr') as HTMLTableRowElement | null
   if (!headerRow) return
   const height = headerRow.offsetHeight
-  if (height > 0) {
-    container.style.setProperty('--ht-colheader-height', `${height}px`)
+  if (height <= 0) return
+  const heightPx = `${height}px`
+  const container = root.closest?.('.providers-handsontable') as HTMLElement | null
+  if (container) container.style.setProperty('--ht-colheader-height', heightPx)
+  root.style.setProperty('--ht-colheader-height', heightPx)
+  const cornerCell =
+    (root.querySelector('.ht_clone_left table.htCore thead tr th') as HTMLElement | null) ||
+    (root.querySelector('.ht_clone_left table.htCore tr:first-child th') as HTMLElement | null)
+  if (cornerCell) {
+    cornerCell.style.setProperty('height', heightPx, 'important')
+    cornerCell.style.setProperty('min-height', heightPx, 'important')
+    const cornerRow = cornerCell.closest('tr') as HTMLTableRowElement | null
+    if (cornerRow) {
+      cornerRow.style.setProperty('height', heightPx, 'important')
+      cornerRow.style.setProperty('min-height', heightPx, 'important')
+    }
   }
 }
 
@@ -686,7 +698,9 @@ export default function HandsontableWrapper({
       applyCellStylesAndTitles(this, getCellTitle)
     },
     afterColumnResize: function (this: Handsontable) {
-      requestAnimationFrame(() => syncColHeaderHeightForProviders(this))
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => syncColHeaderHeightForProviders(this))
+      })
     },
   }
   
@@ -937,6 +951,34 @@ export default function HandsontableWrapper({
       clearTimeout(t2)
     }
   }, [data.length, dataVersion])
+
+  // Providers tab: keep row-number corner height in sync with column header row when it wraps (ResizeObserver)
+  useEffect(() => {
+    let cancelled = false
+    let disconnect: (() => void) | null = null
+    const rafId = requestAnimationFrame(() => {
+      const hot = hotTableRef.current?.hotInstance
+      if (!hot?.rootElement || cancelled) return
+      const container = hot.rootElement.closest?.('.providers-handsontable') as HTMLElement | null
+      if (!container) return
+      const headerRow =
+        (hot.rootElement.querySelector('.ht_clone_top table.htCore thead tr') as HTMLTableRowElement | null) ||
+        (hot.rootElement.querySelector('.ht_master table.htCore thead tr') as HTMLTableRowElement | null)
+      if (!headerRow) return
+      const sync = () => syncColHeaderHeightForProviders(hot)
+      sync()
+      const ro = new ResizeObserver(() => {
+        if (!cancelled) requestAnimationFrame(sync)
+      })
+      ro.observe(headerRow)
+      disconnect = () => ro.disconnect()
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(rafId)
+      disconnect?.()
+    }
+  }, [dataVersion, data.length])
 
   // Re-render grid when formula ref ranges change so dotted highlight is applied/cleared
   useEffect(() => {

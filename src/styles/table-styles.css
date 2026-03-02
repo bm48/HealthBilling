@@ -332,7 +332,7 @@
 }
 
 /* Providers tab - custom header colors per column group */
-.providers-handsontable table.htCore thead th:nth-child(1),
+/* .providers-handsontable table.htCore thead th:nth-child(1), */
 .providers-handsontable table.htCore thead th:nth-child(2),
 .providers-handsontable table.htCore thead th:nth-child(3),
 .providers-handsontable table.htCore thead th:nth-child(4),
@@ -429,7 +429,7 @@
   color: #000000 !important;
 }
 
-/* Providers tab: wrap column header titles; header height at least as tall as other tabs (36px) */
+/* Providers tab: wrap column header titles; header can grow when text wraps so row-number corner stays aligned */
 .providers-handsontable table.htCore thead th,
 .providers-handsontable .ht_clone_top table.htCore thead th {
   white-space: normal !important;
@@ -438,7 +438,7 @@
   overflow: visible !important;
   text-overflow: unset !important;
   min-height: 36px !important;
-  height: 36px !important;
+  height: auto !important;
   line-height: 1.2 !important;
   vertical-align: middle !important;
   padding: 6px 8px !important;
@@ -454,7 +454,7 @@
 .providers-handsontable table.htCore thead tr,
 .providers-handsontable .ht_clone_top table.htCore thead tr {
   min-height: 36px !important;
-  height: 36px !important;
+  height: auto !important;
 }
 
 .handsontable-custom .ht_clone_left th {
@@ -496,11 +496,26 @@ providers-handsontable} */
 .providers-handsontable .ht_clone_left .wtHider {
   padding-top: 0 !important;
 }
-/* Corner cell height matches column header so first row number aligns with first data row. */
-.providers-handsontable .ht_clone_left table.htCore thead tr th {
-  height: var(--ht-colheader-height, 36px) !important;
-  min-height: var(--ht-colheader-height, 36px) !important;
+/* Corner cell height matches column header so first row number aligns with first data row (JS sets inline with setProperty(..., 'important')). */
+.providers-handsontable .ht_clone_left table.htCore thead tr th,
+.providers-handsontable .ht_clone_left table.htCore tr:first-child th {
+  height: var(--ht-colheader-height, 36px);
+  min-height: var(--ht-colheader-height, 36px);
   box-sizing: border-box !important;
+}
+.providers-handsontable .ht_clone_left table.htCore thead tr,
+.providers-handsontable .ht_clone_left table.htCore tr:first-child {
+  height: var(--ht-colheader-height, 36px);
+  min-height: var(--ht-colheader-height, 36px);
+}
+/* Corner: no line between header and first row */
+.providers-handsontable .ht_clone_left table.htCore thead tr th,
+.providers-handsontable .ht_clone_left table.htCore thead tr {
+  border-bottom: none !important;
+}
+.providers-handsontable .ht_clone_left table.htCore thead tr th {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  border-bottom: none !important;
 }
 /* Top-left corner cell (non-providers): fixed height so first row number lines up with first data row. */
 .handsontable-custom .ht_clone_left table.htCore thead tr th {
@@ -516,11 +531,11 @@ providers-handsontable} */
   border-spacing: 0 !important;
 }
 
-/* Ensure the first row is fully visible - add minimal top padding to first row */
+/* Ensure the first row is fully visible - no border between header and first row */
 .handsontable-custom .ht_master .wtHider table.htCore tbody tr:first-child td {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
-  border-top: 1px solid #dee2e6 !important;
+  border-top: none !important;
   /* Ensure first row cells are fully visible */
   position: relative;
   z-index: 0;
@@ -612,26 +627,31 @@ providers-handsontable} */
   z-index: 0;
 }
 
-/* Add padding to first row cells to create space from header */
+/* Add padding to first row cells to create space from header; no line between header and first row */
 .handsontable-custom table.htCore tbody tr:first-child td {
   padding-top: 2px !important;
   padding-bottom: 2px !important;
   min-height: 24px !important;
+  border-top: none !important;
 }
 
 .handsontable-custom .ht_clone_left table.htCore tbody tr:first-child th {
   padding-top: 2px !important;
   padding-bottom: 2px !important;
   min-height: 24px !important;
+  border-top: none !important;
 }
 
-/* Ensure header row has proper bottom border/spacing */
+/* No line between header and first row */
 .handsontable-custom table.htCore thead tr th {
-  border-bottom: 2px solid rgba(255, 255, 255, 0.3) !important;
+  border-bottom: none !important;
+  /* border-top: none !important; */
+  border-left: none !important;
+  border-right: none !important;
 }
 
 .handsontable-custom .ht_clone_top table.htCore thead tr th {
-  border-bottom: 2px solid rgba(255, 255, 255, 0.3) !important;
+  border-bottom: none !important;
 }
 
 /* Column sort icon: hidden (sorting disabled) except for billing todo which has sortable ID/Status columns */
