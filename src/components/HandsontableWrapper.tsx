@@ -268,30 +268,28 @@ export default function HandsontableWrapper({
   }, [hotInstanceRef])
 
   useEffect(() => {
-    if (dataRef.current.length > 0 && hotTableRef.current?.hotInstance) {
-      const hotInstance = hotTableRef.current.hotInstance
-      // Push data when row count or dataVersion changes (e.g. add/delete row); avoid overwriting during typing otherwise
-      const lengthChanged = prevDataLengthRef.current !== dataRef.current.length
-      const versionChanged = prevDataVersionRef.current !== dataVersion
-      if (lengthChanged || versionChanged) {
-        prevDataLengthRef.current = dataRef.current.length
-        prevDataVersionRef.current = dataVersion
-        hotInstance.updateSettings({
-          data: dataRef.current
+    const hotInstance = hotTableRef.current?.hotInstance
+    // Push data when row count or dataVersion changes (e.g. month change, add/delete row); include empty data so table clears when switching to a month whose data is still loading
+    const lengthChanged = prevDataLengthRef.current !== dataRef.current.length
+    const versionChanged = prevDataVersionRef.current !== dataVersion
+    if (hotInstance && (lengthChanged || versionChanged)) {
+      prevDataLengthRef.current = dataRef.current.length
+      prevDataVersionRef.current = dataVersion
+      hotInstance.updateSettings({
+        data: dataRef.current
+      })
+      dataForSettingsRef.current = dataRef.current
+      // Scroll to requested row (e.g. after "Add row" so the new row is visible)
+      const rowToScroll = scrollToRowAfterUpdateRef?.current
+      if (typeof rowToScroll === 'number' && rowToScroll >= 0 && rowToScroll < dataRef.current.length) {
+        if (scrollToRowAfterUpdateRef) scrollToRowAfterUpdateRef.current = null
+        requestAnimationFrame(() => {
+          try {
+            hotInstance.selectCell(rowToScroll, 0, rowToScroll, 0, true)
+          } catch {
+            // ignore if instance or row no longer valid
+          }
         })
-        dataForSettingsRef.current = dataRef.current
-        // Scroll to requested row (e.g. after "Add row" so the new row is visible)
-        const rowToScroll = scrollToRowAfterUpdateRef?.current
-        if (typeof rowToScroll === 'number' && rowToScroll >= 0 && rowToScroll < dataRef.current.length) {
-          if (scrollToRowAfterUpdateRef) scrollToRowAfterUpdateRef.current = null
-          requestAnimationFrame(() => {
-            try {
-              hotInstance.selectCell(rowToScroll, 0, rowToScroll, 0, true)
-            } catch {
-              // ignore if instance or row no longer valid
-            }
-          })
-        }
       }
     } else {
       prevDataLengthRef.current = dataRef.current.length

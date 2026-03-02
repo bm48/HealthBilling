@@ -2208,7 +2208,6 @@ export default function ClinicDetail() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-white mb-2">{`${fullName} - ${clinic?.name}`}</h1>
-          {/* {clinic?.address && <p className="text-white/70">{clinic.address}</p>} */}
         </div>
         {((!providerId || userProfile?.role !== 'office_staff') || userProfile?.role === 'office_staff') && (showPatientTab || showBillingTodoTab || !splitScreen) && (
           <div className="flex items-center gap-2 shrink-0">

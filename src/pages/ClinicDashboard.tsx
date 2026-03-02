@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { Clinic, Provider } from '@/types'
 import { fetchSheetRows } from '@/lib/providerSheetRows'
+import { fetchClinicAddressesByClinicIds } from '@/lib/clinicAddresses'
 import { computeBillingMetrics, type BillingMetrics } from '@/lib/billingMetrics'
 import { Users, FileText, CheckSquare, DollarSign } from 'lucide-react'
 
@@ -34,6 +35,7 @@ export default function ClinicDashboard() {
   const navigate = useNavigate()
   const { userProfile } = useAuth()
   const [clinic, setClinic] = useState<Clinic | null>(null)
+  const [clinicAddressLines, setClinicAddressLines] = useState<string[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
   const [stats, setStats] = useState<ClinicStats | null>(null)
   const [providerStats, setProviderStats] = useState<ProviderCardStats[]>([])
@@ -72,6 +74,8 @@ export default function ClinicDashboard() {
         return
       }
       setClinic(clinicData as Clinic)
+      const addressesMap = await fetchClinicAddressesByClinicIds([clinicId])
+      setClinicAddressLines(addressesMap[clinicId] ?? [])
 
       const now = new Date()
       const y = now.getFullYear()
@@ -236,18 +240,18 @@ export default function ClinicDashboard() {
       <div>
         <div className="space-y-3 grid grid-cols-2">
             <div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                <span className="text-white/70 font-medium">Clinic Addresses 1: </span>
-                <span className="text-white">
-                  {clinic.address}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                <span className="text-white/70 font-medium">Clinic Addresses 2: </span>
-                <span className="text-white">
-                  {clinic.address_line_2}
-                </span>
-              </div>
+              {clinicAddressLines.filter((line) => line.trim()).length > 0 && (
+                <>
+                  {clinicAddressLines.map((line, i) =>
+                    line.trim() ? (
+                      <div key={i} className="flex flex-wrap gap-x-4 gap-y-1">
+                        <span className="text-white/70 font-medium">Clinic Address {i + 1}: </span>
+                        <span className="text-white">{line}</span>
+                      </div>
+                    ) : null
+                  )}
+                </>
+              )}
               <div className="flex flex-wrap gap-x-4 gap-y-1">
                 <span className="text-white/70 font-medium">Phone : </span>
                 <span className="text-white">{clinic.phone ?? '—'}</span>

@@ -5,6 +5,7 @@ import { SheetRow, Clinic } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { generateClinicInvoicePdf } from '@/lib/clinicInvoicePdf'
+import { fetchClinicAddressesByClinicIds } from '@/lib/clinicAddresses'
 import { Download } from 'lucide-react'
 
 interface InvoiceRow {
@@ -104,9 +105,11 @@ export default function Invoices() {
     try {
       const month = selectedMonth.getMonth() + 1
       const year = selectedMonth.getFullYear()
-      const { data: allClinicsData, error: clinicsErr } = await supabase.from('clinics').select('id, name, address, address_line_2, invoice_rate').order('name')
+      const { data: allClinicsData, error: clinicsErr } = await supabase.from('clinics').select('id, name, invoice_rate').order('name')
       if (clinicsErr) throw clinicsErr
       const allClinics = allClinicsData || []
+      const clinicIds = allClinics.map((c: { id: string }) => c.id)
+      const clinicAddressesByClinic = clinicIds.length > 0 ? await fetchClinicAddressesByClinicIds(clinicIds) : {}
       const { data: sheetsData, error: sheetsError } = await supabase
         .from('provider_sheets')
         .select('*')
@@ -177,8 +180,8 @@ export default function Invoices() {
         return {
           clinic_id: clinic.id,
           clinic_name: clinic.name,
-          clinic_address_1: clinic.address ?? '',
-          clinic_address_2: clinic.address_line_2 ?? '',
+          clinic_address_1: clinicAddressesByClinic[clinic.id]?.[0] ?? '',
+          clinic_address_2: clinicAddressesByClinic[clinic.id]?.[1] ?? '',
           insurance_payment_total: insurance,
           patient_payment_total: patient,
           accounts_receivable_total: ar,

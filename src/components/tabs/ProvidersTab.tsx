@@ -1012,6 +1012,7 @@ export default function ProvidersTab({
     let hadPatientIdMerge = false
     let hadDateColumnEdit = false
     let hadTotalAutoUpdate = false
+    const deleteRowIds: string[] = []
 
     // Track 0-value highlight updates for Ins Pay / Collected from PT (and "00" in Collected from PT → yellow)
     const YELLOW_HIGHLIGHT = '#eab308'
@@ -1078,6 +1079,11 @@ export default function ProvidersTab({
           // Extract patient_id from dropdown value (format: "patient_id - first_name last_name") or raw input
           const raw = String(newValue ?? '').trim()
           const patientIdOrNull = raw ? (raw.split(' - ')[0]?.trim() || raw) : null
+          // When user clears patient ID, delete the row
+          if (patientIdOrNull == null || patientIdOrNull === '') {
+            deleteRowIds.push(sheetRow.id)
+            return
+          }
           // Look up patient from patient database (case-insensitive, trimmed) and fill row
           const patient = patientIdOrNull
             ? patients.find(p => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase())
@@ -1144,7 +1150,18 @@ export default function ProvidersTab({
         zeroHighlightUpdates.push({ rowId, colKey, isZero, highlightColor: colorToUse })
       }
     })
-    
+
+    // Remove rows whose patient_id was cleared and notify parent
+    const uniqueDeleteIds = [...new Set(deleteRowIds)]
+    if (uniqueDeleteIds.length > 0 && onDeleteRow) {
+      for (let i = updatedRows.length - 1; i >= 0; i--) {
+        if (uniqueDeleteIds.includes(updatedRows[i].id)) {
+          onDeleteRow(activeProvider.id, updatedRows[i].id)
+          updatedRows.splice(i, 1)
+        }
+      }
+    }
+
     // Only pad to 200 when under 200 (allow more than 200 rows)
     if (updatedRows.length < 200) {
       const emptyRowsNeeded = 200 - updatedRows.length
@@ -1316,12 +1333,12 @@ export default function ProvidersTab({
       }
     }, 250)
 
-    // When patient_id was merged, a date column was edited, or total was auto-calculated from Ins Pay + Collected from PT,
+    // When patient_id was merged, a date column was edited, total was auto-calculated, or a row was deleted,
     // bump so HandsontableWrapper pushes the ref data to the grid (wrapper only updates on dataVersion/length change).
-    if (hadPatientIdMerge || hadDateColumnEdit || hadTotalAutoUpdate) {
+    if (hadPatientIdMerge || hadDateColumnEdit || hadTotalAutoUpdate || uniqueDeleteIds.length > 0) {
       setStructureVersion((v) => v + 1)
     }
-  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, patients, getTableDataFromRows, clinicId, userHighlightColor, userProfile?.id])
+  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, onDeleteRow, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, patients, getTableDataFromRows, clinicId, userHighlightColor, userProfile?.id])
 
   // Flush pending save when tab is left so data isn't lost on switch (prefer latest ref like PatientsTab flush)
   useEffect(() => {

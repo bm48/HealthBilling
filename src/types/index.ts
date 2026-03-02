@@ -55,8 +55,6 @@ export interface User {
 export interface Clinic {
   id: string
   name: string
-  address: string | null
-  address_line_2?: string | null
   phone: string | null
   fax?: string | null
   npi?: string | null
@@ -65,6 +63,16 @@ export interface Clinic {
   payroll?: 1 | 2
   /** Decimal rate for invoice total (e.g. 0.05 = 5%). Invoice Total = (Ins + Patient + AR) * invoice_rate. Set in Clinic Management. */
   invoice_rate?: number | null
+  created_at: string
+  updated_at: string
+}
+
+/** One address line (1–6) for a clinic. Stored in clinic_addresses table. */
+export interface ClinicAddress {
+  id: string
+  clinic_id: string
+  line_index: number
+  address: string | null
   created_at: string
   updated_at: string
 }

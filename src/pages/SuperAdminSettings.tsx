@@ -3,8 +3,9 @@ import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { supabase, createSupabaseClientForSignUp, createSupabaseClientWithStorageKey } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { User, BillingCode, Clinic, ProviderSheet, AuditLog, Provider } from '@/types'
-import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Link2, Check, Key } from 'lucide-react'
+import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Link2, Check, Key, MapPin } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
+import { fetchClinicAddressesByClinicIds } from '@/lib/clinicAddresses'
 import MonthCloseTab from '@/components/MonthCloseTab'
 
 /** Convert array of objects to CSV string (header row + data rows, values escaped). */
@@ -61,6 +62,7 @@ export default function SuperAdminSettings() {
   const [users, setUsers] = useState<User[]>([])
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])
   const [clinics, setClinics] = useState<Clinic[]>([])
+  const [clinicAddressesByClinic, setClinicAddressesByClinic] = useState<Record<string, string[]>>({})
   const [providers, setProviders] = useState<Provider[]>([])
   const [providersByClinic, setProvidersByClinic] = useState<Record<string, Provider[]>>({})
   const [providerLevelsMap, setProviderLevelsMap] = useState<Record<string, number>>({})
@@ -97,6 +99,7 @@ export default function SuperAdminSettings() {
   const [changePasswordError, setChangePasswordError] = useState('')
   const [changePasswordSuccess, setChangePasswordSuccess] = useState(false)
   const [changePasswordLoading, setChangePasswordLoading] = useState(false)
+  const [showAddClinicAddressModal, setShowAddClinicAddressModal] = useState(false)
 
   useEffect(() => {
     const tab = (searchParams.get('tab') || 'users') as SettingsTabId
@@ -182,6 +185,8 @@ export default function SuperAdminSettings() {
       setClinics(data || [])
 
       const clinicIds = data?.length ? data.map((c: Clinic) => c.id) : []
+      const addressesMap = await fetchClinicAddressesByClinicIds(clinicIds)
+      setClinicAddressesByClinic(addressesMap)
       await fetchProvidersForClinics(clinicIds)
     } catch (error) {
       console.error('Error fetching clinics:', error)
@@ -638,8 +643,6 @@ export default function SuperAdminSettings() {
           .from('clinics')
           .update({
             name: clinicData.name ?? editingClinic.name,
-            address: clinicData.address ?? editingClinic.address,
-            address_line_2: clinicData.address_line_2 ?? editingClinic.address_line_2 ?? null,
             phone: clinicData.phone ?? editingClinic.phone,
             fax: clinicData.fax ?? editingClinic.fax ?? null,
             npi: clinicData.npi ?? editingClinic.npi ?? null,
@@ -656,8 +659,6 @@ export default function SuperAdminSettings() {
           .from('clinics')
           .insert({
             name: clinicData.name ?? '',
-            address: clinicData.address ?? null,
-            address_line_2: clinicData.address_line_2 ?? null,
             phone: clinicData.phone ?? null,
             fax: clinicData.fax ?? null,
             npi: clinicData.npi ?? null,
@@ -1108,16 +1109,27 @@ export default function SuperAdminSettings() {
                 <div>
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-semibold text-white">Clinic Management</h2>
-                    <button
-                      onClick={() => {
-                        setEditingClinic(null)
-                        setShowClinicForm(true)
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                    >
-                      <Plus size={18} />
-                      Add Clinic
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {variant === 'super_admin' && (
+                        <button
+                          onClick={() => setShowAddClinicAddressModal(true)}
+                          className="flex items-center gap-2 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700"
+                        >
+                          <MapPin size={18} />
+                          Add Clinic Address
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          setEditingClinic(null)
+                          setShowClinicForm(true)
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                      >
+                        <Plus size={18} />
+                        Add Clinic
+                      </button>
+                    </div>
                   </div>
 
                   <div className="table-container dark-theme">
@@ -1140,7 +1152,7 @@ export default function SuperAdminSettings() {
                           return (
                             <tr key={clinic.id}>
                               <td>{clinic.name}</td>
-                              <td>{clinic.address || '-'}</td>
+                              <td>{(clinicAddressesByClinic[clinic.id]?.[0]?.trim()) || '-'}</td>
                               <td>{clinic.phone || '-'}</td>
                               <td>
                                 {clinicProviders.length > 0 ? (
@@ -1459,10 +1471,22 @@ export default function SuperAdminSettings() {
         />
       )}
 
+      {showAddClinicAddressModal && (
+        <ClinicAddressModal
+          clinics={clinics}
+          onClose={() => setShowAddClinicAddressModal(false)}
+          onSave={async () => {
+            setShowAddClinicAddressModal(false)
+            await fetchClinics()
+          }}
+        />
+      )}
+
       {showAssignClinicModal && assignClinicUser && (
         <AssignClinicsModal
           user={assignClinicUser}
           clinics={clinics}
+          clinicAddressesByClinic={clinicAddressesByClinic}
           onClose={() => {
             setShowAssignClinicModal(false)
             setAssignClinicUser(null)
@@ -2019,8 +2043,6 @@ function ClinicFormModal({
 }) {
   const [formData, setFormData] = useState({
     name: clinic?.name ?? '',
-    address: clinic?.address ?? '',
-    address_line_2: clinic?.address_line_2 ?? '',
     phone: clinic?.phone ?? '',
     fax: clinic?.fax ?? '',
     npi: clinic?.npi ?? '',
@@ -2038,8 +2060,6 @@ function ClinicFormModal({
     const rateNum = formData.invoice_rate.trim() ? parseFloat(formData.invoice_rate) : null
     await onSave({
       name: formData.name.trim(),
-      address: formData.address.trim() || null,
-      address_line_2: formData.address_line_2.trim() || null,
       phone: formData.phone.trim() || null,
       fax: formData.fax.trim() || null,
       npi: formData.npi.trim() || null,
@@ -2074,24 +2094,7 @@ function ClinicFormModal({
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Address 1</label>
-              <input
-                type="text"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Address 2</label>
-              <input
-                type="text"
-                value={formData.address_line_2}
-                onChange={(e) => setFormData({ ...formData, address_line_2: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-black"
-              />
-            </div>
+            <p className="text-sm text-gray-500 md:col-span-2">Use &quot;Add Clinic Address&quot; to manage up to 6 address lines per clinic.</p>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
               <input
@@ -2179,14 +2182,171 @@ function ClinicFormModal({
   )
 }
 
+function ClinicAddressModal({
+  clinics,
+  onClose,
+  onSave,
+}: {
+  clinics: Clinic[]
+  onClose: () => void
+  onSave: () => Promise<void>
+}) {
+  const [selectedClinicId, setSelectedClinicId] = useState<string>('')
+  const [addresses, setAddresses] = useState<string[]>(() => Array(6).fill(''))
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!selectedClinicId) {
+      setAddresses(Array(6).fill(''))
+      setLoadError(null)
+      return
+    }
+    let cancelled = false
+    setLoadError(null)
+    setLoading(true)
+    supabase
+      .from('clinic_addresses')
+      .select('line_index, address')
+      .eq('clinic_id', selectedClinicId)
+      .order('line_index')
+      .then(({ data, error }) => {
+        if (cancelled) return
+        setLoading(false)
+        if (error) {
+          setLoadError(error.message)
+          return
+        }
+        const next = Array(6).fill('')
+        ;(data as { line_index: number; address: string | null }[] | null)?.forEach((row) => {
+          const i = row.line_index - 1
+          if (i >= 0 && i < 6) next[i] = row.address ?? ''
+        })
+        setAddresses(next)
+      })
+    return () => { cancelled = true }
+  }, [selectedClinicId])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedClinicId.trim()) {
+      alert('Please select a clinic.')
+      return
+    }
+    setSaving(true)
+    try {
+      for (let i = 0; i < 6; i++) {
+        const lineIndex = i + 1
+        const address = addresses[i]?.trim() ?? null
+        const { error } = await supabase
+          .from('clinic_addresses')
+          .upsert(
+            {
+              clinic_id: selectedClinicId,
+              line_index: lineIndex,
+              address: address || null,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'clinic_id,line_index' }
+          )
+        if (error) throw error
+      }
+      await onSave()
+      onClose()
+    } catch (err: unknown) {
+      console.error(err)
+      alert(err instanceof Error ? err.message : 'Failed to save addresses.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
+        <div className="flex justify-between items-center p-6 border-b border-gray-200">
+          <h2 className="text-xl font-semibold text-gray-900">Add Clinic Address</h2>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={24} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Clinic</label>
+              <select
+                value={selectedClinicId}
+                onChange={(e) => setSelectedClinicId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 bg-white"
+              >
+                <option value="">Select a clinic</option>
+                {clinics.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {loading && (
+              <p className="text-sm text-gray-500">Loading addresses...</p>
+            )}
+            {loadError && (
+              <p className="text-sm text-red-600">{loadError}</p>
+            )}
+
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <div key={n}>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Address {n}</label>
+                <input
+                  type="text"
+                  value={addresses[n - 1] ?? ''}
+                  onChange={(e) => {
+                    const next = [...addresses]
+                    next[n - 1] = e.target.value
+                    setAddresses(next)
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  placeholder={`Address line ${n}`}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-6 mt-4 border-t border-gray-200">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !selectedClinicId}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function AssignClinicsModal({
   user,
   clinics,
+  clinicAddressesByClinic = {},
   onClose,
   onSave,
 }: {
   user: User
   clinics: Clinic[]
+  clinicAddressesByClinic?: Record<string, string[]>
   onClose: () => void
   onSave: (clinicIds: string[]) => Promise<void>
 }) {
@@ -2256,8 +2416,8 @@ function AssignClinicsModal({
                     className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                   />
                   <span className="font-medium text-gray-900">{clinic.name}</span>
-                  {clinic.address && (
-                    <span className="text-sm text-gray-500 truncate flex-1">{clinic.address}</span>
+                  {(clinicAddressesByClinic[clinic.id]?.[0]?.trim()) && (
+                    <span className="text-sm text-gray-500 truncate flex-1">{clinicAddressesByClinic[clinic.id][0]}</span>
                   )}
                 </label>
               ))}
