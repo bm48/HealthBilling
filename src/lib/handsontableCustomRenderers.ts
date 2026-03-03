@@ -392,13 +392,6 @@ export class DateEditor extends Handsontable.editors.TextEditor {
     }
   }
   
-  /** Date input does not support setSelectionRange; override to avoid calling parent's setCaretPosition. */
-  focus() {
-    if (this.TEXTAREA) {
-      this.TEXTAREA.focus()
-    }
-  }
-
   getValue() {
     return (this.TEXTAREA as HTMLInputElement)?.value || ''
   }

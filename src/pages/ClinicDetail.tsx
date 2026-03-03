@@ -1120,22 +1120,23 @@ export default function ClinicDetail() {
       const year = selectedMonth.getFullYear()
 
 
-      // Fetch sheet for the selected month/year
-      const { data: existingSheet, error: sheetsError } = await supabase
+      // Fetch sheet for the selected month/year (use limit(1) so duplicate rows don't cause PGRST116)
+      const { data: sheetList, error: sheetsError } = await supabase
         .from('provider_sheets')
         .select('*')
         .eq('clinic_id', clinicId)
         .eq('provider_id', providerId)
         .eq('month', month)
         .eq('year', year)
-        .maybeSingle()
+        .order('created_at', { ascending: true })
+        .limit(1)
 
-      if (sheetsError && sheetsError.code !== 'PGRST116') throw sheetsError
+      if (sheetsError) throw sheetsError
 
-      let sheet = existingSheet
+      let sheet = sheetList?.[0] ?? null
 
       if (!sheet) {
-        // Create a new sheet
+        // Create a new sheet (or use existing if race condition / duplicate key)
         const { data: newSheet, error: createError } = await supabase
           .from('provider_sheets')
           .insert({
@@ -1149,12 +1150,28 @@ export default function ClinicDetail() {
           .select()
           .maybeSingle()
 
-        if (createError) throw createError
-        if (!newSheet) {
+        if (createError) {
+          // Duplicate key (409): sheet was created by another request; fetch existing
+          if (createError.code === '23505') {
+            const { data: refetchRows, error: refetchError } = await supabase
+              .from('provider_sheets')
+              .select('*')
+              .eq('clinic_id', clinicId)
+              .eq('provider_id', providerId)
+              .eq('month', month)
+              .eq('year', year)
+              .order('created_at', { ascending: true })
+              .limit(1)
+            if (refetchError) throw refetchError
+            if (refetchRows?.[0]) sheet = refetchRows[0]
+          }
+          if (!sheet) throw createError
+        } else if (newSheet) {
+          sheet = newSheet
+        } else {
           console.error('Failed to create provider sheet - no data returned')
           return
         }
-        sheet = newSheet
       }
 
       setCurrentSheet(sheet)
@@ -1371,22 +1388,24 @@ export default function ClinicDetail() {
       const rowsMap: Record<string, SheetRow[]> = {}
 
       for (const providerId of providerIds) {
-        // Try to fetch existing sheet
-        const { data: existingSheet, error: fetchError } = await supabase
+        // Try to fetch existing sheet (use limit(1) so duplicate rows don't cause PGRST116)
+        const { data: fetchRows, error: fetchError } = await supabase
           .from('provider_sheets')
           .select('*')
           .eq('clinic_id', clinicId)
           .eq('provider_id', providerId)
           .eq('month', month)
           .eq('year', year)
-          .maybeSingle()
+          .order('created_at', { ascending: true })
+          .limit(1)
 
-        let sheet: ProviderSheet
+        let sheet: ProviderSheet | undefined
+        const existingSheet = fetchRows?.[0]
 
         if (existingSheet && !fetchError) {
           sheet = existingSheet
         } else {
-          // Create new sheet if doesn't exist
+          // Create new sheet if doesn't exist (or use existing if duplicate key / race)
           const { data: newSheet, error: createError } = await supabase
             .from('provider_sheets')
             .insert({
@@ -1401,16 +1420,31 @@ export default function ClinicDetail() {
             .maybeSingle()
 
           if (createError) {
-            console.error('Error creating provider sheet:', createError)
-            continue
-          }
-          if (!newSheet) {
+            if (createError.code === '23505') {
+              const { data: refetchRows, error: refetchError } = await supabase
+                .from('provider_sheets')
+                .select('*')
+                .eq('clinic_id', clinicId)
+                .eq('provider_id', providerId)
+                .eq('month', month)
+                .eq('year', year)
+                .order('created_at', { ascending: true })
+                .limit(1)
+              if (!refetchError && refetchRows?.[0]) sheet = refetchRows[0]
+            }
+            if (!sheet) {
+              console.error('Error creating provider sheet:', createError)
+              continue
+            }
+          } else if (newSheet) {
+            sheet = newSheet
+          } else {
             console.error('Failed to create provider sheet - no data returned')
             continue
           }
-          sheet = newSheet
         }
 
+        if (!sheet) continue
         sheetsMap[providerId] = sheet
         const sheetRows = await fetchSheetRows(supabase, sheet.id)
         
@@ -1888,22 +1922,36 @@ export default function ClinicDetail() {
       const sheetsMap: Record<string, ProviderSheet> = {}
       const rowsMap: Record<string, SheetRow[]> = {}
       for (const providerId of ids) {
-        const { data: existingSheet, error: fetchError } = await supabase
+        const { data: fetchRows, error: fetchError } = await supabase
           .from('provider_sheets')
           .select('*')
           .eq('clinic_id', clinicId)
           .eq('provider_id', providerId)
           .eq('month', month)
           .eq('year', year)
-          .maybeSingle()
-        let sheet: ProviderSheet | null = existingSheet && !fetchError ? existingSheet as ProviderSheet : null
+          .order('created_at', { ascending: true })
+          .limit(1)
+        let sheet: ProviderSheet | null = fetchRows?.[0] && !fetchError ? (fetchRows[0] as ProviderSheet) : null
         if (!sheet) {
           const { data: newSheet, error: createError } = await supabase
             .from('provider_sheets')
             .insert({ clinic_id: clinicId, provider_id: providerId, month, year, locked: false, locked_columns: [] })
             .select()
             .maybeSingle()
-          if (!createError && newSheet) sheet = newSheet as ProviderSheet
+          if (!createError && newSheet) {
+            sheet = newSheet as ProviderSheet
+          } else if (createError?.code === '23505') {
+            const { data: refetchRows } = await supabase
+              .from('provider_sheets')
+              .select('*')
+              .eq('clinic_id', clinicId)
+              .eq('provider_id', providerId)
+              .eq('month', month)
+              .eq('year', year)
+              .order('created_at', { ascending: true })
+              .limit(1)
+            if (refetchRows?.[0]) sheet = refetchRows[0] as ProviderSheet
+          }
         }
         if (sheet) {
           sheetsMap[providerId] = sheet
