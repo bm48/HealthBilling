@@ -879,8 +879,8 @@ export default function SuperAdminSettings() {
                     <table className="table-spreadsheet dark-theme">
                       <thead>
                         <tr>
-                          <th>Email</th>
                           <th>Name</th>
+                          <th>Email</th>
                           <th>Role</th>
                           {variant === 'super_admin' && <th>Active</th>}
                           {variant === 'super_admin' && <th>Provider Level</th>}
@@ -891,7 +891,7 @@ export default function SuperAdminSettings() {
                         </tr>
                       </thead>
                       <tbody>
-                        {users.map((user) => {
+                        {users.sort((a, b) => a.full_name?.localeCompare(b.full_name ?? '') ?? 0).map((user) => {
                           const providersForUser = user.role === 'provider' ? providers.filter(p => p.email === user.email) : []
                           const levelInMap = providersForUser.length > 0 ? providerLevelsMap[providersForUser[0].id] : undefined
                           const displayLevel = providersForUser.length > 0
@@ -903,8 +903,8 @@ export default function SuperAdminSettings() {
                             : null
                           return (
                             <tr key={user.id}>
-                              <td>{user.email}</td>
                               <td>{user.full_name || '-'}</td>
+                              <td>{user.email}</td>
                               <td>
                                 <span className="status-badge" style={{ backgroundColor: '#dbeafe', color: '#1e40af' }}>
                                   {user.role}

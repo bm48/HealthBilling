@@ -298,7 +298,7 @@ export default function HandsontableWrapper({
   }, [data.length, dataVersion, scrollToRowAfterUpdateRef])
   
   // Process columns to handle numeric type and custom renderers/editors
-  const processedColumns = useMemo(() => columns.map(col => {
+  const processedColumns = useMemo(() => (columns || []).filter(col => col != null).map(col => {
     const processedCol: any = { ...col }
     // Never pass empty string as type/editor — causes "createElement('')" InvalidCharacterError in DOM
     if (processedCol.type === '' || (typeof processedCol.type === 'string' && !processedCol.type.trim())) {
@@ -364,9 +364,10 @@ export default function HandsontableWrapper({
     }
     
     // Final safety check: ensure type is valid (never empty string)
-    // Allow date, text types, and undefined (for select editor)
+    // Allow date, text, dropdown, and undefined (for select editor)
     const t = processedCol.type
-    if (!t || (typeof t === 'string' && t.trim() === '') || (t !== 'date' && t !== 'text')) {
+    const allowedType = t === 'date' || t === 'text' || t === 'dropdown'
+    if (!t || (typeof t === 'string' && t.trim() === '') || !allowedType) {
       if (processedCol.editor && processedCol.editor !== 'select' && processedCol.editor !== 'date') {
         processedCol.type = 'text' as const
       } else if (processedCol.editor === 'select') {
@@ -374,6 +375,14 @@ export default function HandsontableWrapper({
       } else {
         processedCol.type = 'text' as const
       }
+    }
+
+    // Guard: never leave type as empty string (InvalidCharacterError: createElement(''))
+    if (typeof processedCol.type === 'string' && !processedCol.type.trim()) {
+      processedCol.type = 'text' as const
+    }
+    if (typeof processedCol.editor === 'string' && !processedCol.editor.trim()) {
+      delete processedCol.editor
     }
 
     return processedCol
@@ -582,43 +591,58 @@ export default function HandsontableWrapper({
       }
     },
 
-    // Formula reference highlighting: show dotted border around referenced cells while typing a formula
+    // Formula reference highlighting + force dropdown list to open on single click
+    afterBeginEditing(row: number, col: number) {
+      const hot = hotTableRef.current?.hotInstance as any
+      if (!hot) return
+      // 1) Formula ref highlighting when enableFormula
+      if (enableFormula) {
+        const prev = formulaEditorInputRef.current
+        if (prev) {
+          prev.el.removeEventListener('input', prev.listener)
+          formulaEditorInputRef.current = null
+        }
+        const val = hot.getSourceDataAtCell?.(row, col) ?? hot.getDataAtCell(row, col)
+        const formula = typeof val === 'string' ? val : ''
+        if (formula.startsWith('=')) {
+          setFormulaRefRanges(parseFormulaReferences(formula))
+        } else {
+          setFormulaRefRanges([])
+        }
+        setTimeout(() => {
+          const root = hot.rootElement
+          const input = root?.querySelector('.handsontableInput') as HTMLInputElement | HTMLTextAreaElement | null
+          if (input) {
+            const listener = () => {
+              const value = input.value
+              if (typeof value === 'string' && value.startsWith('=')) {
+                setFormulaRefRanges(parseFormulaReferences(value))
+              } else {
+                setFormulaRefRanges([])
+              }
+            }
+            input.addEventListener('input', listener)
+            formulaEditorInputRef.current = { el: input, listener }
+          }
+        }, 0)
+      }
+      // 2) Force dropdown/autocomplete list to open so single-click shows options (Handsontable's internal timeout can be delayed)
+      const editorManager = hot._getEditorManager?.()
+      const editor = editorManager?.activeEditor
+      if (editor && typeof editor.queryChoices === 'function') {
+        setTimeout(() => {
+          try {
+            if (!hot.isDestroyed && editor.TEXTAREA != null) {
+              editor.queryChoices(editor.TEXTAREA.value ?? '')
+            }
+          } catch {
+            // ignore
+          }
+        }, 0)
+      }
+    },
     ...(enableFormula
       ? {
-          afterBeginEditing(row: number, col: number) {
-            const hot = hotTableRef.current?.hotInstance as Handsontable
-            if (!hot) return
-            // Remove any previous editor listener (e.g. from another cell)
-            const prev = formulaEditorInputRef.current
-            if (prev) {
-              prev.el.removeEventListener('input', prev.listener)
-              formulaEditorInputRef.current = null
-            }
-            const val = (hot as any).getSourceDataAtCell?.(row, col) ?? hot.getDataAtCell(row, col)
-            const formula = typeof val === 'string' ? val : ''
-            if (formula.startsWith('=')) {
-              setFormulaRefRanges(parseFormulaReferences(formula))
-            } else {
-              setFormulaRefRanges([])
-            }
-            // Listen to editor input so highlight updates as the user types
-            setTimeout(() => {
-              const root = hot.rootElement
-              const input = root?.querySelector('.handsontableInput') as HTMLInputElement | HTMLTextAreaElement | null
-              if (input) {
-                const listener = () => {
-                  const value = input.value
-                  if (typeof value === 'string' && value.startsWith('=')) {
-                    setFormulaRefRanges(parseFormulaReferences(value))
-                  } else {
-                    setFormulaRefRanges([])
-                  }
-                }
-                input.addEventListener('input', listener)
-                formulaEditorInputRef.current = { el: input, listener }
-              }
-            }, 0)
-          },
           afterFinishEditing() {
             const ref = formulaEditorInputRef.current
             if (ref) {
@@ -812,7 +836,9 @@ export default function HandsontableWrapper({
       if (cell.closest('thead') || cell.closest('.ht_clone_top') || cell.closest('.ht_clone_left')) return
       if (!cell.closest('.ht_master')) return
 
-      if (!bubble) {
+      // Treat any click inside a dropdown cell (bubble or arrow) as opening the dropdown
+      const cellHasBubble = cell.querySelector('.handsontable-bubble-select')
+      if (!bubble && !cellHasBubble) {
         selectionFromMouseRef.current = true
         return
       }

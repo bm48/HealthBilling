@@ -169,14 +169,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
 
   const savePatients = useCallback(async (patientsToSave: Patient[]) => {
     const flushTriggered = saveTriggeredByRowLeaveRef.current
-    console.log('[PatientInfo→Providers] savePatients called', {
-      rowCount: patientsToSave?.length ?? 0,
-      flushTriggered,
-      hasOnPatientCreated: !!onPatientCreated,
-    })
 
     if (!clinicId || !userProfile) {
-      console.log('[PatientInfo→Providers] savePatients early return: no clinicId or userProfile')
       return
     }
 
@@ -206,18 +200,14 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         lastNewPatientIdFromDebounceRef.current = null
         const row = patientsToSave.find(p => p.id === id)
         if (row) {
-          console.log('[PatientInfo→Providers] Flush with 0 to process: sending last debounce-saved patient', { id, patient_id: row.patient_id })
           onPatientCreated(row)
         } else {
-          console.log('[PatientInfo→Providers] Flush with 0 to process: last debounce id not found in list', { id })
         }
       } else {
-        console.log('[PatientInfo→Providers] savePatients early return: no rows to process', { flushTriggered, hadLastNewId: !!lastNewPatientIdFromDebounceRef.current })
       }
       return
     }
 
-    console.log('[PatientInfo→Providers] savePatients processing', { count: patientsToProcess.length, ids: patientsToProcess.map(p => p.id).slice(0, 5) })
 
     saveInProgressRef.current = true
     try {
@@ -379,7 +369,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
             toSend.push(rowData ? { ...rowData, id: savedPatient.id, created_at: savedPatient.created_at, updated_at: savedPatient.updated_at } : savedPatient)
           }
         })
-        console.log('[PatientInfo→Providers] Calling onPatientCreated for', toSend.length, 'new patient(s)', toSend.map(p => ({ patient_id: p.patient_id, first_name: p.first_name })))
         toSend.forEach(patientToSend => onPatientCreated(patientToSend))
       } else if (saveTriggeredByRowLeaveRef.current) {
         saveTriggeredByRowLeaveRef.current = false
@@ -402,7 +391,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   useEffect(() => {
     if (!onRegisterFlushBeforeTabLeave) return
     const flush = async () => {
-      console.log('[PatientInfo→Providers] Flush (tab leave) invoked', { refRowCount: patientsRef.current?.length ?? 0 })
       saveTriggeredByRowLeaveRef.current = true
       if (savePatientsTimeoutRef.current) {
         clearTimeout(savePatientsTimeoutRef.current)
@@ -411,7 +399,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       if (!saveInProgressRef.current) {
         await savePatients(patientsRef.current)
       } else {
-        console.log('[PatientInfo→Providers] Flush skipped: save already in progress')
       }
     }
     onRegisterFlushBeforeTabLeave(flush)
@@ -652,7 +639,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     const primaryRow = rowsInChange[0] ?? null
     const prevRow = lastEditedRowRef.current
     if (prevRow !== null && primaryRow !== null && !rowsInChange.includes(prevRow)) {
-      console.log('[PatientInfo→Providers] Row leave: flushing save (left row', prevRow, ', now editing row', primaryRow, ')')
       saveTriggeredByRowLeaveRef.current = true
       if (savePatientsTimeoutRef.current) {
         clearTimeout(savePatientsTimeoutRef.current)
@@ -712,7 +698,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   const handleAfterSelection = useCallback((r: number, _c: number, _r2: number, _c2: number) => {
     const prev = lastSelectedRowRef.current
     if (prev !== null && r !== prev && !saveInProgressRef.current) {
-      console.log('[PatientInfo→Providers] Selection changed: flushing save (left row', prev, ', selected row', r, ')')
       saveTriggeredByRowLeaveRef.current = true
       if (savePatientsTimeoutRef.current) {
         clearTimeout(savePatientsTimeoutRef.current)

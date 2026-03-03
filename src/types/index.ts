@@ -134,6 +134,8 @@ export interface ProviderSheet {
   provider_id: string
   month: number
   year: number
+  /** 1 or 2 when clinic has two pay periods per month; default 1 */
+  payroll?: 1 | 2
   locked: boolean
   locked_columns: string[]
   created_at: string

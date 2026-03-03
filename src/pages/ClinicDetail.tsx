@@ -56,7 +56,6 @@ export default function ClinicDetail() {
   const [fullName, setFullName] = useState<string>('')
 
   useEffect(() => {
-    console.log('ok')
     if (lastSelectedProviderIdRef.current) {
       const provider = providers.find(p => p.id === lastSelectedProviderIdRef.current)
       if (provider) {
@@ -79,9 +78,13 @@ export default function ClinicDetail() {
   /** Flush Patient Info save (with row-leave flag) before switching tab; registered by PatientsTab */
   const patientsTabFlushRef = useRef<(() => Promise<void>) | null>(null)
 
-  // Month filter for provider tab
+  // Month filter for provider tab; when clinic payroll is 2, selectedPayroll (1|2) gives 1st/2nd half of month
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
-  const selectedMonthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+  const [selectedPayroll, setSelectedPayroll] = useState<1 | 2>(1)
+  const clinicPayroll = (clinic?.payroll ?? 1) as 1 | 2
+  const selectedMonthKey = clinicPayroll === 2
+    ? `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}-${selectedPayroll}`
+    : `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
   const providerSheets = providerSheetsByMonth[selectedMonthKey] ?? {}
   const providerSheetRows = providerSheetRowsByMonth[selectedMonthKey] ?? {}
   const providersRef = useRef<Provider[]>([])
@@ -177,9 +180,9 @@ export default function ClinicDetail() {
   const prevMonthKeyRef = useRef<string | null>(null)
   /** Tracks (clinicId, providerId, monthKey) so we only skip fetch when cache is for this clinic (fixes same content across clinics). */
   const lastProviderSheetContextRef = useRef<{ clinicId: string; providerId: string | null; monthKey: string } | null>(null)
-  // When month changes: use cached data if available, otherwise fetch (no full-page loading when only month changed)
+  // When month or pay period changes: use cached data if available, otherwise fetch (no full-page loading when only month changed)
   useEffect(() => {
-    const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+    const monthKey = selectedMonthKey
     const isInitialLoad = prevMonthKeyRef.current === null
     const monthChanged = prevMonthKeyRef.current !== null && prevMonthKeyRef.current !== monthKey
     prevMonthKeyRef.current = monthKey
@@ -208,7 +211,7 @@ export default function ClinicDetail() {
     if (clinicId && !providerId && (activeTab === 'providers' || activeTab === 'provider_pay')) {
       fetchProviderSheets(isMonthChangeOnly)
     }
-  }, [selectedMonth, activeTab, clinicId, providerId, providerSheetRowsByMonth])
+  }, [selectedMonthKey, activeTab, clinicId, providerId, providerSheetRowsByMonth])
 
   const fetchClinic = async () => {
     try {
@@ -276,7 +279,6 @@ export default function ClinicDetail() {
       if (data && data.length > 0) {
         setStatusColors(data)
       } else {
-        console.log('No status colors found, using defaults')
         setStatusColors(getDefaultStatusColors())
       }
     } catch {
@@ -295,7 +297,6 @@ export default function ClinicDetail() {
         .eq('clinic_id', clinicId)
       
       if (error) {
-        console.log('Column locks table not found or error:', error)
         setColumnLocks([])
         return
       }
@@ -317,7 +318,6 @@ export default function ClinicDetail() {
         .maybeSingle()
       
       if (error) {
-        console.log('is_lock_patients table not found or error:', error)
         setIsLockPatients(null)
         return
       }
@@ -458,7 +458,6 @@ export default function ClinicDetail() {
         .maybeSingle()
       
       if (error) {
-        console.log('is_lock_billing_todo table not found or error:', error)
         setIsLockBillingTodo(null)
         return
       }
@@ -481,7 +480,6 @@ export default function ClinicDetail() {
           .maybeSingle()
         
         if (insertError) {
-          console.log('Error creating default is_lock_billing_todo record:', insertError)
           setIsLockBillingTodo(null)
         } else if (newData) {
           setIsLockBillingTodo(newData)
@@ -602,7 +600,6 @@ export default function ClinicDetail() {
         .maybeSingle()
       
       if (error) {
-        console.log('is_lock_providers table not found or error:', error)
         setIsLockProviders(null)
         return
       }
@@ -639,7 +636,6 @@ export default function ClinicDetail() {
           .maybeSingle()
         
         if (insertError) {
-          console.log('Error creating default is_lock_providers record:', insertError)
           setIsLockProviders(null)
         } else if (newData) {
           setIsLockProviders(newData)
@@ -770,7 +766,6 @@ export default function ClinicDetail() {
         .maybeSingle()
       
       if (error) {
-        console.log('is_lock_accounts_receivable table not found or error:', error)
         setIsLockAccountsReceivable(null)
         return
       }
@@ -795,7 +790,6 @@ export default function ClinicDetail() {
           .maybeSingle()
         
         if (insertError) {
-          console.log('Error creating default is_lock_accounts_receivable record:', insertError)
           setIsLockAccountsReceivable(null)
         } else if (newData) {
           setIsLockAccountsReceivable(newData)
@@ -986,27 +980,56 @@ export default function ClinicDetail() {
     }
   }
 
-  // Month navigation functions
+  // Month navigation: when clinic payroll is 2, step through 24 periods (1st Jan, 2nd Jan, ..., 1st Dec, 2nd Dec)
   const handlePreviousMonth = () => {
-    setSelectedMonth(prevDate => {
-      const newDate = new Date(prevDate)
-      newDate.setMonth(newDate.getMonth() - 1)
-      console.log('handlePreviousMonth: ', newDate)
-      return newDate
-    })
+    if (clinicPayroll === 2) {
+      if (selectedPayroll === 2) {
+        setSelectedPayroll(1)
+      } else {
+        setSelectedPayroll(2)
+        setSelectedMonth(prev => {
+          const d = new Date(prev)
+          d.setMonth(d.getMonth() - 1)
+          return d
+        })
+      }
+    } else {
+      setSelectedMonth(prev => {
+        const d = new Date(prev)
+        d.setMonth(d.getMonth() - 1)
+        return d
+      })
+    }
   }
 
   const handleNextMonth = () => {
-    setSelectedMonth(prevDate => {
-      const newDate = new Date(prevDate)
-      newDate.setMonth(newDate.getMonth() + 1)
-      console.log('handleNextMonth: ', newDate)
-      return newDate
-    })
+    if (clinicPayroll === 2) {
+      if (selectedPayroll === 1) {
+        setSelectedPayroll(2)
+      } else {
+        setSelectedPayroll(1)
+        setSelectedMonth(prev => {
+          const d = new Date(prev)
+          d.setMonth(d.getMonth() + 1)
+          return d
+        })
+      }
+    } else {
+      setSelectedMonth(prev => {
+        const d = new Date(prev)
+        d.setMonth(d.getMonth() + 1)
+        return d
+      })
+    }
   }
 
-  const formatMonthYear = (date: Date) => {
-    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const formatMonthYear = (date: Date, payPeriod?: 1 | 2) => {
+    const monthYear = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    if (clinicPayroll === 2 && payPeriod != null) {
+      const suffix = payPeriod === 1 ? '1st' : '2nd'
+      return `${monthYear.split(' ')[0]} ${suffix} ${date.getFullYear()}`
+    }
+    return monthYear
   }
 
   const filterRowsByMonth = (rows: SheetRow[]) => {
@@ -1127,21 +1150,21 @@ export default function ClinicDetail() {
       
       setCurrentProvider(providerData)
 
-      // Use selected month/year instead of current date
+      // Use selected month/year (and pay period when clinic has payroll 2)
       const month = selectedMonth.getMonth() + 1
       const year = selectedMonth.getFullYear()
+      const payrollForSheets = clinicPayroll === 2 ? selectedPayroll : 1
 
-      console.log('Fetching provider sheet data for:', { providerId, month, year })
-
-      // Fetch sheet for the selected month/year
-      const { data: existingSheet, error: sheetsError } = await supabase
+      // Fetch sheet for the selected month/year (and payroll when clinic has 2 pay periods)
+      let query = supabase
         .from('provider_sheets')
         .select('*')
         .eq('clinic_id', clinicId)
         .eq('provider_id', providerId)
         .eq('month', month)
         .eq('year', year)
-        .maybeSingle()
+      if (clinicPayroll === 2) query = query.eq('payroll', payrollForSheets)
+      const { data: existingSheet, error: sheetsError } = await query.maybeSingle()
 
       if (sheetsError && sheetsError.code !== 'PGRST116') throw sheetsError
 
@@ -1149,16 +1172,18 @@ export default function ClinicDetail() {
 
       if (!sheet) {
         // Create a new sheet
+        const insertPayload: Record<string, unknown> = {
+          clinic_id: clinicId,
+          provider_id: providerId,
+          month,
+          year,
+          locked: false,
+          locked_columns: [],
+        }
+        if (clinicPayroll === 2) insertPayload.payroll = payrollForSheets
         const { data: newSheet, error: createError } = await supabase
           .from('provider_sheets')
-          .insert({
-            clinic_id: clinicId,
-            provider_id: providerId,
-            month,
-            year,
-            locked: false,
-            locked_columns: [],
-          })
+          .insert(insertPayload)
           .select()
           .maybeSingle()
 
@@ -1248,7 +1273,7 @@ export default function ClinicDetail() {
         createEmptyProviderSheetRow(i)
       )
       const allRows = [...sheetRows, ...emptyRows]
-      const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+      const monthKey = clinicPayroll === 2 ? `${year}-${month}-${selectedPayroll}` : `${year}-${month}`
       setProviderSheetRowsByMonth(prev => ({ ...prev, [monthKey]: { ...(prev[monthKey] ?? {}), [providerId]: allRows } }))
       setProviderSheetsByMonth(prev => ({ ...prev, [monthKey]: { ...(prev[monthKey] ?? {}), [providerId]: sheet } }))
       lastProviderSheetContextRef.current = { clinicId: clinicId!, providerId, monthKey }
@@ -1363,11 +1388,10 @@ export default function ClinicDetail() {
 
     try {
       if (!isMonthChange) setLoading(true)
-      // Use selected month/year instead of current date
+      // Use selected month/year (and pay period when clinic has payroll 2)
       const month = selectedMonth.getMonth() + 1
       const year = selectedMonth.getFullYear()
-
-      console.log('Fetching provider sheets for:', { month, year })
+      const payrollForSheets = clinicPayroll === 2 ? selectedPayroll : 1
 
       // Fetch all active providers for this clinic
       const { data: providersData } = await supabase
@@ -1380,20 +1404,21 @@ export default function ClinicDetail() {
 
       const providerIds = providersData.map((p: { id: string }) => p.id)
 
-      // Fetch or create provider sheets for all providers
+      // Fetch or create provider sheets for all providers (and payroll when clinic has 2 pay periods)
       const sheetsMap: Record<string, ProviderSheet> = {}
       const rowsMap: Record<string, SheetRow[]> = {}
 
       for (const providerId of providerIds) {
         // Try to fetch existing sheet
-        const { data: existingSheet, error: fetchError } = await supabase
+        let query = supabase
           .from('provider_sheets')
           .select('*')
           .eq('clinic_id', clinicId)
           .eq('provider_id', providerId)
           .eq('month', month)
           .eq('year', year)
-          .maybeSingle()
+        if (clinicPayroll === 2) query = query.eq('payroll', payrollForSheets)
+        const { data: existingSheet, error: fetchError } = await query.maybeSingle()
 
         let sheet: ProviderSheet
 
@@ -1401,16 +1426,18 @@ export default function ClinicDetail() {
           sheet = existingSheet
         } else {
           // Create new sheet if doesn't exist
+          const insertPayload: Record<string, unknown> = {
+            clinic_id: clinicId,
+            provider_id: providerId,
+            month,
+            year,
+            locked: false,
+            locked_columns: [],
+          }
+          if (clinicPayroll === 2) insertPayload.payroll = payrollForSheets
           const { data: newSheet, error: createError } = await supabase
             .from('provider_sheets')
-            .insert({
-              clinic_id: clinicId,
-              provider_id: providerId,
-              month,
-              year,
-              locked: false,
-              locked_columns: [],
-            })
+            .insert(insertPayload)
             .select()
             .maybeSingle()
 
@@ -1480,7 +1507,7 @@ export default function ClinicDetail() {
         rowsMap[providerId] = [...sheetRows, ...emptyRows]
       }
 
-      const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+      const monthKey = clinicPayroll === 2 ? `${year}-${month}-${payrollForSheets}` : `${year}-${month}`
       setProviderSheetsByMonth(prev => ({ ...prev, [monthKey]: sheetsMap }))
       setProviderSheetRowsByMonth(prev => ({ ...prev, [monthKey]: rowsMap }))
       lastProviderSheetContextRef.current = { clinicId, providerId: null, monthKey }
@@ -1883,14 +1910,6 @@ export default function ClinicDetail() {
 
   // When a new patient is created in Patient Info tab, add one row with that patient to every provider sheet for the current month
   const handlePatientCreated = useCallback(async (patient: Patient) => {
-    console.log('[PatientInfo→Providers] handlePatientCreated called', {
-      patient_id: patient.patient_id,
-      first_name: patient.first_name,
-      last_name: patient.last_name,
-      insurance: patient.insurance,
-      copay: patient.copay,
-      coinsurance: patient.coinsurance,
-    })
     let providerIds = Object.keys(providerSheets)
     let current = providerSheetRowsByMonth[selectedMonthKey] ?? {}
     let sheetsToUse: Record<string, ProviderSheet> = providerSheets
@@ -1899,7 +1918,6 @@ export default function ClinicDetail() {
 
     // If Providers tab hasn't been opened yet, fetch sheets and rows for this clinic/month first
     if (providerIds.length === 0 && clinicId) {
-      console.log('[PatientInfo→Providers] Providers not loaded yet, fetching sheets for clinic/month')
       const { data: providersData } = await supabase
         .from('providers')
         .select('id')
@@ -1908,22 +1926,26 @@ export default function ClinicDetail() {
       const ids = (providersData || []).map((p: { id: string }) => p.id)
       if (ids.length === 0) return
 
+      const payrollForSheets = clinicPayroll === 2 ? selectedPayroll : 1
       const sheetsMap: Record<string, ProviderSheet> = {}
       const rowsMap: Record<string, SheetRow[]> = {}
       for (const providerId of ids) {
-        const { data: existingSheet, error: fetchError } = await supabase
+        let query = supabase
           .from('provider_sheets')
           .select('*')
           .eq('clinic_id', clinicId)
           .eq('provider_id', providerId)
           .eq('month', month)
           .eq('year', year)
-          .maybeSingle()
+        if (clinicPayroll === 2) query = query.eq('payroll', payrollForSheets)
+        const { data: existingSheet, error: fetchError } = await query.maybeSingle()
         let sheet: ProviderSheet | null = existingSheet && !fetchError ? existingSheet as ProviderSheet : null
         if (!sheet) {
+          const insertPayload: Record<string, unknown> = { clinic_id: clinicId, provider_id: providerId, month, year, locked: false, locked_columns: [] }
+          if (clinicPayroll === 2) insertPayload.payroll = payrollForSheets
           const { data: newSheet, error: createError } = await supabase
             .from('provider_sheets')
-            .insert({ clinic_id: clinicId, provider_id: providerId, month, year, locked: false, locked_columns: [] })
+            .insert(insertPayload)
             .select()
             .maybeSingle()
           if (!createError && newSheet) sheet = newSheet as ProviderSheet
@@ -1987,10 +2009,8 @@ export default function ClinicDetail() {
     }
 
     if (providerIds.length === 0) {
-      console.log('[PatientInfo→Providers] No providers, skipping')
       return
     }
-    console.log('[PatientInfo→Providers] Adding patient to', providerIds.length, 'provider sheet(s)')
 
     const createRowFromPatient = (providerId: string): SheetRow => {
       const row = {
@@ -2036,16 +2056,6 @@ export default function ClinicDetail() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
-      if (providerId === providerIds[0]) {
-        console.log('[PatientInfo→Providers] First provider row created:', {
-          patient_id: row.patient_id,
-          patient_first_name: row.patient_first_name,
-          last_initial: row.last_initial,
-          patient_insurance: row.patient_insurance,
-          patient_copay: row.patient_copay,
-          patient_coinsurance: row.patient_coinsurance,
-        })
-      }
       return row as SheetRow
     }
 
@@ -2077,19 +2087,16 @@ export default function ClinicDetail() {
       const sheet = sheetsToUse[providerId]
       if (sheet) {
         const useSaveProvider = Object.keys(providerSheets).length > 0
-        console.log('[PatientInfo→Providers] Saving provider sheet', { providerId, useSaveProvider, rowCount: updatedRows?.length })
         if (useSaveProvider) {
           saveProviderSheetRows(providerId, updatedRows).then(() => {
-            console.log('[PatientInfo→Providers] saveProviderSheetRows ok for', providerId)
           }).catch(err => console.error('[PatientInfo→Providers] Failed to add new patient to provider sheet:', err))
         } else {
           saveSheetRows(supabase, sheet.id, rowsToProcessFilter(updatedRows)).then(() => {
-            console.log('[PatientInfo→Providers] saveSheetRows ok for', providerId)
           }).catch(err => console.error('[PatientInfo→Providers] Failed to add new patient to provider sheet:', err))
         }
       }
     })
-  }, [providerSheets, providerSheetRowsByMonth, selectedMonth, selectedMonthKey, saveProviderSheetRows, clinicId])
+  }, [providerSheets, providerSheetRowsByMonth, selectedMonth, selectedMonthKey, saveProviderSheetRows, clinicId, clinicPayroll, selectedPayroll])
 
   const handleReorderProviderRows = useCallback((providerId: string, movedRows: number[], finalIndex: number) => {
     const rows = providerSheetRows[providerId] || []
@@ -2116,9 +2123,7 @@ export default function ClinicDetail() {
     } else {
       // When leaving Patient Info, flush save so new patient is sent to provider sheets before switching
       if (activeTab === 'patients' && tab !== 'patients' && patientsTabFlushRef.current) {
-        console.log('[PatientInfo→Providers] Tab switch: flushing Patient Info before switching to', tab)
         patientsTabFlushRef.current().then(() => {
-          console.log('[PatientInfo→Providers] Flush completed, switching to', tab)
           setActiveTab(tab)
           const path =
             tab === 'providers' && lastSelectedProviderIdRef.current
@@ -2260,7 +2265,7 @@ export default function ClinicDetail() {
             onAddRowAbove={handleAddProviderRowAbove}
             onPreviousMonth={handlePreviousMonth}
             onNextMonth={handleNextMonth}
-            formatMonthYear={formatMonthYear}
+            formatMonthYear={(date: Date) => formatMonthYear(date, clinicPayroll === 2 ? selectedPayroll : undefined)}
             filterRowsByMonth={filterRowsByMonth}
             isLockProviders={isLockProviders}
             onLockProviderColumn={canLockColumns ? (columnName: string) => {
