@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => {
           target: supabaseUrl,
           changeOrigin: true,
           secure: true,
-          rewrite: (path) => path.replace(/^\/api\/send-contact/, '/functions/v1/smooth-endpoint'),
+          rewrite: (path) => path.replace(/^\/api\/send-contact/, '/functions/v1/send-contact'),
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq) => {
               if (anonKey) proxyReq.setHeader('Authorization', `Bearer ${anonKey}`)

@@ -45,7 +45,9 @@ export default function Landing() {
           throw new Error(j.error || res.statusText)
         } catch (err) {
           if (err instanceof Error && err.message !== res.statusText) throw err
-          throw new Error(text || res.statusText)
+          // Show backend error or hint for 500 (e.g. missing Gmail secrets in Supabase)
+          const msg = text || (res.status === 500 ? 'Server error. Check Supabase Edge Function secrets (GMAIL_USER, GMAIL_APP_PASSWORD).' : res.statusText)
+          throw new Error(msg)
         }
       }
       const data = text ? JSON.parse(text) : {}

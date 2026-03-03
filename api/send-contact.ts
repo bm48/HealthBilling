@@ -1,6 +1,6 @@
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
-const EDGE_FUNCTION_SLUG = 'smooth-endpoint'
+const EDGE_FUNCTION_SLUG = 'send-contact'
 
 export default async function handler(
   req: { method?: string; body?: unknown },
