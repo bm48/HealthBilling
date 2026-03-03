@@ -18,9 +18,13 @@ interface PatientsTabProps {
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockPatients) => boolean
   isInSplitScreen?: boolean
+  /** Called after a new patient is successfully saved; used to add the patient to all provider sheets in the clinic */
+  onPatientCreated?: (patient: Patient) => void
+  /** Register a flush function to call before switching away from this tab (so save + onPatientCreated run with full row data) */
+  onRegisterFlushBeforeTabLeave?: (flush: () => Promise<void>) => void
 }
 
-export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUndo, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen }: PatientsTabProps) {
+export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUndo, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen, onPatientCreated, onRegisterFlushBeforeTabLeave }: PatientsTabProps) {
   const { userProfile } = useAuth()
   const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
@@ -35,6 +39,14 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   const savePatientsRef = useRef<(p: Patient[]) => Promise<void>>(null as any)
   /** Snapshot of last saved data per patient id so we only send changed rows to the DB */
   const lastSavedSnapshotRef = useRef<Map<string, { patient_id: string; first_name: string; last_name: string; insurance: string | null; copay: string | number | null; coinsurance: string | number | null }>>(new Map())
+  /** Track last edited row so we can flush save when user leaves the row (edits a different row) */
+  const lastEditedRowRef = useRef<number | null>(null)
+  /** When true, save was triggered by row leave (not debounce); only then do we call onPatientCreated so provider sheets get full row data */
+  const saveTriggeredByRowLeaveRef = useRef(false)
+  /** Track last selected row so we can flush save when user selects another row (click or tab) */
+  const lastSelectedRowRef = useRef<number | null>(null)
+  /** When debounced save saves a new patient, we store its real id so flush (0 to process) can still call onPatientCreated */
+  const lastNewPatientIdFromDebounceRef = useRef<string | null>(null)
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0)
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
@@ -69,14 +81,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
 
       if (error) throw error
       const fetchedPatients = data || []
-      // Comprehensive log: data loaded from DB for Patient Info tab (super admin / clinic)
-      console.log('[PatientData] FETCH from database:', {
-        source: 'PatientsTab',
-        clinicId,
-        totalRows: fetchedPatients.length,
-        columns: fetchedPatients.length > 0 ? Object.keys(fetchedPatients[0]) : [],
-        sampleRow: fetchedPatients.length > 0 ? { id: fetchedPatients[0].id, patient_id: fetchedPatients[0].patient_id, first_name: fetchedPatients[0].first_name, last_name: fetchedPatients[0].last_name } : null,
-      })
       // Seed "last saved" snapshot so we only save rows that change after load
       fetchedPatients.forEach(p => {
         lastSavedSnapshotRef.current.set(p.id, {
@@ -164,9 +168,15 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   }, [clinicId, fetchPatients])
 
   const savePatients = useCallback(async (patientsToSave: Patient[]) => {
+    const flushTriggered = saveTriggeredByRowLeaveRef.current
+    console.log('[PatientInfo→Providers] savePatients called', {
+      rowCount: patientsToSave?.length ?? 0,
+      flushTriggered,
+      hasOnPatientCreated: !!onPatientCreated,
+    })
 
     if (!clinicId || !userProfile) {
-      console.log('[PatientData] Early return - missing clinicId or userProfile', { clinicId, hasUserProfile: !!userProfile })
+      console.log('[PatientInfo→Providers] savePatients early return: no clinicId or userProfile')
       return
     }
 
@@ -190,10 +200,24 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     })
 
     if (patientsToProcess.length === 0) {
-      console.log('[PatientData] No patients to process - no changes (only dirty rows are saved)')
+      // Flush path with nothing to save: maybe debounce already saved the new patient; still notify if we have one
+      if (flushTriggered && onPatientCreated && lastNewPatientIdFromDebounceRef.current) {
+        const id = lastNewPatientIdFromDebounceRef.current
+        lastNewPatientIdFromDebounceRef.current = null
+        const row = patientsToSave.find(p => p.id === id)
+        if (row) {
+          console.log('[PatientInfo→Providers] Flush with 0 to process: sending last debounce-saved patient', { id, patient_id: row.patient_id })
+          onPatientCreated(row)
+        } else {
+          console.log('[PatientInfo→Providers] Flush with 0 to process: last debounce id not found in list', { id })
+        }
+      } else {
+        console.log('[PatientInfo→Providers] savePatients early return: no rows to process', { flushTriggered, hadLastNewId: !!lastNewPatientIdFromDebounceRef.current })
+      }
       return
     }
-    console.log('[PatientData] SAVE START — dirty rows to save:', patientsToProcess.length, 'clinicId:', clinicId)
+
+    console.log('[PatientInfo→Providers] savePatients processing', { count: patientsToProcess.length, ids: patientsToProcess.map(p => p.id).slice(0, 5) })
 
     saveInProgressRef.current = true
     try {
@@ -236,7 +260,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
 
         // If patient has a real database ID (not new- or empty-), update by ID
         if (!patient.id.startsWith('new-') && !patient.id.startsWith('empty-')) {
-          console.log('[PatientData] PAYLOAD SENT TO DATABASE (UPDATE by id):', { id: patient.id, payload: JSON.stringify(patientData, null, 2) })
           const { error: updateError, data: updateData } = await supabase
             .from('patients')
             .update(patientData)
@@ -255,16 +278,12 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
               coinsurance: savedPatient.coinsurance != null ? savedPatient.coinsurance : null,
             })
             if (oldId !== savedPatient.id) lastSavedSnapshotRef.current.delete(oldId)
-            console.log('[PatientData] DB RESPONSE (UPDATE):', { id: savedPatient.id, patient_id: savedPatient.patient_id, rowStored: savedPatient })
             continue // Update successful, move to next patient
           }
-          console.log('[PatientData] UPDATE failed, will try UPSERT:', updateError)
           // If update failed (e.g., patient not found), fall through to upsert
         }
 
         // Use upsert for new patients (new- or empty- IDs) or when update by ID fails
-        // Upsert handles the unique constraint (clinic_id, patient_id) automatically
-        console.log('[PatientData] PAYLOAD SENT TO DATABASE (UPSERT):', { patient_id: finalPatientId, rowId: patient.id, payload: JSON.stringify(patientData, null, 2) })
         const { error: upsertError, data: upsertData } = await supabase
           .from('patients')
           .upsert(patientData, {
@@ -272,8 +291,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
             ignoreDuplicates: false
           })
           .select()
-
-        console.log('[PatientData] DB RESPONSE (UPSERT):', { upsertError: upsertError?.message ?? null, rowsReturned: upsertData?.length ?? 0, rowStored: upsertData?.[0] ?? null })
 
         if (upsertError) {
           console.error('[PatientData] Error upserting patient:', upsertError, patientData)
@@ -283,6 +300,9 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         if (upsertData && upsertData.length > 0) {
           savedPatient = upsertData[0] as Patient
           savedPatientsMap.set(oldId, savedPatient) // Map old ID to new patient data
+          if (!flushTriggered && (oldId.startsWith('empty-') || oldId.startsWith('new-'))) {
+            lastNewPatientIdFromDebounceRef.current = savedPatient.id
+          }
           lastSavedSnapshotRef.current.set(savedPatient.id, {
             patient_id: savedPatient.patient_id ?? '',
             first_name: (savedPatient.first_name != null && savedPatient.first_name !== 'null') ? savedPatient.first_name : '',
@@ -292,13 +312,11 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
             coinsurance: savedPatient.coinsurance != null ? savedPatient.coinsurance : null,
           })
           if (oldId !== savedPatient.id) lastSavedSnapshotRef.current.delete(oldId)
-          console.log('[PatientData] SAVED TO DB (UPSERT):', { patient_id: finalPatientId, newDbId: savedPatient.id, rowStored: savedPatient })
         }
       }
 
       // Update patients in place: only apply id/created_at/updated_at from DB so we don't overwrite in-flight user edits (e.g. user typed copay while insurance save was in progress).
       // Look up by current row id or by the new id we just saved (savedPatientsMap is keyed by oldId).
-      console.log('[PatientData] Updating UI state with data from database — savedCount:', savedPatientsMap.size)
       setPatients(currentPatients => {
         const byNewId = new Map<string, Patient>()
         savedPatientsMap.forEach((saved, oldId) => {
@@ -340,8 +358,32 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
           return patient
         })
       })
-      
-      console.log('[PatientData] SAVE COMPLETE — UI state synced with database')
+
+      // Notify parent only when save was triggered by leaving the row (flush), so we have full row data.
+      // Send when: (1) we just saved a row that had oldId new-/empty-, or (2) we just updated a row that was created by debounce (real id now; lastNewPatientIdFromDebounceRef points to it).
+      if (onPatientCreated && saveTriggeredByRowLeaveRef.current) {
+        saveTriggeredByRowLeaveRef.current = false
+        const toSend: Array<Patient> = []
+        const lastNewId = lastNewPatientIdFromDebounceRef.current
+        lastNewPatientIdFromDebounceRef.current = null
+
+        savedPatientsMap.forEach((savedPatient, oldId) => {
+          if (oldId.startsWith('new-') || oldId.startsWith('empty-')) {
+            const rowData = patientsToSave.find(p => p.id === oldId)
+            toSend.push(rowData
+              ? { ...rowData, id: savedPatient.id, created_at: savedPatient.created_at, updated_at: savedPatient.updated_at }
+              : savedPatient)
+          } else if (lastNewId && savedPatient.id === lastNewId) {
+            // Row was saved by debounce (now has real id); we just updated it on flush — still send to provider sheets
+            const rowData = patientsToSave.find(p => p.id === lastNewId)
+            toSend.push(rowData ? { ...rowData, id: savedPatient.id, created_at: savedPatient.created_at, updated_at: savedPatient.updated_at } : savedPatient)
+          }
+        })
+        console.log('[PatientInfo→Providers] Calling onPatientCreated for', toSend.length, 'new patient(s)', toSend.map(p => ({ patient_id: p.patient_id, first_name: p.first_name })))
+        toSend.forEach(patientToSend => onPatientCreated(patientToSend))
+      } else if (saveTriggeredByRowLeaveRef.current) {
+        saveTriggeredByRowLeaveRef.current = false
+      }
     } catch (error: any) {
       console.error('[PatientData] SAVE FAILED — error writing to database:', error)
       alert(error?.message || 'Failed to save patient. Please try again.')
@@ -352,9 +394,29 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         setRunPendingSaveTrigger(t => t + 1)
       }
     }
-  }, [clinicId, userProfile, fetchPatients])
+  }, [clinicId, userProfile, fetchPatients, onPatientCreated])
 
   savePatientsRef.current = savePatients
+
+  // Expose flush so parent can run save (with row-leave flag) before switching away from Patient Info tab
+  useEffect(() => {
+    if (!onRegisterFlushBeforeTabLeave) return
+    const flush = async () => {
+      console.log('[PatientInfo→Providers] Flush (tab leave) invoked', { refRowCount: patientsRef.current?.length ?? 0 })
+      saveTriggeredByRowLeaveRef.current = true
+      if (savePatientsTimeoutRef.current) {
+        clearTimeout(savePatientsTimeoutRef.current)
+        savePatientsTimeoutRef.current = null
+      }
+      if (!saveInProgressRef.current) {
+        await savePatients(patientsRef.current)
+      } else {
+        console.log('[PatientInfo→Providers] Flush skipped: save already in progress')
+      }
+    }
+    onRegisterFlushBeforeTabLeave(flush)
+  }, [onRegisterFlushBeforeTabLeave, savePatients])
+
   useEffect(() => {
     if (runPendingSaveTrigger === 0) return
     savePatientsRef.current(patientsRef.current).catch(err => {
@@ -585,11 +647,25 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     const updatedPatients = [...currentPatients]
     const fields: Array<keyof Patient> = ['patient_id', 'first_name', 'last_name', 'insurance', 'copay', 'coinsurance']
 
-    // Log every user input so super admin can trace what was typed → what gets stored
-    changes.forEach(([row, col, , newValue]) => {
-      const field = fields[col as number]
-      console.log('[PatientData] USER INPUT (cell edit):', { source: 'PatientsTab', row, col, field, newValue, valueType: typeof newValue })
-    })
+    // When user edits a different row, they "left" the previous row — flush save so we persist and run onPatientCreated with full row data
+    const rowsInChange = [...new Set(changes.map(([r]) => r))]
+    const primaryRow = rowsInChange[0] ?? null
+    const prevRow = lastEditedRowRef.current
+    if (prevRow !== null && primaryRow !== null && !rowsInChange.includes(prevRow)) {
+      console.log('[PatientInfo→Providers] Row leave: flushing save (left row', prevRow, ', now editing row', primaryRow, ')')
+      saveTriggeredByRowLeaveRef.current = true
+      if (savePatientsTimeoutRef.current) {
+        clearTimeout(savePatientsTimeoutRef.current)
+        savePatientsTimeoutRef.current = null
+      }
+      if (!saveInProgressRef.current) {
+        savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save on row leave:', err))
+      }
+    }
+    lastEditedRowRef.current = primaryRow
+
+    // Also treat "editing a different row" as having left prevRow for the next change
+    if (primaryRow !== null) lastSelectedRowRef.current = primaryRow
 
     changes.forEach(([row, col, , newValue]) => {
       while (updatedPatients.length <= row) {
@@ -632,6 +708,20 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       })
     }, 500)
   }, [patients, savePatients, createEmptyPatient])
+
+  const handleAfterSelection = useCallback((r: number, _c: number, _r2: number, _c2: number) => {
+    const prev = lastSelectedRowRef.current
+    if (prev !== null && r !== prev && !saveInProgressRef.current) {
+      console.log('[PatientInfo→Providers] Selection changed: flushing save (left row', prev, ', selected row', r, ')')
+      saveTriggeredByRowLeaveRef.current = true
+      if (savePatientsTimeoutRef.current) {
+        clearTimeout(savePatientsTimeoutRef.current)
+        savePatientsTimeoutRef.current = null
+      }
+      savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save on selection change:', err))
+    }
+    lastSelectedRowRef.current = r
+  }, [savePatients])
 
   const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number; patientId: string } | null>(null)
   const tableContextMenuRef = useRef<HTMLDivElement>(null)
@@ -788,6 +878,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
           width="100%"
           height={isInSplitScreen ? tableHeight : 600}
           afterChange={handlePatientsHandsontableChange}
+          afterSelection={handleAfterSelection}
           onAfterRowMove={handlePatientsRowMove}
           onContextMenu={handlePatientsHandsontableContextMenu}
           onCellHighlight={handleCellHighlight}

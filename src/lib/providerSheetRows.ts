@@ -176,16 +176,16 @@ export async function saveSheetRows(
     const payload = sheetRowToDbPayload(row, sheetId, i)
 
     if (isUuid(row.id)) {
+      // Use .select() without .maybeSingle() so 0 rows (e.g. RLS or missing row) returns [] instead of 406 Not Acceptable
       const { data, error } = await supabase
         .from('provider_sheet_rows')
         .update({ ...payload, updated_at: new Date().toISOString() })
         .eq('id', row.id)
         .eq('sheet_id', sheetId)
         .select()
-        .maybeSingle()
 
       if (error) throw error
-      if (data) saved.push(dbToSheetRow(data))
+      if (data && data.length > 0) saved.push(dbToSheetRow(data[0] as ProviderSheetRowDb))
       else saved.push(row)
     } else {
       const { data, error } = await supabase

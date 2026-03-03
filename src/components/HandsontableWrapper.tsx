@@ -300,7 +300,14 @@ export default function HandsontableWrapper({
   // Process columns to handle numeric type and custom renderers/editors
   const processedColumns = useMemo(() => columns.map(col => {
     const processedCol: any = { ...col }
-    
+    // Never pass empty string as type/editor — causes "createElement('')" InvalidCharacterError in DOM
+    if (processedCol.type === '' || (typeof processedCol.type === 'string' && !processedCol.type.trim())) {
+      processedCol.type = 'text' as const
+    }
+    if (processedCol.editor === '' || (typeof processedCol.editor === 'string' && !processedCol.editor.trim())) {
+      delete processedCol.editor
+    }
+
     if (col.type === 'numeric') {
       processedCol.type = 'text' as const // Use text type as base since numeric may not be registered
       processedCol.editor = 'text'
@@ -356,20 +363,19 @@ export default function HandsontableWrapper({
       processedCol.readOnly = false
     }
     
-    // Final safety check: ensure type is valid
+    // Final safety check: ensure type is valid (never empty string)
     // Allow date, text types, and undefined (for select editor)
-    if (processedCol.type && 
-        processedCol.type !== 'date' && 
-        processedCol.type !== 'text') {
-      // If type is invalid and we have an editor, use text as fallback
+    const t = processedCol.type
+    if (!t || (typeof t === 'string' && t.trim() === '') || (t !== 'date' && t !== 'text')) {
       if (processedCol.editor && processedCol.editor !== 'select' && processedCol.editor !== 'date') {
         processedCol.type = 'text' as const
       } else if (processedCol.editor === 'select') {
-        // For select editor, remove type
         delete processedCol.type
+      } else {
+        processedCol.type = 'text' as const
       }
     }
-    
+
     return processedCol
   }), [columns])
 
