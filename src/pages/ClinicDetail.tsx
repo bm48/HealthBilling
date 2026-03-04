@@ -202,6 +202,7 @@ export default function ClinicDetail() {
     const ref = lastProviderSheetContextRef.current
     const contextMatches = ref && ref.clinicId === clinicId && ref.monthKey === monthKey && ref.providerId === (providerId ?? null)
     // When month didn't change and not initial load: only skip fetch if we have data for this exact (clinic, provider, month)
+    // When month changed: always fetch so the selected month reloads (no cache skip).
     if (!monthChanged && !isInitialLoad) {
       if (providerId) {
         // Single-provider view: skip only if cache is for this clinic and this provider
@@ -211,22 +212,24 @@ export default function ClinicDetail() {
         if (contextMatches && hasCached) return
       }
     }
-    if (hasCached && monthChanged) return
 
     const isMonthChangeOnly = monthChanged && !isInitialLoad
     if (providerId && clinicId && (activeTab === 'providers' || activeTab === 'provider_pay')) {
       const prevContext = lastProviderSheetContextRef.current
       const providerChanged = prevContext?.providerId !== providerId
-      if (providerChanged) {
+      const monthChangedForProvider = prevContext?.monthKey !== monthKey
+      if (providerChanged || monthChangedForProvider) {
         setCurrentProvider(null)
         setCurrentSheet(null)
         setProviderRows([])
       }
+      if (monthChanged) setLoading(true)
       lastProviderSheetDataFetchRef.current = { providerId, monthKey: selectedMonthKey }
       fetchProviderSheetData(isMonthChangeOnly)
       return
     }
     if (clinicId && !providerId && (activeTab === 'providers' || activeTab === 'provider_pay')) {
+      if (monthChanged) setLoading(true)
       lastProviderSheetsFetchMonthKeyRef.current = selectedMonthKey
       fetchProviderSheets(selectedMonthKey, isMonthChangeOnly)
     }
@@ -1486,10 +1489,11 @@ export default function ClinicDetail() {
       // Avoid second spinner: if we already have data for this month (e.g. effect re-ran after restore/save), don't show loading again
       const alreadyHaveData = monthKey === selectedMonthKey && Object.keys(providerSheets).length > 0
       if (!isMonthChange && !alreadyHaveData) setLoading(true)
-      // Use selected month/year and pay-period half (when clinic has payroll=2)
-      const month = selectedMonth.getMonth() + 1
-      const year = selectedMonth.getFullYear()
-      const payroll = (clinic?.payroll === 2 ? selectedPayroll : (clinic?.payroll ?? 1)) as 1 | 2
+      // Derive month/year/payroll from monthKey so we fetch the requested month even if user changes month mid-fetch
+      const parts = monthKey.split('-').map(Number)
+      const year = parts[0]!
+      const month = parts[1]!
+      const payroll = (clinic?.payroll === 2 && parts[2] != null ? (parts[2] as 1 | 2) : (clinic?.payroll ?? 1)) as 1 | 2
 
       // Fetch all active providers for this clinic
       const { data: providersData } = await supabase
@@ -1607,13 +1611,16 @@ export default function ClinicDetail() {
         rowsMap[providerId] = [...sheetRows, ...emptyRows]
       }
 
-      setProviderSheetsByMonth(prev => ({ ...prev, [selectedMonthKey]: sheetsMap }))
-      setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: rowsMap }))
-      lastProviderSheetContextRef.current = { clinicId, providerId: null, monthKey: selectedMonthKey }
+      const isStillCurrentMonth = lastProviderSheetsFetchMonthKeyRef.current === monthKey
+      if (isStillCurrentMonth) {
+        setProviderSheetsByMonth(prev => ({ ...prev, [monthKey]: sheetsMap }))
+        setProviderSheetRowsByMonth(prev => ({ ...prev, [monthKey]: rowsMap }))
+        lastProviderSheetContextRef.current = { clinicId, providerId: null, monthKey }
+      }
     } catch (error) {
       console.error('Error fetching provider sheets:', error)
     } finally {
-      if (!isMonthChange && lastProviderSheetsFetchMonthKeyRef.current === monthKey) {
+      if (lastProviderSheetsFetchMonthKeyRef.current === monthKey) {
         setLoading(false)
       }
     }
@@ -2464,6 +2471,7 @@ export default function ClinicDetail() {
       case 'providers':
         return (
           <ProvidersTab
+            key={selectedMonthKey}
             clinicId={clinicId}
             clinicPayroll={clinic?.payroll ?? 1}
             canEditComment={userProfile?.role === 'super_admin' || userProfile?.role === 'office_staff'}
