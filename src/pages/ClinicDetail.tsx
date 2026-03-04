@@ -215,6 +215,13 @@ export default function ClinicDetail() {
 
     const isMonthChangeOnly = monthChanged && !isInitialLoad
     if (providerId && clinicId && (activeTab === 'providers' || activeTab === 'provider_pay')) {
+      const prevContext = lastProviderSheetContextRef.current
+      const providerChanged = prevContext?.providerId !== providerId
+      if (providerChanged) {
+        setCurrentProvider(null)
+        setCurrentSheet(null)
+        setProviderRows([])
+      }
       lastProviderSheetDataFetchRef.current = { providerId, monthKey: selectedMonthKey }
       fetchProviderSheetData(isMonthChangeOnly)
       return
@@ -1202,24 +1209,29 @@ export default function ClinicDetail() {
       }
       
       if (!providerData) {
-        setCurrentProvider(null)
-        setCurrentSheet(null)
-        setProviderRows([])
-        setProviderSheetRowsByMonth(prev => {
-          const cur = prev[selectedMonthKey] ?? {}
-          const updated = { ...cur }
-          delete updated[providerId]
-          return { ...prev, [selectedMonthKey]: updated }
-        })
         if (
           lastProviderSheetDataFetchRef.current?.providerId === captureKey.providerId &&
           lastProviderSheetDataFetchRef.current?.monthKey === captureKey.monthKey
         ) {
+          setCurrentProvider(null)
+          setCurrentSheet(null)
+          setProviderRows([])
+          setProviderSheetRowsByMonth(prev => {
+            const cur = prev[selectedMonthKey] ?? {}
+            const updated = { ...cur }
+            delete updated[providerId]
+            return { ...prev, [selectedMonthKey]: updated }
+          })
           setLoading(false)
         }
         return
       }
-      
+
+      const isStillCurrent = () =>
+        lastProviderSheetDataFetchRef.current?.providerId === captureKey.providerId &&
+        lastProviderSheetDataFetchRef.current?.monthKey === captureKey.monthKey
+
+      if (!isStillCurrent()) return
       setCurrentProvider(providerData)
 
       // Use selected month/year and pay-period half (when clinic has payroll=2)
@@ -1272,6 +1284,7 @@ export default function ClinicDetail() {
         sheet = newSheet
       }
 
+      if (!isStillCurrent()) return
       setCurrentSheet(sheet)
 
       // Extract rows with CPT codes and appointment statuses
@@ -1297,8 +1310,9 @@ export default function ClinicDetail() {
         })
       }
 
+      if (!isStillCurrent()) return
       setProviderRows(rows)
-      
+
       // Create empty rows for providers table (200 rows per provider)
       const createEmptyProviderSheetRow = (index: number): SheetRow => ({
         id: `empty-${index}`,
@@ -1350,6 +1364,7 @@ export default function ClinicDetail() {
         createEmptyProviderSheetRow(i)
       )
       const allRows = [...sheetRows, ...emptyRows]
+      if (!isStillCurrent()) return
       setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: allRows } }))
       setProviderSheetsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: sheet } }))
       lastProviderSheetContextRef.current = { clinicId: clinicId!, providerId, monthKey: selectedMonthKey }

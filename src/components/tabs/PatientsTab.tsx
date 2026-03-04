@@ -634,24 +634,11 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     const updatedPatients = [...currentPatients]
     const fields: Array<keyof Patient> = ['patient_id', 'first_name', 'last_name', 'insurance', 'copay', 'coinsurance']
 
-    // When user edits a different row, they "left" the previous row — flush save so we persist and run onPatientCreated with full row data
+    // Detect row leave (user edited a different row) — we'll flush save after applying changes so onPatientCreated gets full row data
     const rowsInChange = [...new Set(changes.map(([r]) => r))]
     const primaryRow = rowsInChange[0] ?? null
     const prevRow = lastEditedRowRef.current
-    if (prevRow !== null && primaryRow !== null && !rowsInChange.includes(prevRow)) {
-      saveTriggeredByRowLeaveRef.current = true
-      if (savePatientsTimeoutRef.current) {
-        clearTimeout(savePatientsTimeoutRef.current)
-        savePatientsTimeoutRef.current = null
-      }
-      if (!saveInProgressRef.current) {
-        savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save on row leave:', err))
-      }
-    }
-    lastEditedRowRef.current = primaryRow
-
-    // Also treat "editing a different row" as having left prevRow for the next change
-    if (primaryRow !== null) lastSelectedRowRef.current = primaryRow
+    const didLeaveRow = prevRow !== null && primaryRow !== null && !rowsInChange.includes(prevRow)
 
     changes.forEach(([row, col, , newValue]) => {
       while (updatedPatients.length <= row) {
@@ -678,8 +665,23 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       updatedPatients.push(...Array.from({ length: emptyRowsNeeded }, (_, i) => createEmptyPatient(existingEmptyCount + i)))
     }
 
+    lastEditedRowRef.current = primaryRow
+    if (primaryRow !== null) lastSelectedRowRef.current = primaryRow
+
     patientsRef.current = updatedPatients
     setPatients(updatedPatients)
+
+    // When user left the previous row, flush save now (after applying this change) so provider sheets get full row data
+    if (didLeaveRow) {
+      saveTriggeredByRowLeaveRef.current = true
+      if (savePatientsTimeoutRef.current) {
+        clearTimeout(savePatientsTimeoutRef.current)
+        savePatientsTimeoutRef.current = null
+      }
+      if (!saveInProgressRef.current) {
+        savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save on row leave:', err))
+      }
+    }
 
     // Debounce save so typing multiple cells on a new row upserts one record, not one per cell
     if (savePatientsTimeoutRef.current) clearTimeout(savePatientsTimeoutRef.current)
@@ -703,7 +705,10 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         clearTimeout(savePatientsTimeoutRef.current)
         savePatientsTimeoutRef.current = null
       }
-      savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save on selection change:', err))
+      // Defer save so any pending afterChange for the cell we left runs first (so all typed cells are in patientsRef)
+      setTimeout(() => {
+        savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save on selection change:', err))
+      }, 0)
     }
     lastSelectedRowRef.current = r
   }, [savePatients])

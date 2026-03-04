@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import Dashboard from '@/pages/Dashboard'
 import BillingTodo from '@/pages/BillingTodo'
@@ -9,6 +9,12 @@ import Timecards from '@/pages/Timecards'
 import SuperAdminSettings from '@/pages/SuperAdminSettings'
 import ClinicDetail from '@/pages/ClinicDetail'
 import ClinicDashboard from '@/pages/ClinicDashboard'
+
+/** Wrapper that remounts ClinicDetail when providerId changes so the page reloads with the selected provider's data. */
+function ClinicDetailWithProviderKey() {
+  const { clinicId, providerId } = useParams<{ clinicId: string; providerId?: string }>()
+  return <ClinicDetail key={`clinic-${clinicId}-provider-${providerId ?? 'all'}`} />
+}
 import Invoices from '@/pages/Invoices'
 import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
@@ -181,7 +187,7 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Layout>
-              <ClinicDetail />
+              <ClinicDetailWithProviderKey />
             </Layout>
           </ProtectedRoute>
         }
