@@ -78,19 +78,11 @@ export default function ClinicDetail() {
   /** Flush Patient Info save (with row-leave flag) before switching tab; registered by PatientsTab */
   const patientsTabFlushRef = useRef<(() => Promise<void>) | null>(null)
 
-  // Month filter for provider tab (and pay-period half when clinic has payroll=2)
+  // Month filter for provider tab
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
-  const [selectedPayroll, setSelectedPayroll] = useState<1 | 2>(1)
-  const selectedMonthKey =
-    clinic?.payroll === 2
-      ? `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}-${selectedPayroll}`
-      : `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+  const selectedMonthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
   const providerSheets = providerSheetsByMonth[selectedMonthKey] ?? {}
   const providerSheetRows = providerSheetRowsByMonth[selectedMonthKey] ?? {}
-
-  // Provider Pay tab has its own month (payout month often lags: January work pays in February)
-  const [selectedMonthProviderPay, setSelectedMonthProviderPay] = useState<Date>(new Date())
-  const [selectedPayrollProviderPay, setSelectedPayrollProviderPay] = useState<1 | 2>(1)
   const providersRef = useRef<Provider[]>([])
   // Provider sheet rows for editable view (when viewing a specific provider's sheet via providerId param)
   const [providerRows, setProviderRows] = useState<Array<{
@@ -184,9 +176,9 @@ export default function ClinicDetail() {
   const prevMonthKeyRef = useRef<string | null>(null)
   /** Tracks (clinicId, providerId, monthKey) so we only skip fetch when cache is for this clinic (fixes same content across clinics). */
   const lastProviderSheetContextRef = useRef<{ clinicId: string; providerId: string | null; monthKey: string } | null>(null)
-  // When month (or pay-period half when payroll=2) changes: use cached data if available, otherwise fetch
+  // When month changes: use cached data if available, otherwise fetch (no full-page loading when only month changed)
   useEffect(() => {
-    const monthKey = selectedMonthKey
+    const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
     const isInitialLoad = prevMonthKeyRef.current === null
     const monthChanged = prevMonthKeyRef.current !== null && prevMonthKeyRef.current !== monthKey
     prevMonthKeyRef.current = monthKey
@@ -215,7 +207,7 @@ export default function ClinicDetail() {
     if (clinicId && !providerId && (activeTab === 'providers' || activeTab === 'provider_pay')) {
       fetchProviderSheets(isMonthChangeOnly)
     }
-  }, [selectedMonthKey, activeTab, clinicId, providerId, providerSheetRowsByMonth])
+  }, [selectedMonth, activeTab, clinicId, providerId, providerSheetRowsByMonth])
 
   const fetchClinic = async () => {
     try {
@@ -986,97 +978,23 @@ export default function ClinicDetail() {
 
   // Month navigation functions
   const handlePreviousMonth = () => {
-    if (clinic?.payroll === 2) {
-      if (selectedPayroll === 2) {
-        setSelectedPayroll(1)
-      } else {
-        setSelectedPayroll(2)
-        setSelectedMonth((prev) => {
-          const d = new Date(prev)
-          d.setMonth(d.getMonth() - 1)
-          return d
-        })
-      }
-    } else {
-      setSelectedMonth((prev) => {
-        const d = new Date(prev)
-        d.setMonth(d.getMonth() - 1)
-        return d
-      })
-    }
+    setSelectedMonth(prevDate => {
+      const newDate = new Date(prevDate)
+      newDate.setMonth(newDate.getMonth() - 1)
+      return newDate
+    })
   }
 
   const handleNextMonth = () => {
-    if (clinic?.payroll === 2) {
-      if (selectedPayroll === 1) {
-        setSelectedPayroll(2)
-      } else {
-        setSelectedPayroll(1)
-        setSelectedMonth((prev) => {
-          const d = new Date(prev)
-          d.setMonth(d.getMonth() + 1)
-          return d
-        })
-      }
-    } else {
-      setSelectedMonth((prev) => {
-        const d = new Date(prev)
-        d.setMonth(d.getMonth() + 1)
-        return d
-      })
-    }
+    setSelectedMonth(prevDate => {
+      const newDate = new Date(prevDate)
+      newDate.setMonth(newDate.getMonth() + 1)
+      return newDate
+    })
   }
 
-  /** Format month/year for display; when payroll=2 and payroll half is passed, show "January 1st Half 2025". */
-  const formatMonthYear = (date: Date, payroll?: 1 | 2) => {
-    if (clinic?.payroll === 2 && payroll != null) {
-      const monthName = date.toLocaleDateString('en-US', { month: 'long' })
-      const half = payroll === 1 ? '1st' : '2nd'
-      return `${monthName} ${half} Half ${date.getFullYear()}`
-    }
+  const formatMonthYear = (date: Date) => {
     return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-  }
-
-  const handlePreviousMonthProviderPay = () => {
-    if (clinic?.payroll === 2) {
-      if (selectedPayrollProviderPay === 2) {
-        setSelectedPayrollProviderPay(1)
-      } else {
-        setSelectedPayrollProviderPay(2)
-        setSelectedMonthProviderPay((prev) => {
-          const d = new Date(prev)
-          d.setMonth(d.getMonth() - 1)
-          return d
-        })
-      }
-    } else {
-      setSelectedMonthProviderPay((prev) => {
-        const d = new Date(prev)
-        d.setMonth(d.getMonth() - 1)
-        return d
-      })
-    }
-  }
-
-  const handleNextMonthProviderPay = () => {
-    if (clinic?.payroll === 2) {
-      if (selectedPayrollProviderPay === 1) {
-        setSelectedPayrollProviderPay(2)
-      } else {
-        setSelectedPayrollProviderPay(1)
-        setSelectedMonthProviderPay((prev) => {
-          const d = new Date(prev)
-          d.setMonth(d.getMonth() + 1)
-          return d
-        })
-      }
-    } else {
-      setSelectedMonthProviderPay((prev) => {
-        const d = new Date(prev)
-        d.setMonth(d.getMonth() + 1)
-        return d
-      })
-    }
   }
 
   const filterRowsByMonth = (rows: SheetRow[]) => {
@@ -1185,23 +1103,24 @@ export default function ClinicDetail() {
         setCurrentProvider(null)
         setCurrentSheet(null)
         setProviderRows([])
+        const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
         setProviderSheetRowsByMonth(prev => {
-          const cur = prev[selectedMonthKey] ?? {}
+          const cur = prev[monthKey] ?? {}
           const updated = { ...cur }
           delete updated[providerId]
-          return { ...prev, [selectedMonthKey]: updated }
+          return { ...prev, [monthKey]: updated }
         })
         return
       }
       
       setCurrentProvider(providerData)
 
-      // Use selected month/year and pay-period half (when clinic has payroll=2)
+      // Use selected month/year instead of current date
       const month = selectedMonth.getMonth() + 1
       const year = selectedMonth.getFullYear()
-      const payroll = (clinic?.payroll === 2 ? selectedPayroll : (clinic?.payroll ?? 1)) as 1 | 2
+      const payroll = (clinic?.payroll ?? 1) as 1 | 2
 
-      // Fetch sheet for the selected month/year (and half)
+      // Fetch sheet for the selected month/year
       const { data: existingSheet, error: sheetsError } = await supabase
         .from('provider_sheets')
         .select('*')
@@ -1318,9 +1237,10 @@ export default function ClinicDetail() {
         createEmptyProviderSheetRow(i)
       )
       const allRows = [...sheetRows, ...emptyRows]
-      setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: allRows } }))
-      setProviderSheetsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: sheet } }))
-      lastProviderSheetContextRef.current = { clinicId: clinicId!, providerId, monthKey: selectedMonthKey }
+      const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+      setProviderSheetRowsByMonth(prev => ({ ...prev, [monthKey]: { ...(prev[monthKey] ?? {}), [providerId]: allRows } }))
+      setProviderSheetsByMonth(prev => ({ ...prev, [monthKey]: { ...(prev[monthKey] ?? {}), [providerId]: sheet } }))
+      lastProviderSheetContextRef.current = { clinicId: clinicId!, providerId, monthKey }
     } catch (error) {
       console.error('Error fetching provider sheet data:', error)
     } finally {
@@ -1432,10 +1352,10 @@ export default function ClinicDetail() {
 
     try {
       if (!isMonthChange) setLoading(true)
-      // Use selected month/year and pay-period half (when clinic has payroll=2)
+      // Use selected month/year instead of current date
       const month = selectedMonth.getMonth() + 1
       const year = selectedMonth.getFullYear()
-      const payroll = (clinic?.payroll === 2 ? selectedPayroll : (clinic?.payroll ?? 1)) as 1 | 2
+
 
       // Fetch all active providers for this clinic
       const { data: providersData } = await supabase
@@ -1447,6 +1367,7 @@ export default function ClinicDetail() {
       if (!providersData || providersData.length === 0) return
 
       const providerIds = providersData.map((p: { id: string }) => p.id)
+      const payroll = (clinic?.payroll ?? 1) as 1 | 2
 
       // Fetch or create provider sheets for all providers
       const sheetsMap: Record<string, ProviderSheet> = {}
@@ -1550,9 +1471,10 @@ export default function ClinicDetail() {
         rowsMap[providerId] = [...sheetRows, ...emptyRows]
       }
 
-      setProviderSheetsByMonth(prev => ({ ...prev, [selectedMonthKey]: sheetsMap }))
-      setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: rowsMap }))
-      lastProviderSheetContextRef.current = { clinicId, providerId: null, monthKey: selectedMonthKey }
+      const monthKey = `${selectedMonth.getFullYear()}-${selectedMonth.getMonth() + 1}`
+      setProviderSheetsByMonth(prev => ({ ...prev, [monthKey]: sheetsMap }))
+      setProviderSheetRowsByMonth(prev => ({ ...prev, [monthKey]: rowsMap }))
+      lastProviderSheetContextRef.current = { clinicId, providerId: null, monthKey }
     } catch (error) {
       console.error('Error fetching provider sheets:', error)
     } finally {
@@ -1968,7 +1890,7 @@ export default function ClinicDetail() {
       const ids = (providersData || []).map((p: { id: string }) => p.id)
       if (ids.length === 0) return
 
-      const payroll = (clinic?.payroll === 2 ? selectedPayroll : (clinic?.payroll ?? 1)) as 1 | 2
+      const payroll = (clinic?.payroll ?? 1) as 1 | 2
       const sheetsMap: Record<string, ProviderSheet> = {}
       const rowsMap: Record<string, SheetRow[]> = {}
       for (const providerId of ids) {
@@ -2136,7 +2058,7 @@ export default function ClinicDetail() {
         }
       }
     })
-  }, [providerSheets, providerSheetRowsByMonth, selectedMonth, selectedMonthKey, selectedPayroll, clinic?.payroll, saveProviderSheetRows, clinicId])
+  }, [providerSheets, providerSheetRowsByMonth, selectedMonth, selectedMonthKey, saveProviderSheetRows, clinicId])
 
   const handleReorderProviderRows = useCallback((providerId: string, movedRows: number[], finalIndex: number) => {
     const rows = providerSheetRows[providerId] || []
@@ -2265,9 +2187,9 @@ export default function ClinicDetail() {
             providers={providers.filter((p): p is Provider => p.level === 2)}
             canEdit={canEdit}
             isInSplitScreen={!!splitScreen}
-            selectedMonth={selectedMonthProviderPay}
-            onPreviousMonth={handlePreviousMonthProviderPay}
-            onNextMonth={handleNextMonthProviderPay}
+            selectedMonth={selectedMonth}
+            onPreviousMonth={handlePreviousMonth}
+            onNextMonth={handleNextMonth}
             formatMonthYear={formatMonthYear}
             statusColors={statusColors}
             isLockProviderPay={isLockProviderPay}
@@ -2294,7 +2216,6 @@ export default function ClinicDetail() {
             statusColors={statusColors}
             patients={patients}
             selectedMonth={selectedMonth}
-            selectedPayroll={clinic?.payroll === 2 ? selectedPayroll : undefined}
             providerId={providerId}
             currentProvider={currentProvider}
             canEdit={canEdit}

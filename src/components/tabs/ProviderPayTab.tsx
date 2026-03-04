@@ -88,8 +88,7 @@ export interface ProviderPayTabProps {
   selectedMonth: Date
   onPreviousMonth: () => void
   onNextMonth: () => void
-  /** When payroll=2, second arg is used to show "January 1st Half" / "January 2nd Half". */
-  formatMonthYear: (date: Date, payroll?: 1 | 2) => string
+  formatMonthYear: (date: Date) => string
   statusColors: StatusColor[]
   isLockProviderPay?: IsLockProviderPay | null
   onLockColumn?: (columnName: string) => void
@@ -476,7 +475,7 @@ export default function ProviderPayTab({
               >
                 <ChevronLeft size={20} />
               </button>
-              <div className="text-lg font-semibold min-w-[200px] text-center">{formatMonthYear(selectedMonth, clinicPayroll === 2 ? selectedPayroll : undefined)}</div>
+              <div className="text-lg font-semibold min-w-[200px] text-center">{formatMonthYear(selectedMonth)}</div>
               <button
                 onClick={onNextMonth}
                 className="absolute right-0 p-2 hover:opacity-80 rounded-lg transition-opacity"

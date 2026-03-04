@@ -3,7 +3,7 @@ import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import { supabase, createSupabaseClientForSignUp, createSupabaseClientWithStorageKey } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { User, BillingCode, Clinic, ProviderSheet, AuditLog, Provider } from '@/types'
-import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Link2, Check, Key, MapPin, Eye, EyeOff } from 'lucide-react'
+import { Users, Palette, FileText, Plus, Edit, Trash2, X, Unlock, Building2, Download, Link2, Check, Key, MapPin } from 'lucide-react'
 import { formatDateTime } from '@/lib/utils'
 import { fetchClinicAddressesByClinicIds } from '@/lib/clinicAddresses'
 import MonthCloseTab from '@/components/MonthCloseTab'
@@ -93,12 +93,9 @@ export default function SuperAdminSettings() {
   const [toggleActivePassword, setToggleActivePassword] = useState('')
   const [toggleActiveError, setToggleActiveError] = useState('')
   const [toggleActiveLoading, setToggleActiveLoading] = useState(false)
-  const [changePasswordUserId, setChangePasswordUserId] = useState<string>('')
-  const [changePasswordUserList, setChangePasswordUserList] = useState<User[]>([])
+  const [changePasswordCurrent, setChangePasswordCurrent] = useState('')
   const [changePasswordNew, setChangePasswordNew] = useState('')
   const [changePasswordConfirm, setChangePasswordConfirm] = useState('')
-  const [showNewPassword, setShowNewPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [changePasswordError, setChangePasswordError] = useState('')
   const [changePasswordSuccess, setChangePasswordSuccess] = useState(false)
   const [changePasswordLoading, setChangePasswordLoading] = useState(false)
@@ -125,18 +122,6 @@ export default function SuperAdminSettings() {
 
   useEffect(() => {
     if (variant) fetchData()
-  }, [activeTab, variant])
-
-  useEffect(() => {
-    if (activeTab !== 'change-password' || variant !== 'super_admin') return
-    const load = async () => {
-      const { data, error } = await supabase.from('users').select('*').order('email')
-      if (!error && data) {
-        setChangePasswordUserList((data as User[]) || [])
-        setChangePasswordUserId((prev) => (prev ? prev : (data[0] as User)?.id ?? ''))
-      }
-    }
-    load()
   }, [activeTab, variant])
 
   const fetchData = async () => {
@@ -792,10 +777,6 @@ export default function SuperAdminSettings() {
     e.preventDefault()
     setChangePasswordError('')
     setChangePasswordSuccess(false)
-    if (!changePasswordUserId) {
-      setChangePasswordError('Please select a user.')
-      return
-    }
     if (!changePasswordNew || changePasswordNew.length < 6) {
       setChangePasswordError('New password must be at least 6 characters.')
       return
@@ -804,27 +785,28 @@ export default function SuperAdminSettings() {
       setChangePasswordError('New password and confirmation do not match.')
       return
     }
-    const { data: sessionData } = await supabase.auth.getSession()
-    if (!sessionData?.session?.access_token) {
-      setChangePasswordError('You must be signed in to change a password.')
+    if (!userProfile?.email) {
+      setChangePasswordError('Could not determine your email.')
       return
     }
     setChangePasswordLoading(true)
     try {
-      const res = await fetch('/api/admin-update-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-        body: JSON.stringify({ userId: changePasswordUserId, newPassword: changePasswordNew }),
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: userProfile.email,
+        password: changePasswordCurrent,
       })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setChangePasswordError(data.error || 'Failed to update password.')
+      if (signInError) {
+        setChangePasswordError('Current password is incorrect.')
         setChangePasswordLoading(false)
         return
       }
+      const { error: updateError } = await supabase.auth.updateUser({ password: changePasswordNew })
+      if (updateError) {
+        setChangePasswordError(updateError.message || 'Failed to update password.')
+        setChangePasswordLoading(false)
+        return
+      }
+      setChangePasswordCurrent('')
       setChangePasswordNew('')
       setChangePasswordConfirm('')
       setChangePasswordSuccess(true)
@@ -1340,76 +1322,51 @@ export default function SuperAdminSettings() {
                   <h2 className="text-xl font-semibold text-white mb-4">Change Password</h2>
                   <form onSubmit={handleChangePassword} className="max-w-md space-y-4">
                     <div>
-                      <label htmlFor="change-password-user" className="block text-sm font-medium text-white/90 mb-1">
-                        User
+                      <label htmlFor="current-password" className="block text-sm font-medium text-white/90 mb-1">
+                        Current password
                       </label>
-                      <select
-                        id="change-password-user"
-                        value={changePasswordUserId}
-                        onChange={(e) => setChangePasswordUserId(e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-black cursor-pointer"
+                      <input
+                        id="current-password"
+                        type="password"
+                        value={changePasswordCurrent}
+                        onChange={(e) => setChangePasswordCurrent(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50"
+                        placeholder="Enter current password"
                         required
-                      >
-                        <option value="">Select user...</option>
-                        {changePasswordUserList.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.full_name?.trim() || u.email || u.id}
-                            {u.email ? ` (${u.email})` : ''}
-                          </option>
-                        ))}
-                      </select>
+                        autoComplete="current-password"
+                      />
                     </div>
                     <div>
                       <label htmlFor="new-password" className="block text-sm font-medium text-white/90 mb-1">
                         New password
                       </label>
-                      <div className="relative">
-                        <input
-                          id="new-password"
-                          type={showNewPassword ? 'text' : 'password'}
-                          value={changePasswordNew}
-                          onChange={(e) => setChangePasswordNew(e.target.value)}
-                          className="w-full px-3 py-2 pr-10 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50"
-                          placeholder="At least 6 characters"
-                          required
-                          minLength={6}
-                          autoComplete="new-password"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowNewPassword((v) => !v)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-white/60 hover:text-white rounded"
-                          aria-label={showNewPassword ? 'Hide password' : 'Show password'}
-                        >
-                          {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                      </div>
+                      <input
+                        id="new-password"
+                        type="password"
+                        value={changePasswordNew}
+                        onChange={(e) => setChangePasswordNew(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50"
+                        placeholder="At least 6 characters"
+                        required
+                        minLength={6}
+                        autoComplete="new-password"
+                      />
                     </div>
                     <div>
                       <label htmlFor="confirm-password" className="block text-sm font-medium text-white/90 mb-1">
                         Confirm new password
                       </label>
-                      <div className="relative">
-                        <input
-                          id="confirm-password"
-                          type={showConfirmPassword ? 'text' : 'password'}
-                          value={changePasswordConfirm}
-                          onChange={(e) => setChangePasswordConfirm(e.target.value)}
-                          className="w-full px-3 py-2 pr-10 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50"
-                          placeholder="Confirm new password"
-                          required
-                          minLength={6}
-                          autoComplete="new-password"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowConfirmPassword((v) => !v)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-white/60 hover:text-white rounded"
-                          aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                        >
-                          {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                      </div>
+                      <input
+                        id="confirm-password"
+                        type="password"
+                        value={changePasswordConfirm}
+                        onChange={(e) => setChangePasswordConfirm(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50"
+                        placeholder="Confirm new password"
+                        required
+                        minLength={6}
+                        autoComplete="new-password"
+                      />
                     </div>
                     {changePasswordError && (
                       <p className="text-sm text-red-400">{changePasswordError}</p>

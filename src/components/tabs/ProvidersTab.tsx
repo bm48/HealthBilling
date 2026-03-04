@@ -23,8 +23,6 @@ interface ProvidersTabProps {
   statusColors: StatusColor[]
   patients: Patient[]
   selectedMonth: Date
-  /** When clinicPayroll=2, which half (1 or 2) is selected; used for label "January 1st Half". */
-  selectedPayroll?: 1 | 2
   providerId?: string
   /** Current provider (for context); optional, passed by ClinicDetail and ProviderSheetPage */
   currentProvider?: Provider | null
@@ -41,8 +39,7 @@ interface ProvidersTabProps {
   onAddRowAbove?: (providerId: string, beforeRowId: string) => void
   onPreviousMonth: () => void
   onNextMonth: () => void
-  /** When clinicPayroll=2, second arg shows "January 1st Half" / "January 2nd Half". */
-  formatMonthYear: (date: Date, payroll?: 1 | 2) => string
+  formatMonthYear: (date: Date) => string
   filterRowsByMonth: (rows: SheetRow[]) => SheetRow[]
   isLockProviders?: IsLockProviders | null
   onLockProviderColumn?: (columnName: string) => void
@@ -83,7 +80,6 @@ export default function ProvidersTab({
   onPreviousMonth,
   onNextMonth,
   formatMonthYear,
-  selectedPayroll,
   filterRowsByMonth,
   isLockProviders,
   onLockProviderColumn,
@@ -1508,7 +1504,7 @@ export default function ProvidersTab({
               <ChevronLeft size={20} />
             </button>
             <div className="text-lg font-semibold min-w-[200px] text-center">
-              {formatMonthYear(selectedMonth, clinicPayroll === 2 ? selectedPayroll : undefined)}
+              {formatMonthYear(selectedMonth)}
             </div>
             <button
               onClick={onNextMonth}
