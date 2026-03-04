@@ -247,7 +247,7 @@ export default function Timecards() {
       })
       .eq('id', editingTimecard.id)
     if (error) {
-      alert('Failed to update timecard.')
+      alert('Failed to update timecard: ' + (error.message || 'Unknown error'))
       return
     }
     setEditingTimecard(null)
@@ -259,6 +259,26 @@ export default function Timecards() {
     const { error } = await supabase.from('timecards').delete().eq('id', tc.id)
     if (error) {
       alert('Failed to delete timecard.')
+      return
+    }
+    loadStaffTimecards()
+  }
+
+  const handleDeleteWeeklyRow = async (row: StaffWeekRow) => {
+    const timecardsInRow = staffTimecards.filter(
+      (tc) => tc.user_id === row.userId && getWeekStart(tc) === row.weekStart
+    )
+    const locked = timecardsInRow.some((tc) => tc.is_locked)
+    if (locked) {
+      alert('Cannot delete: one or more timecards in this week are locked.')
+      return
+    }
+    const name = staffUserById[row.userId] ? userName(staffUserById[row.userId]) : row.userId
+    if (!confirm(`Delete all time entries for ${name} for the week of ${formatWeekRange(row.weekStart)} (${timecardsInRow.length} entries, ${row.totalHours.toFixed(2)} hrs)?`)) return
+    const ids = timecardsInRow.map((tc) => tc.id)
+    const { error } = await supabase.from('timecards').delete().in('id', ids)
+    if (error) {
+      alert('Failed to delete timecards.')
       return
     }
     loadStaffTimecards()
@@ -567,6 +587,7 @@ export default function Timecards() {
                     <th>Week</th>
                     <th>Dates worked</th>
                     <th>Hours</th>
+                    <th className="w-12">Actions</th>
                   </>
                 ) : (
                   <>
@@ -580,21 +601,38 @@ export default function Timecards() {
               {isSuperAdmin ? (
                 staffWeekRows.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="text-white/60 text-center py-6">
+                    <td colSpan={5} className="text-white/60 text-center py-6">
                       No hours recorded yet.
                     </td>
                   </tr>
                 ) : (
-                  staffWeekRows.map((row) => (
-                    <tr key={`${row.userId}-${row.weekStart}`}>
-                      <td style={{ whiteSpace: 'nowrap' }} className="text-white/90">
-                        {staffUserById[row.userId] ? userName(staffUserById[row.userId]) : row.userId}
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }} className="text-white/90">{formatWeekRange(row.weekStart)}</td>
-                      <td className="text-white/80">{row.datesWorked}</td>
-                      <td style={{ fontWeight: 500 }} className="text-white">{row.totalHours.toFixed(2)} hrs</td>
-                    </tr>
-                  ))
+                  staffWeekRows.map((row) => {
+                    const timecardsInRow = staffTimecards.filter(
+                      (tc) => tc.user_id === row.userId && getWeekStart(tc) === row.weekStart
+                    )
+                    const hasLocked = timecardsInRow.some((tc) => tc.is_locked)
+                    return (
+                      <tr key={`${row.userId}-${row.weekStart}`}>
+                        <td style={{ whiteSpace: 'nowrap' }} className="text-white/90">
+                          {staffUserById[row.userId] ? userName(staffUserById[row.userId]) : row.userId}
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap' }} className="text-white/90">{formatWeekRange(row.weekStart)}</td>
+                        <td className="text-white/80">{row.datesWorked}</td>
+                        <td style={{ fontWeight: 500 }} className="text-white">{row.totalHours.toFixed(2)} hrs</td>
+                        <td>
+                          <button
+                            type="button"
+                            onClick={() => !hasLocked && handleDeleteWeeklyRow(row)}
+                            disabled={hasLocked}
+                            className="p-1.5 text-white/70 hover:text-red-400 hover:bg-white/10 rounded disabled:opacity-40 disabled:pointer-events-none"
+                            title={hasLocked ? 'Week has locked entries' : 'Delete all entries for this week'}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })
                 )
               ) : weekEntries.length === 0 ? (
                 <tr>
