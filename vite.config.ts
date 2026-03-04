@@ -54,6 +54,13 @@ export default defineConfig(({ mode }) => {
             })
           },
         },
+        // Forward user's JWT (frontend sets Authorization: Bearer <session.access_token>)
+        '/api/admin-update-password': {
+          target: supabaseUrl,
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api\/admin-update-password/, '/functions/v1/admin-update-password'),
+        },
       },
     },
   }
