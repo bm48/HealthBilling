@@ -810,6 +810,19 @@ export default function Layout({ children }: LayoutProps) {
                             <span>Locked Sheets</span>
                           </Link>
                         )}
+                        {isSuperAdmin && (
+                          <Link
+                            to={`${settingsPath}?tab=change-password`}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm ${
+                              location.pathname === settingsPath && location.search.includes('tab=change-password')
+                                ? 'bg-primary-600 text-white font-medium'
+                                : 'text-white/60 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <KeyRound size={16} />
+                            <span>Change Password</span>
+                          </Link>
+                        )}
                         {userProfile?.role === 'admin' && (
                           <Link
                             to={`${settingsPath}?tab=month-close`}
