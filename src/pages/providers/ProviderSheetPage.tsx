@@ -149,19 +149,24 @@ export default function ProviderSheetPage() {
     const providerId = provider.id
     const month = selectedMonth.getMonth() + 1
     const year = selectedMonth.getFullYear()
+    const payroll = (clinic?.payroll ?? 1) as 1 | 2
 
     setLoading(true)
     try {
-      let { data: sheet, error: sheetsError } = await supabase
+      let { data: sheetList, error: sheetsError } = await supabase
         .from('provider_sheets')
         .select('*')
         .eq('clinic_id', clinicId)
         .eq('provider_id', providerId)
         .eq('month', month)
         .eq('year', year)
-        .maybeSingle()
+        .eq('payroll', payroll)
+        .order('created_at', { ascending: true })
+        .limit(1)
 
-      if (sheetsError && sheetsError.code !== 'PGRST116') throw sheetsError
+      if (sheetsError) throw sheetsError
+
+      let sheet = sheetList?.[0] ?? null
 
       if (!sheet) {
         const { data: newSheet, error: createError } = await supabase
@@ -171,15 +176,32 @@ export default function ProviderSheetPage() {
             provider_id: providerId,
             month,
             year,
+            payroll,
             locked: false,
             locked_columns: [],
           })
           .select()
           .maybeSingle()
 
-        if (createError) throw createError
-        if (!newSheet) return
-        sheet = newSheet
+        if (createError) {
+          if (createError.code === '23505') {
+            const { data: refetchList, error: refetchErr } = await supabase
+              .from('provider_sheets')
+              .select('*')
+              .eq('clinic_id', clinicId)
+              .eq('provider_id', providerId)
+              .eq('month', month)
+              .eq('year', year)
+              .eq('payroll', payroll)
+              .order('created_at', { ascending: true })
+              .limit(1)
+            if (!refetchErr && refetchList?.[0]) sheet = refetchList[0]
+          }
+          if (!sheet) throw createError
+        } else if (newSheet) {
+          sheet = newSheet
+        }
+        if (!sheet) return
       }
 
       setCurrentSheet(sheet)

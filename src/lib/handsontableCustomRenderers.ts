@@ -327,6 +327,33 @@ export function createMultiBubbleDropdownRenderer(colorMap: (value: string) => {
   }
 }
 
+const _BaseDropdown =
+  (Handsontable as any).editors?.DropdownEditor ?? (Handsontable as any).editors?.AutocompleteEditor
+
+/**
+ * Dropdown editor that forces the options list to open when the editor opens.
+ * The default AutocompleteEditor uses _registerTimeout for queryChoices, which can fail to show
+ * the list when the editor is opened programmatically (e.g. single-click on bubble). This subclass
+ * calls queryChoices after open() so the list always appears.
+ */
+export const DropdownEditorOpenList: typeof _BaseDropdown | null = _BaseDropdown
+  ? class DropdownEditorOpenList extends _BaseDropdown {
+      open(event?: Event) {
+        super.open(event)
+        if (typeof (this as any).queryChoices === 'function') {
+          const val = (this as any).TEXTAREA?.value ?? ''
+          setTimeout(() => {
+            try {
+              if (typeof (this as any).queryChoices === 'function') (this as any).queryChoices(val)
+            } catch {
+              // ignore
+            }
+          }, 0)
+        }
+      }
+    }
+  : null
+
 /**
  * Custom date editor using HTML5 date input
  */
@@ -356,40 +383,74 @@ export class DateEditor extends Handsontable.editors.TextEditor {
     }
   }
   
-  beginEditing(initialValue?: string) {
-    super.beginEditing(initialValue)
-    
-    // Format the date value for HTML5 date input (YYYY-MM-DD)
-    if (initialValue && this.TEXTAREA) {
-      const inputElement = this.TEXTAREA as HTMLInputElement
-      try {
-        let normalized = initialValue.trim()
-        // Parse MM-DD-YY or MM-DD-YYYY (table display format)
-        const mmddyy = /^(\d{1,2})-(\d{1,2})-(\d{2,4})$/.exec(normalized)
-        if (mmddyy) {
-          const month = parseInt(mmddyy[1], 10)
-          const day = parseInt(mmddyy[2], 10)
-          const y = parseInt(mmddyy[3], 10)
-          const year = y < 100 ? 2000 + y : y
-          if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-            normalized = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-          }
-        }
-        const date = new Date(normalized)
-        if (!isNaN(date.getTime())) {
-          const year = date.getFullYear()
-          const monthStr = String(date.getMonth() + 1).padStart(2, '0')
-          const dayStr = String(date.getDate()).padStart(2, '0')
-          inputElement.value = `${year}-${monthStr}-${dayStr}`
-        } else if (/^\d{4}-\d{2}-\d{2}$/.test(initialValue)) {
-          inputElement.value = initialValue
-        }
-      } catch {
-        if (/^\d{4}-\d{2}-\d{2}$/.test(initialValue)) {
-          inputElement.value = initialValue
-        }
+  /** Normalize a date string to YYYY-MM-DD for the HTML5 date input; return empty if invalid. */
+  private normalizeDateForInput(raw: string): string {
+    if (!raw || !raw.trim()) return ''
+    let normalized = raw.trim()
+    const mmddyy = /^(\d{1,2})-(\d{1,2})-(\d{2,4})$/.exec(normalized)
+    if (mmddyy) {
+      const month = parseInt(mmddyy[1], 10)
+      const day = parseInt(mmddyy[2], 10)
+      const y = parseInt(mmddyy[3], 10)
+      const year = y < 100 ? 2000 + y : y
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        normalized = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
       }
     }
+    try {
+      const date = new Date(normalized)
+      if (!isNaN(date.getTime())) {
+        const y = date.getFullYear()
+        const m = String(date.getMonth() + 1).padStart(2, '0')
+        const d = String(date.getDate()).padStart(2, '0')
+        return `${y}-${m}-${d}`
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized
+    } catch {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized
+    }
+    return ''
+  }
+
+  beginEditing(initialValue?: string) {
+    super.beginEditing(initialValue)
+    this.populateDateFromCell(initialValue)
+  }
+
+  open(event?: Event) {
+    super.open(event)
+    // Base editor only sets value in full edit mode; on double-click the input can be empty. Set it from cell here.
+    this.populateDateFromCell(undefined)
+  }
+
+  /** Set the date input value from initialValue or from the cell's current value (originalValue / getDataAtCell). */
+  private populateDateFromCell(initialValue?: string) {
+    if (!this.TEXTAREA) return
+    const inputElement = this.TEXTAREA as HTMLInputElement
+    let raw = ''
+    if (initialValue != null && initialValue !== '') {
+      raw = String(initialValue)
+    } else if (inputElement.value) {
+      return // already set (e.g. by base in full edit mode)
+    } else {
+      const ed = this as any
+      let v = ed.originalValue
+      if (v == null || v === undefined) {
+        try {
+          v = ed.hot?.getSourceDataAtCell?.(ed.row, ed.col) ?? ed.hot?.getDataAtCell?.(ed.row, ed.col)
+        } catch {
+          v = ed.hot?.getDataAtCell?.(ed.row, ed.col)
+        }
+      }
+      if (v != null && v !== undefined) raw = String(v)
+      else {
+        const getter = ed.cellProperties?.valueGetter
+        if (getter && ed.originalValue !== undefined) v = getter(ed.originalValue)
+        if (v != null && v !== undefined) raw = String(v)
+      }
+    }
+    const ymd = this.normalizeDateForInput(raw)
+    if (ymd) inputElement.value = ymd
   }
   
   getValue() {

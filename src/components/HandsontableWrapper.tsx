@@ -2,7 +2,7 @@ import { useRef, useEffect, useMemo, useState } from 'react'
 import { HotTable } from '@handsontable/react'
 import Handsontable from 'handsontable'
 import { HyperFormula } from 'hyperformula'
-import { DateEditor } from '@/lib/handsontableCustomRenderers'
+import { DateEditor, DropdownEditorOpenList } from '@/lib/handsontableCustomRenderers'
 import 'handsontable/dist/handsontable.full.css'
 
 /** 0-based row/col range for formula reference highlighting */
@@ -314,7 +314,7 @@ export default function HandsontableWrapper({
       // Numeric validation and formatting will be handled in the change handler
     }
     
-    // Handle dropdown type: use Select editor only when explicitly requested; otherwise use default Dropdown editor (list opens with editor)
+    // Handle dropdown type: use Select editor only when explicitly requested; otherwise use Dropdown with editor that forces list to open
     if (col.type === 'dropdown' && col.selectOptions) {
       if (col.editor === 'select') {
         processedCol.type = 'text' as const
@@ -325,6 +325,10 @@ export default function HandsontableWrapper({
         processedCol.type = 'dropdown' as const
         processedCol.source = col.selectOptions
         processedCol.strict = col.strict !== false
+        // Use custom editor that forces options list to open on single-click (unless column already has a custom editor e.g. MultiSelectCptEditor)
+        if ((!col.editor || typeof col.editor !== 'function') && DropdownEditorOpenList) {
+          processedCol.editor = DropdownEditorOpenList
+        }
       }
     }
     
@@ -617,19 +621,23 @@ export default function HandsontableWrapper({
           }
         }, 0)
       }
-      // 2) Force dropdown/autocomplete list to open so single-click shows options (Handsontable's internal timeout can be delayed)
+      // 2) Force dropdown/autocomplete list to open so single-click shows options (must run after editor's open() finishes)
       const editorManager = hot._getEditorManager?.()
       const editor = editorManager?.activeEditor
       if (editor && typeof editor.queryChoices === 'function') {
-        setTimeout(() => {
+        const runQuery = () => {
           try {
-            if (!hot.isDestroyed && editor.TEXTAREA != null) {
-              editor.queryChoices(editor.TEXTAREA.value ?? '')
-            }
+            if (hot.isDestroyed) return
+            const ed = editorManager?.activeEditor
+            if (!ed || typeof ed.queryChoices !== 'function') return
+            const val = ed.TEXTAREA != null ? (ed.TEXTAREA as HTMLInputElement).value : ''
+            ed.queryChoices(val ?? '')
           } catch {
             // ignore
           }
-        }, 0)
+        }
+        setTimeout(runQuery, 20)
+        setTimeout(runQuery, 80)
       }
     },
     ...(enableFormula
