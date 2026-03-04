@@ -103,7 +103,9 @@ export default function ClinicDetail() {
   const [currentProvider, setCurrentProvider] = useState<Provider | null>(null)
   const [currentSheet, setCurrentSheet] = useState<ProviderSheet | null>(null)
   const providerRowsRef = useRef<Array<{ id: string; cpt_code: string; appointment_status: string; sheetId: string; rowId: string }>>([])
-
+  /** Serialize provider sheet saves per provider so an older save (e.g. 59 rows) cannot overwrite a newer one (67 rows) in the DB. */
+  const saveProviderSheetInProgressRef = useRef<Set<string>>(new Set())
+  const pendingProviderSheetSaveRef = useRef<Record<string, SheetRow[]>>({})
 
   // Billing staff and official staff may only access clinics permitted by super admin / admin
   const isBillingStaff = userProfile?.role === 'billing_staff'
@@ -1563,10 +1565,23 @@ export default function ClinicDetail() {
 
 
   const saveProviderSheetRows = useCallback(async (providerId: string, rowsToSave: SheetRow[]) => {
-    if (!clinicId || !userProfile) return
+    if (!clinicId || !userProfile) {
+      console.log('[ClinicDetail] saveProviderSheetRows skipped: no clinicId or userProfile')
+      return
+    }
 
     const sheet = providerSheets[providerId]
-    if (!sheet) return
+    if (!sheet) {
+      console.log('[ClinicDetail] saveProviderSheetRows skipped: no sheet for providerId=', providerId)
+      return
+    }
+
+    // Serialize: only one save per provider at a time so an older save cannot overwrite a newer one in the DB
+    if (saveProviderSheetInProgressRef.current.has(providerId)) {
+      pendingProviderSheetSaveRef.current[providerId] = rowsToSave
+      return
+    }
+    saveProviderSheetInProgressRef.current.add(providerId)
 
     // Optimistic update: apply full rows to state immediately so the row (e.g. patient fill) appears right away
     setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: rowsToSave } }))
@@ -1586,8 +1601,14 @@ export default function ClinicDetail() {
       return true // Include all non-empty rows
     })
 
+    console.log('[ClinicDetail] saveProviderSheetRows started: providerId=', providerId, 'rowsToProcess=', rowsToProcess.length)
     try {
       const savedRows = await saveSheetRows(supabase, sheet.id, rowsToProcess)
+      console.log('[ClinicDetail] saveProviderSheetRows DB save completed: providerId=', providerId, 'savedRows=', savedRows?.length)
+      try {
+        const pendingKey = `provider_sheet_pending_${clinicId}_${providerId}_${selectedMonthKey}`
+        localStorage.removeItem(pendingKey)
+      } catch (_) {}
       const oldIdToSaved = new Map<string, SheetRow>()
       rowsToProcess.forEach((row, i) => {
         if (savedRows[i]) oldIdToSaved.set(row.id, savedRows[i])
@@ -1667,9 +1688,110 @@ export default function ClinicDetail() {
         return { ...prev, [selectedMonthKey]: nextMonthRows } as Record<string, Record<string, SheetRow[]>>
       })
     } catch (error) {
-      console.error('Error saving provider sheet rows:', error)
+      console.error('[ClinicDetail] saveProviderSheetRows failed: providerId=', providerId, error)
+    } finally {
+      saveProviderSheetInProgressRef.current.delete(providerId)
+      const pending = pendingProviderSheetSaveRef.current[providerId]
+      if (pending) {
+        delete pendingProviderSheetSaveRef.current[providerId]
+        saveProviderSheetRows(providerId, pending)
+      }
     }
   }, [clinicId, userProfile, providerSheets, selectedMonthKey])
+
+  // Restore provider sheet rows from localStorage after refresh (browser aborts in-flight save; data was backed up on unload)
+  const PENDING_ROWS_KEY_PREFIX = 'provider_sheet_pending_'
+  const PENDING_ROWS_MAX_AGE_MS = 10 * 60 * 1000
+  const restoredPendingKeysRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!clinicId || !selectedMonthKey || !providerSheets || Object.keys(providerSheets).length === 0) return
+    const now = Date.now()
+    const providerIds = Object.keys(providerSheetRows)
+    providerIds.forEach((providerId) => {
+      const key = `${PENDING_ROWS_KEY_PREFIX}${clinicId}_${providerId}_${selectedMonthKey}`
+      if (restoredPendingKeysRef.current.has(key)) return
+      try {
+        const raw = localStorage.getItem(key)
+        if (!raw) return
+        const data = JSON.parse(raw) as { rows: SheetRow[]; savedAt: number }
+        if (!data.rows?.length || !data.savedAt) return
+        if (now - data.savedAt > PENDING_ROWS_MAX_AGE_MS) {
+          localStorage.removeItem(key)
+          return
+        }
+        restoredPendingKeysRef.current.add(key)
+        console.log('[ClinicDetail] Restoring pending provider rows from localStorage: providerId=', providerId, 'rows=', data.rows.length)
+        saveProviderSheetRows(providerId, data.rows).then(() => {
+          try { localStorage.removeItem(key) } catch (_) {}
+        }).catch(err => {
+          console.error('[ClinicDetail] Restore pending save failed:', err)
+          restoredPendingKeysRef.current.delete(key)
+        })
+      } catch (_) {
+        try { localStorage.removeItem(key) } catch (__) {}
+      }
+    })
+  }, [clinicId, selectedMonthKey, providerSheets, providerSheetRows, saveProviderSheetRows])
+
+  // On page unload (refresh/close), send pending provider sheet rows via keepalive fetch so the save can complete even after the page is gone
+  useEffect(() => {
+    const PREFIX = 'provider_sheet_pending_'
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
+    const edgeUrl = supabaseUrl ? `${supabaseUrl.replace(/\/$/, '')}/functions/v1/save-pending-provider-sheet` : ''
+
+    const onPageHide = () => {
+      if (!edgeUrl) return
+      let token: string | null = null
+      try {
+        const raw = localStorage.getItem('health-billing-auth')
+        if (raw) {
+          const data = JSON.parse(raw) as { currentSession?: { access_token?: string }; access_token?: string }
+          token = data?.currentSession?.access_token ?? data?.access_token ?? null
+        }
+      } catch (_) {}
+      if (!token) return
+
+      const keysToSend: string[] = []
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          if (key?.startsWith(PREFIX)) keysToSend.push(key)
+        }
+      } catch (_) {}
+
+      keysToSend.forEach((key) => {
+        try {
+          const raw = localStorage.getItem(key)
+          if (!raw) return
+          const data = JSON.parse(raw) as {
+            rows?: SheetRow[]
+            clinicId?: string
+            providerId?: string
+            selectedMonthKey?: string
+          }
+          const clinicId = data.clinicId
+          const providerId = data.providerId
+          const selectedMonthKey = data.selectedMonthKey
+          const rows = data.rows
+          if (!clinicId || !providerId || !selectedMonthKey || !Array.isArray(rows) || rows.length === 0) return
+
+          const body = JSON.stringify({ clinicId, providerId, selectedMonthKey, rows })
+          fetch(edgeUrl, {
+            method: 'POST',
+            body,
+            keepalive: true,
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+          }).catch(() => {})
+        } catch (_) {}
+      })
+    }
+
+    window.addEventListener('pagehide', onPageHide)
+    return () => window.removeEventListener('pagehide', onPageHide)
+  }, [])
 
   const handleUpdateProviderSheetRow = useCallback((providerId: string, rowId: string, field: string, value: any) => {
     setProviderSheetRowsByMonth(prev => {
@@ -1947,7 +2069,9 @@ export default function ClinicDetail() {
 
   // Direct save function that accepts providerId and rows - for use when we have computed updated data
   const saveProviderSheetRowsDirect = useCallback(async (providerId: string, rowsToSave: SheetRow[]) => {
+    console.log('[ClinicDetail] saveProviderSheetRowsDirect called: providerId=', providerId, 'rowsCount=', rowsToSave?.length)
     await saveProviderSheetRows(providerId, rowsToSave)
+    console.log('[ClinicDetail] saveProviderSheetRowsDirect finished: providerId=', providerId)
   }, [saveProviderSheetRows])
 
   // When a new patient is created in Patient Info tab, add one row with that patient to every provider sheet for the current month
@@ -2294,6 +2418,7 @@ export default function ClinicDetail() {
             statusColors={statusColors}
             patients={patients}
             selectedMonth={selectedMonth}
+            selectedMonthKey={selectedMonthKey}
             selectedPayroll={clinic?.payroll === 2 ? selectedPayroll : undefined}
             providerId={providerId}
             currentProvider={currentProvider}

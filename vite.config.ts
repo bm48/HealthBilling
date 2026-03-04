@@ -32,6 +32,17 @@ export default defineConfig(({ mode }) => {
             })
           },
         },
+        '/api/save-pending-provider-sheet': {
+          target: supabaseUrl,
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api\/save-pending-provider-sheet/, '/functions/v1/save-pending-provider-sheet'),
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (anonKey) proxyReq.setHeader('Authorization', `Bearer ${anonKey}`)
+            })
+          },
+        },
         '/api/send-invite-email': {
           target: supabaseUrl,
           changeOrigin: true,

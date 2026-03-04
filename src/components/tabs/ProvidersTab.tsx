@@ -25,6 +25,8 @@ interface ProvidersTabProps {
   selectedMonth: Date
   /** When clinicPayroll=2, which half (1 or 2) is selected; used for label "January 1st Half". */
   selectedPayroll?: 1 | 2
+  /** Same key parent uses for providerSheetRowsByMonth (e.g. "2025-3" or "2025-3-1"); used to backup pending rows on unload so refresh doesn't lose data. */
+  selectedMonthKey?: string
   providerId?: string
   /** Current provider (for context); optional, passed by ClinicDetail and ProviderSheetPage */
   currentProvider?: Provider | null
@@ -69,6 +71,7 @@ export default function ProvidersTab({
   statusColors,
   patients,
   selectedMonth,
+  selectedMonthKey,
   providerId,
   currentProvider: _currentProvider,
   canEdit,
@@ -134,10 +137,33 @@ export default function ProvidersTab({
   const saveProviderSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingProviderSheetSaveRef = useRef<{ providerId: string; rows: SheetRow[] } | null>(null)
 
+  /** Local display rows for active provider (like PatientsTab's patients state). Preserves typed data when parent re-renders after load. */
+  const [localRowsForProvider, setLocalRowsForProvider] = useState<SheetRow[]>([])
+  const localRowsProviderKeyRef = useRef<string | null>(null)
+
+  // Clear refs only when provider or month actually changes (not on every parent re-render)
   useEffect(() => {
     latestTableDataRef.current = null
     latestProviderRowsRef.current = null
+    localRowsProviderKeyRef.current = null
   }, [activeProvider?.id, selectedMonth.getTime()])
+
+  // Sync display rows from props or ref: when we have local edits (ref set for this provider), keep them; otherwise use props (like PatientsTab merge on fetch)
+  useEffect(() => {
+    if (!activeProvider) {
+      setLocalRowsForProvider([])
+      return
+    }
+    const key = `${activeProvider.id}-${selectedMonth.getTime()}`
+    const fromRef = latestProviderRowsRef.current?.providerId === activeProvider.id ? latestProviderRowsRef.current.rows : null
+    if (fromRef != null && fromRef.length > 0) {
+      setLocalRowsForProvider(fromRef)
+      localRowsProviderKeyRef.current = key
+      return
+    }
+    setLocalRowsForProvider(activeProviderRows)
+    localRowsProviderKeyRef.current = key
+  }, [activeProvider?.id, activeProviderRows, selectedMonth.getTime()])
 
   // Load persisted highlights and comments for this clinic (so they survive reload and show for providers)
   useEffect(() => {
@@ -290,12 +316,12 @@ export default function ProvidersTab({
     })
   }, [patients, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed])
 
-  // Convert rows to Handsontable data format; prefer latest from change handler to avoid stale data on re-render
+  // Convert rows to Handsontable data format; prefer latest from change handler, then local state, to avoid losing typed data when parent re-renders after load (like PatientsTab)
   const getProviderRowsHandsontableData = useCallback(() => {
     if (!activeProvider) return []
     if (latestTableDataRef.current != null) return latestTableDataRef.current
-    return getTableDataFromRows(activeProviderRows)
-  }, [activeProvider, activeProviderRows, getTableDataFromRows])
+    return getTableDataFromRows(localRowsForProvider.length > 0 ? localRowsForProvider : activeProviderRows)
+  }, [activeProvider, activeProviderRows, localRowsForProvider, getTableDataFromRows])
 
   // Sum of Ins Pay, Collected from PT, AR, Total (computed from current rows; not stored in DB)
   // For provider level 2 (full) we show full tally; for admin/billing we show insPay, collectedFromPt, total; AR only for provider level 2
@@ -1219,9 +1245,10 @@ export default function ProvidersTab({
       updatedRows.push(...newEmptyRows)
     }
 
-    // Store latest table data and rows so next render and flush-on-unmount have current data
+    // Store latest table data and rows so next render and flush-on-unmount have current data (like PatientsTab setPatients)
     latestTableDataRef.current = getTableDataFromRows(updatedRows)
     latestProviderRowsRef.current = { providerId: activeProvider.id, rows: updatedRows }
+    setLocalRowsForProvider(updatedRows)
 
     // Auto add/remove highlight when Ins Pay or Collected from PT is set to 0 / "00" or changed
     if (zeroHighlightUpdates.length > 0 && clinicId) {
@@ -1324,6 +1351,8 @@ export default function ProvidersTab({
     })
     
     // Debounce save and flush on unmount so data isn't lost when switching tabs
+    const rowsWithData = updatedRows.filter(r => !r.id.startsWith('empty-') || r.patient_id || r.appointment_date || r.cpt_code)
+    console.log('[ProvidersTab] afterChange: cell edits applied, rows with data=', rowsWithData.length, 'scheduling debounced save in 250ms')
     pendingProviderSheetSaveRef.current = { providerId: activeProvider.id, rows: updatedRows }
     if (saveProviderSheetTimeoutRef.current) clearTimeout(saveProviderSheetTimeoutRef.current)
     saveProviderSheetTimeoutRef.current = setTimeout(() => {
@@ -1331,6 +1360,7 @@ export default function ProvidersTab({
       const pending = pendingProviderSheetSaveRef.current
       if (pending) {
         pendingProviderSheetSaveRef.current = null
+        console.log('[ProvidersTab] debounced save running: providerId=', pending.providerId, 'rows=', pending.rows.length, '-> calling onSaveProviderSheetRowsDirect')
         onSaveProviderSheetRowsDirect(pending.providerId, pending.rows).catch(err => {
           console.error('[handleProviderRowsHandsontableChange] Error in saveProviderSheetRowsDirect:', err)
         })
@@ -1344,7 +1374,12 @@ export default function ProvidersTab({
     }
   }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, onDeleteRow, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, patients, getTableDataFromRows, clinicId, userHighlightColor, userProfile?.id])
 
-  // Flush pending save when tab is left so data isn't lost on switch (prefer latest ref like PatientsTab flush)
+  // Flush pending save when tab is left so data isn't lost on switch (prefer latest ref like PatientsTab flush).
+  // On page refresh the browser aborts in-flight requests (AbortError) so we also backup to localStorage;
+  // ClinicDetail restores and saves on next load.
+  const PENDING_ROWS_KEY_PREFIX = 'provider_sheet_pending_'
+  const PENDING_ROWS_MAX_SIZE = 1024 * 1024 // 1MB
+
   useEffect(() => {
     return () => {
       if (saveProviderSheetTimeoutRef.current) {
@@ -1358,14 +1393,37 @@ export default function ProvidersTab({
         ? latest.rows
         : pending?.rows
       if (providerIdToSave && rowsToSave?.length) {
+        const rowsWithData = rowsToSave.filter(r => !r.id.startsWith('empty-') || r.patient_id || r.appointment_date || r.cpt_code)
+        console.log('[ProvidersTab] unmount flush: providerId=', providerIdToSave, 'rowsToSave=', rowsToSave.length, 'rowsWithData=', rowsWithData.length, '-> calling onSaveProviderSheetRowsDirect + localStorage backup')
         pendingProviderSheetSaveRef.current = null
         latestProviderRowsRef.current = null
+
+        if (clinicId && selectedMonthKey) {
+          try {
+            const payload = JSON.stringify({
+              rows: rowsToSave,
+              savedAt: Date.now(),
+              clinicId,
+              providerId: providerIdToSave,
+              selectedMonthKey,
+            })
+            if (payload.length <= PENDING_ROWS_MAX_SIZE) {
+              const key = `${PENDING_ROWS_KEY_PREFIX}${clinicId}_${providerIdToSave}_${selectedMonthKey}`
+              localStorage.setItem(key, payload)
+            }
+          } catch (e) {
+            console.warn('[ProvidersTab] localStorage backup failed:', e)
+          }
+        }
+
         onSaveProviderSheetRowsDirect(providerIdToSave, rowsToSave).catch(err => {
           console.error('[ProvidersTab unmount] Error flushing save:', err)
         })
+      } else {
+        console.log('[ProvidersTab] unmount: no pending/latest rows to save, providerIdToSave=', providerIdToSave, 'rowsToSave?.length=', rowsToSave?.length)
       }
     }
-  }, [onSaveProviderSheetRowsDirect])
+  }, [onSaveProviderSheetRowsDirect, clinicId, selectedMonthKey])
 
   const handleDeleteProviderSheetRow = useCallback((providerId: string, rowId: string) => {
     if (onDeleteRow) onDeleteRow(providerId, rowId)
