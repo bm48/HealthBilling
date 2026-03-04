@@ -811,7 +811,16 @@ export default function SuperAdminSettings() {
     }
     setChangePasswordLoading(true)
     try {
-      const res = await fetch('/api/admin-update-password', {
+      const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '')
+      const adminUpdatePasswordUrl = supabaseUrl
+        ? `${supabaseUrl}/functions/v1/admin-update-password`
+        : ''
+      if (!adminUpdatePasswordUrl) {
+        setChangePasswordError('App is not configured for password updates.')
+        setChangePasswordLoading(false)
+        return
+      }
+      const res = await fetch(adminUpdatePasswordUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

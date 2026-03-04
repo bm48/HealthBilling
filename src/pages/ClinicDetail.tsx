@@ -177,15 +177,19 @@ export default function ClinicDetail() {
           fetchProviders()
         }
       } else {
-        // When no providerId, fetch data for the active tab normally
-        fetchData()
+        // When no providerId, fetch data for the active tab normally (pass selectedMonthKey for provider_pay so loading stays until sheets load)
+        fetchData(selectedMonthKey)
       }
     }
-  }, [clinicId, activeTab, providerId])
+  }, [clinicId, activeTab, providerId, selectedMonthKey])
 
   const prevMonthKeyRef = useRef<string | null>(null)
   /** Tracks (clinicId, providerId, monthKey) so we only skip fetch when cache is for this clinic (fixes same content across clinics). */
   const lastProviderSheetContextRef = useRef<{ clinicId: string; providerId: string | null; monthKey: string } | null>(null)
+  /** Month key for the provider-sheets fetch in progress; we only set loading false when this fetch completes so we don't reveal content from an outdated fetch. */
+  const lastProviderSheetsFetchMonthKeyRef = useRef<string | null>(null)
+  /** (providerId, monthKey) for the single-provider sheet fetch; only set loading false when that fetch completes. */
+  const lastProviderSheetDataFetchRef = useRef<{ providerId: string; monthKey: string } | null>(null)
   // When month (or pay-period half when payroll=2) changes: use cached data if available, otherwise fetch
   useEffect(() => {
     const monthKey = selectedMonthKey
@@ -211,11 +215,13 @@ export default function ClinicDetail() {
 
     const isMonthChangeOnly = monthChanged && !isInitialLoad
     if (providerId && clinicId && (activeTab === 'providers' || activeTab === 'provider_pay')) {
+      lastProviderSheetDataFetchRef.current = { providerId, monthKey: selectedMonthKey }
       fetchProviderSheetData(isMonthChangeOnly)
       return
     }
     if (clinicId && !providerId && (activeTab === 'providers' || activeTab === 'provider_pay')) {
-      fetchProviderSheets(isMonthChangeOnly)
+      lastProviderSheetsFetchMonthKeyRef.current = selectedMonthKey
+      fetchProviderSheets(selectedMonthKey, isMonthChangeOnly)
     }
   }, [selectedMonthKey, activeTab, clinicId, providerId, providerSheetRowsByMonth])
 
@@ -234,10 +240,13 @@ export default function ClinicDetail() {
     }
   }
 
-  const fetchData = async () => {
+  const fetchData = async (monthKeyForProviderSheets?: string) => {
     if (!clinicId) return
 
-    setLoading(true)
+    // For providers/provider_pay, only the provider-sheets fetch controls loading (avoids double spinner when selectedMonthKey changes after clinic loads)
+    if (activeTab !== 'providers' && activeTab !== 'provider_pay') {
+      setLoading(true)
+    }
     try {
       // Patients, todos, and accounts_receivable tabs now handle their own data fetching
       if (activeTab === 'providers') {
@@ -249,7 +258,10 @@ export default function ClinicDetail() {
       } else if (activeTab === 'provider_pay') {
         await fetchStatusColors()
         await fetchProviders()
-        await fetchProviderSheets()
+        if (monthKeyForProviderSheets) {
+          lastProviderSheetsFetchMonthKeyRef.current = monthKeyForProviderSheets
+          await fetchProviderSheets(monthKeyForProviderSheets, false)
+        }
       } else if (activeTab === 'patients') {
         await fetchIsLockPatients()
         await fetchIsLockBillingTodo()
@@ -259,7 +271,10 @@ export default function ClinicDetail() {
     } catch (error) {
       console.error('Error fetching data:', error)
     } finally {
-      setLoading(false)
+      // Keep loading true for providers/provider_pay until provider sheets fetch completes (single loading state)
+      if (activeTab !== 'providers' && activeTab !== 'provider_pay') {
+        setLoading(false)
+      }
     }
   }
 
@@ -1169,8 +1184,11 @@ export default function ClinicDetail() {
       return
     }
 
+    const captureKey = { providerId, monthKey: selectedMonthKey }
     try {
-      if (!isMonthChange) setLoading(true)
+      // Avoid second spinner: if we already have data for this provider (e.g. effect re-ran after restore/save), don't show loading again
+      const alreadyHaveData = (providerSheetRows[providerId]?.length ?? 0) > 0
+      if (!isMonthChange && !alreadyHaveData) setLoading(true)
       
       // Fetch provider info from providers table (not users table)
       const { data: providerData, error: providerError } = await supabase
@@ -1193,6 +1211,12 @@ export default function ClinicDetail() {
           delete updated[providerId]
           return { ...prev, [selectedMonthKey]: updated }
         })
+        if (
+          lastProviderSheetDataFetchRef.current?.providerId === captureKey.providerId &&
+          lastProviderSheetDataFetchRef.current?.monthKey === captureKey.monthKey
+        ) {
+          setLoading(false)
+        }
         return
       }
       
@@ -1237,6 +1261,12 @@ export default function ClinicDetail() {
         if (createError) throw createError
         if (!newSheet) {
           console.error('Failed to create provider sheet - no data returned')
+          if (
+            lastProviderSheetDataFetchRef.current?.providerId === captureKey.providerId &&
+            lastProviderSheetDataFetchRef.current?.monthKey === captureKey.monthKey
+          ) {
+            setLoading(false)
+          }
           return
         }
         sheet = newSheet
@@ -1326,7 +1356,12 @@ export default function ClinicDetail() {
     } catch (error) {
       console.error('Error fetching provider sheet data:', error)
     } finally {
-      setLoading(false)
+      if (
+        lastProviderSheetDataFetchRef.current?.providerId === captureKey.providerId &&
+        lastProviderSheetDataFetchRef.current?.monthKey === captureKey.monthKey
+      ) {
+        setLoading(false)
+      }
     }
   }
 
@@ -1429,11 +1464,13 @@ export default function ClinicDetail() {
     }
   }
 
-  const fetchProviderSheets = async (isMonthChange = false) => {
+  const fetchProviderSheets = async (monthKey: string, isMonthChange = false) => {
     if (!clinicId || !userProfile) return
 
     try {
-      if (!isMonthChange) setLoading(true)
+      // Avoid second spinner: if we already have data for this month (e.g. effect re-ran after restore/save), don't show loading again
+      const alreadyHaveData = monthKey === selectedMonthKey && Object.keys(providerSheets).length > 0
+      if (!isMonthChange && !alreadyHaveData) setLoading(true)
       // Use selected month/year and pay-period half (when clinic has payroll=2)
       const month = selectedMonth.getMonth() + 1
       const year = selectedMonth.getFullYear()
@@ -1446,7 +1483,10 @@ export default function ClinicDetail() {
         .eq('active', true)
         .contains('clinic_ids', [clinicId])
 
-      if (!providersData || providersData.length === 0) return
+      if (!providersData || providersData.length === 0) {
+        if (!isMonthChange && lastProviderSheetsFetchMonthKeyRef.current === monthKey) setLoading(false)
+        return
+      }
 
       const providerIds = providersData.map((p: { id: string }) => p.id)
 
@@ -1558,7 +1598,9 @@ export default function ClinicDetail() {
     } catch (error) {
       console.error('Error fetching provider sheets:', error)
     } finally {
-      if (!isMonthChange) setLoading(false)
+      if (!isMonthChange && lastProviderSheetsFetchMonthKeyRef.current === monthKey) {
+        setLoading(false)
+      }
     }
   }
 
@@ -2602,7 +2644,16 @@ export default function ClinicDetail() {
     setContextMenu(null)
   }
 
-  if (loading) {
+  const isProvidersOrPayTab = activeTab === 'providers' || activeTab === 'provider_pay'
+  const hasProviderSheetData = !isProvidersOrPayTab || (
+    providerId
+      ? (providerSheetRows[providerId]?.length ?? 0) > 0
+      : Object.keys(providerSheets).length > 0 ||
+        (lastProviderSheetContextRef.current?.monthKey === selectedMonthKey && lastProviderSheetContextRef.current?.clinicId === clinicId)
+  )
+  const pageReady = !loading && (!isProvidersOrPayTab || hasProviderSheetData)
+
+  if (!pageReady) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-400"></div>
