@@ -556,6 +556,7 @@ export default function ProviderSheetPage() {
           isInSplitScreen={false}
           isProviderView={true}
           providerLevel={providerLevel}
+          showVisitTypeColumn={provider?.show_visit_type_column ?? false}
           onUpdateProviderSheetRow={handleUpdateProviderSheetRow}
           onSaveProviderSheetRowsDirect={saveProviderSheetRowsDirect}
           onDeleteRow={handleDeleteProviderSheetRow}

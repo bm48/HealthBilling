@@ -20,11 +20,13 @@ interface PatientsTabProps {
   isInSplitScreen?: boolean
   /** Called after a new patient is successfully saved; used to add the patient to all provider sheets in the clinic */
   onPatientCreated?: (patient: Patient) => void
+  /** When provided, called with the full batch of new patients (recommended to avoid race when multiple rows are added); otherwise onPatientCreated is called per patient */
+  onPatientsCreated?: (patients: Patient[]) => void
   /** Register a flush function to call before switching away from this tab (so save + onPatientCreated run with full row data) */
   onRegisterFlushBeforeTabLeave?: (flush: () => Promise<void>) => void
 }
 
-export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUndo, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen, onPatientCreated, onRegisterFlushBeforeTabLeave }: PatientsTabProps) {
+export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUndo, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen, onPatientCreated, onPatientsCreated, onRegisterFlushBeforeTabLeave }: PatientsTabProps) {
   const { userProfile } = useAuth()
   const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
@@ -195,13 +197,13 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
 
     if (patientsToProcess.length === 0) {
       // Flush path with nothing to save: maybe debounce already saved the new patient; still notify if we have one
-      if (flushTriggered && onPatientCreated && lastNewPatientIdFromDebounceRef.current) {
+      if (flushTriggered && (onPatientCreated || onPatientsCreated) && lastNewPatientIdFromDebounceRef.current) {
         const id = lastNewPatientIdFromDebounceRef.current
         lastNewPatientIdFromDebounceRef.current = null
         const row = patientsToSave.find(p => p.id === id)
         if (row) {
-          onPatientCreated(row)
-        } else {
+          if (onPatientsCreated) onPatientsCreated([row])
+          else onPatientCreated?.(row)
         }
       } else {
       }
@@ -351,7 +353,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
 
       // Notify parent only when save was triggered by leaving the row (flush), so we have full row data.
       // Send when: (1) we just saved a row that had oldId new-/empty-, or (2) we just updated a row that was created by debounce (real id now; lastNewPatientIdFromDebounceRef points to it).
-      if (onPatientCreated && saveTriggeredByRowLeaveRef.current) {
+      if ((onPatientCreated || onPatientsCreated) && saveTriggeredByRowLeaveRef.current) {
         saveTriggeredByRowLeaveRef.current = false
         const toSend: Array<Patient> = []
         const lastNewId = lastNewPatientIdFromDebounceRef.current
@@ -360,16 +362,25 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         savedPatientsMap.forEach((savedPatient, oldId) => {
           if (oldId.startsWith('new-') || oldId.startsWith('empty-')) {
             const rowData = patientsToSave.find(p => p.id === oldId)
-            toSend.push(rowData
-              ? { ...rowData, id: savedPatient.id, created_at: savedPatient.created_at, updated_at: savedPatient.updated_at }
-              : savedPatient)
+            const merged = rowData
+              ? { ...savedPatient, ...rowData, id: savedPatient.id, created_at: savedPatient.created_at, updated_at: savedPatient.updated_at }
+              : savedPatient
+            toSend.push(merged)
           } else if (lastNewId && savedPatient.id === lastNewId) {
-            // Row was saved by debounce (now has real id); we just updated it on flush — still send to provider sheets
             const rowData = patientsToSave.find(p => p.id === lastNewId)
-            toSend.push(rowData ? { ...rowData, id: savedPatient.id, created_at: savedPatient.created_at, updated_at: savedPatient.updated_at } : savedPatient)
+            const merged = rowData
+              ? { ...savedPatient, ...rowData, id: savedPatient.id, created_at: savedPatient.created_at, updated_at: savedPatient.updated_at }
+              : savedPatient
+            toSend.push(merged)
           }
         })
-        toSend.forEach(patientToSend => onPatientCreated(patientToSend))
+        if (toSend.length > 0) {
+          if (onPatientsCreated) {
+            await Promise.resolve(onPatientsCreated(toSend))
+          } else {
+            toSend.forEach(patientToSend => onPatientCreated!(patientToSend))
+          }
+        }
       } else if (saveTriggeredByRowLeaveRef.current) {
         saveTriggeredByRowLeaveRef.current = false
       }
@@ -383,7 +394,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         setRunPendingSaveTrigger(t => t + 1)
       }
     }
-  }, [clinicId, userProfile, fetchPatients, onPatientCreated])
+  }, [clinicId, userProfile, fetchPatients, onPatientCreated, onPatientsCreated])
 
   savePatientsRef.current = savePatients
 

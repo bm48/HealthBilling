@@ -91,6 +91,8 @@ export interface Provider {
   level?: 1 | 2
   /** Provider cut percent 0–1 (default 0.7). Provider Cut = Total Payments × this. Set in Super Admin Settings. */
   provider_cut_percent?: number
+  /** When true, Providers tab shows a "Visit Type" column (In-person / Telehealth) for this provider. Toggled in User Management. */
+  show_visit_type_column?: boolean
   created_at: string
   updated_at: string
 }

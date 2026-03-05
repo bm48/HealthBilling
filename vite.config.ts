@@ -72,6 +72,12 @@ export default defineConfig(({ mode }) => {
           secure: true,
           rewrite: (path) => path.replace(/^\/api\/admin-update-password/, '/functions/v1/admin-update-password'),
         },
+        '/api/add-patients-to-provider-sheets': {
+          target: supabaseUrl,
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api\/add-patients-to-provider-sheets/, '/functions/v1/add-patients-to-provider-sheets'),
+        },
       },
     },
   }

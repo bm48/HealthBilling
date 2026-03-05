@@ -83,6 +83,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session)
       setUser(session?.user ?? null)
       
+      // Record provider login for clinic dashboard "Visits" count (only on actual sign-in)
+      if (event === 'SIGNED_IN' && session?.user) {
+        supabase.rpc('record_provider_login').then(() => {}, () => {})
+      }
+      
       // Only fetch user profile for meaningful auth events
       if (session?.user && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED')) {
         fetchUserProfile(session.user.id)

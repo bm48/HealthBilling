@@ -293,7 +293,8 @@ export default function SuperAdminSettings() {
     userData: Partial<User>,
     providerLevel?: number,
     providerCutPercent?: number,
-    temporaryPassword?: string
+    temporaryPassword?: string,
+    showVisitTypeColumn?: boolean
   ) => {
     try {
       if (editingUser) {
@@ -320,7 +321,7 @@ export default function SuperAdminSettings() {
           const providersForEmail = providers.filter(p => p.email === editingUser.email)
           const npi = (userData as { npi?: string | null }).npi ?? null
           for (const p of providersForEmail) {
-            const updatePayload: { first_name?: string; last_name?: string; npi?: string | null; clinic_ids?: string[]; level?: number; provider_cut_percent?: number; updated_at: string } = {
+            const updatePayload: { first_name?: string; last_name?: string; npi?: string | null; clinic_ids?: string[]; level?: number; provider_cut_percent?: number; show_visit_type_column?: boolean; updated_at: string } = {
               first_name,
               last_name,
               npi,
@@ -335,6 +336,9 @@ export default function SuperAdminSettings() {
               }
               if (providerCutPercent !== undefined && providerCutPercent >= 0 && providerCutPercent <= 1) {
                 updatePayload.provider_cut_percent = providerCutPercent
+              }
+              if (showVisitTypeColumn !== undefined) {
+                updatePayload.show_visit_type_column = showVisitTypeColumn
               }
             }
             const { error: providerError } = await supabase
@@ -533,6 +537,27 @@ export default function SuperAdminSettings() {
     setShowToggleActiveModal(true)
     setToggleActivePassword('')
     setToggleActiveError('')
+  }
+
+  const handleToggleShowVisitType = async (user: User) => {
+    if (user.role !== 'provider' || !user.email) return
+    const providersForEmail = providers.filter(p => p.email === user.email)
+    if (providersForEmail.length === 0) return
+    const current = providersForEmail[0].show_visit_type_column ?? false
+    const next = !current
+    try {
+      const { error } = await supabase
+        .from('providers')
+        .update({ show_visit_type_column: next, updated_at: new Date().toISOString() })
+        .eq('email', user.email)
+      if (error) throw error
+      setProviders(prev =>
+        prev.map(p => (p.email === user.email ? { ...p, show_visit_type_column: next } : p))
+      )
+    } catch (err) {
+      console.error('Error toggling show visit type:', err)
+      alert('Failed to update Visit Type column setting.')
+    }
   }
 
   const handleConfirmToggleActive = async () => {
@@ -911,6 +936,7 @@ export default function SuperAdminSettings() {
                           <th>Role</th>
                           {variant === 'super_admin' && <th>Active</th>}
                           {variant === 'super_admin' && <th>Provider Level</th>}
+                          {variant === 'super_admin' && <th>Visit Type</th>}
                           {variant === 'super_admin' && <th>Highlight Color</th>}
                           <th>Clinics</th>
                           <th>Assign Clinics</th>
@@ -961,6 +987,31 @@ export default function SuperAdminSettings() {
                               {variant === 'super_admin' && (
                                 <td>
                                   {user.role === 'provider' ? (levelAndPercent != null ? levelAndPercent : <span title={providerLevelsLoadError ? 'Level could not be loaded' : undefined}>—</span>) : <span className="text-white/50">—</span>}
+                                </td>
+                              )}
+                              {variant === 'super_admin' && (
+                                <td>
+                                  {user.role === 'provider' && providersForUser.length > 0 ? (
+                                    <div className="flex flex-col items-center gap-1">
+                                      <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={providersForUser[0].show_visit_type_column ?? false}
+                                        onClick={() => handleToggleShowVisitType(user)}
+                                        className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 ${(providersForUser[0].show_visit_type_column ?? false) ? 'bg-blue-500 focus:ring-blue-400' : 'bg-gray-300 focus:ring-gray-400'}`}
+                                        title={(providersForUser[0].show_visit_type_column ?? false) ? 'Visit Type column on (click to turn off)' : 'Visit Type column off (click to turn on)'}
+                                      >
+                                        <span
+                                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5 ${(providersForUser[0].show_visit_type_column ?? false) ? 'translate-x-6' : 'translate-x-1'}`}
+                                        />
+                                      </button>
+                                      <span className={`text-xs ${(providersForUser[0].show_visit_type_column ?? false) ? 'text-white/80' : 'text-slate-400'}`}>
+                                        {(providersForUser[0].show_visit_type_column ?? false) ? 'On' : 'Off'}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-white/50">—</span>
+                                  )}
                                 </td>
                               )}
                               {variant === 'super_admin' && (
@@ -1763,12 +1814,13 @@ function UserFormModal({
   providers: Provider[]
   providerLevelsMap: Record<string, number>
   variant: Variant | null
-  onSave: (data: Partial<User>, providerLevel?: number, providerCutPercent?: number, temporaryPassword?: string) => Promise<void>
+  onSave: (data: Partial<User>, providerLevel?: number, providerCutPercent?: number, temporaryPassword?: string, showVisitTypeColumn?: boolean) => Promise<void>
   onClose: () => void
 }) {
   const providersForUser = user?.role === 'provider' && user?.email ? providers.filter(p => p.email === user.email) : []
   const initialLevel = providersForUser.length > 0 ? (providerLevelsMap[providersForUser[0].id] ?? 1) : 1
   const initialCutPercent = providersForUser.length > 0 ? (providersForUser[0].provider_cut_percent ?? 0.7) : 0.7
+  const initialShowVisitTypeColumn = providersForUser.length > 0 ? (providersForUser[0].show_visit_type_column ?? false) : false
   const parseFullName = (full: string) => {
     const trimmed = (full || '').trim()
     const spaceIdx = trimmed.indexOf(' ')
@@ -1788,6 +1840,7 @@ function UserFormModal({
     highlight_color: user?.highlight_color || (user?.role === 'super_admin' ? '#2d7e83' : '#eab308'),
     provider_level: initialLevel as 1 | 2,
     provider_cut_percent: initialCutPercent,
+    show_visit_type_column: initialShowVisitTypeColumn,
     hourly_pay: user?.hourly_pay ?? '',
     password: '',
     npi: initialNpi,
@@ -1795,7 +1848,7 @@ function UserFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { provider_level, provider_cut_percent, hourly_pay, password, first_name, last_name, npi, ...rest } = formData
+    const { provider_level, provider_cut_percent, show_visit_type_column, hourly_pay, password, first_name, last_name, npi, ...rest } = formData
     const full_name = [first_name, last_name].map(s => (s || '').trim()).filter(Boolean).join(' ') || undefined
     const userData = {
       ...rest,
@@ -1807,7 +1860,8 @@ function UserFormModal({
       userData,
       formData.role === 'provider' ? provider_level : undefined,
       formData.role === 'provider' ? provider_cut_percent : undefined,
-      user ? undefined : password
+      user ? undefined : password,
+      formData.role === 'provider' ? show_visit_type_column : undefined
     )
   }
 
@@ -1943,6 +1997,19 @@ function UserFormModal({
                   />
                   <p className="text-xs text-gray-500 mt-1">Decimal 0–1 (e.g. 0.7 = 70%). Default 0.7. Provider Cut = Total Payments × this.</p>
                 </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="show_visit_type_column"
+                    checked={formData.show_visit_type_column}
+                    onChange={(e) => setFormData({ ...formData, show_visit_type_column: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <label htmlFor="show_visit_type_column" className="text-sm font-medium text-gray-700">
+                    Show Visit Type column (In-person / Telehealth) in Providers tab
+                  </label>
+                </div>
+                <p className="text-xs text-gray-500 -mt-2">When on, this provider&apos;s sheet shows an extra column to mark each visit as In-person or Telehealth.</p>
               </>
             )}
 
