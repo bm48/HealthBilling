@@ -164,6 +164,8 @@ interface HandsontableWrapperProps {
   licenseKey?: string
   afterChange?: (changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => void
   afterSelection?: (r: number, c: number, r2: number, c2: number) => void
+  /** Called when the user deselects the grid (e.g. clicks outside the table). Use to trigger save on "leave table". */
+  afterDeselect?: () => void
   cells?: (row: number, col: number) => any
   className?: string
   style?: React.CSSProperties
@@ -208,6 +210,7 @@ export default function HandsontableWrapper({
   stretchH = 'all',
   afterChange,
   afterSelection,
+  afterDeselect,
   cells,
   className = '',
   style = {},
@@ -584,6 +587,10 @@ export default function HandsontableWrapper({
           // ignore
         }
       }
+    },
+
+    afterDeselect() {
+      if (afterDeselect) afterDeselect()
     },
 
     // Formula reference highlighting + force dropdown list to open on single click

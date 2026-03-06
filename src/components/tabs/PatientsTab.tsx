@@ -32,6 +32,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   const [loading, setLoading] = useState(true)
   const patientsRef = useRef<Patient[]>([])
   const tableContainerRef = useRef<HTMLDivElement>(null)
+  const hotRef = useRef<Handsontable | null>(null)
   /** Stable temporary patient_id per row id so multiple cell edits on a new row upsert one record, not one per edit */
   const pendingPatientIdByRowIdRef = useRef<Map<string, string>>(new Map())
   const savePatientsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -438,6 +439,26 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   useEffect(() => {
     if (!onRegisterFlushBeforeTabLeave) return
     const flush = async () => {
+      // Commit any in-progress cell edit so patientsRef includes the latest value before we save.
+      // Without this, switching tabs while editing can save stale row data and the new patient won't appear until a full reload.
+      const hot = hotRef.current
+      try {
+        const anyHot: any = hot as any
+        if (anyHot?.isEditing?.()) {
+          const editor: any = anyHot.getActiveEditor?.()
+          editor?.finishEditing?.()
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        ;(hot as any)?.deselectCell?.()
+      } catch {
+        // ignore
+      }
+      // Let Handsontable propagate afterChange → React state/ref updates.
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+
       if (savePatientsTimeoutRef.current) {
         clearTimeout(savePatientsTimeoutRef.current)
         savePatientsTimeoutRef.current = null
@@ -785,6 +806,22 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     lastSelectedRowRef.current = r
   }, [savePatients])
 
+  const handleAfterDeselect = useCallback(() => {
+    if (saveInProgressRef.current) return
+    if (lastSelectedRowRef.current === null) return
+    if (pendingRowLeaveSaveTimeoutRef.current) {
+      clearTimeout(pendingRowLeaveSaveTimeoutRef.current)
+      pendingRowLeaveSaveTimeoutRef.current = null
+    }
+    pendingRowLeaveSaveRef.current = false
+    saveTriggeredByRowLeaveRef.current = true
+    if (savePatientsTimeoutRef.current) {
+      clearTimeout(savePatientsTimeoutRef.current)
+      savePatientsTimeoutRef.current = null
+    }
+    savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save on deselect (click outside):', err))
+  }, [savePatients])
+
   const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number; patientId: string } | null>(null)
   const tableContextMenuRef = useRef<HTMLDivElement>(null)
 
@@ -941,6 +978,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
           height={isInSplitScreen ? tableHeight : 600}
           afterChange={handlePatientsHandsontableChange}
           afterSelection={handleAfterSelection}
+          afterDeselect={handleAfterDeselect}
           onAfterRowMove={handlePatientsRowMove}
           onContextMenu={handlePatientsHandsontableContextMenu}
           onCellHighlight={handleCellHighlight}
@@ -949,6 +987,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
           enableFormula={true}
           columnSorting={{ indicator: true }}
           readOnly={!canEdit}
+          hotInstanceRef={hotRef}
           style={{ backgroundColor: '#d2dbe5' }}
           className="handsontable-custom billing-todo-sortable"
         />

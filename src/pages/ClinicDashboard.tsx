@@ -80,6 +80,8 @@ export default function ClinicDashboard() {
       const now = new Date()
       const y = now.getFullYear()
       const m = now.getMonth() + 1
+      // Match Providers tab: when clinic has payroll=2 there are two sheets per provider per month (1st/2nd half). Filter by payroll=1 so we only count the first-half sheet and visits match the default Providers tab view.
+      const payroll = 1
 
       const [providersRes, patientsRes, todosRes, sheetsRes] = await Promise.all([
         supabase
@@ -96,7 +98,8 @@ export default function ClinicDashboard() {
           .select('id, provider_id')
           .eq('clinic_id', clinicId)
           .eq('month', m)
-          .eq('year', y),
+          .eq('year', y)
+          .eq('payroll', payroll),
       ])
 
       const providersList = (providersRes.data || []) as Provider[]
@@ -111,22 +114,7 @@ export default function ClinicDashboard() {
 
       const sheets = (sheetsRes.data || []) as { id: string; provider_id: string }[]
 
-      // Visits = number of provider logins (for provider box); fetch login counts per provider
-      const loginCountByProvider: Record<string, number> = {}
-      providersList.forEach((p) => {
-        loginCountByProvider[p.id] = 0
-      })
-      if (providersList.length > 0) {
-        const providerIds = providersList.map((p) => p.id)
-        const { data: loginRows } = await supabase
-          .from('provider_logins')
-          .select('provider_id')
-          .in('provider_id', providerIds)
-        ;(loginRows || []).forEach((row: { provider_id: string }) => {
-          loginCountByProvider[row.provider_id] = (loginCountByProvider[row.provider_id] ?? 0) + 1
-        })
-      }
-
+      // Visits = number of rows in the providers tab table (provider_sheet_rows) for that provider
       if (sheets.length === 0) {
         setProviderStats(
           providersList.map((p) => ({
@@ -136,7 +124,7 @@ export default function ClinicDashboard() {
             todoCount: todosRes.count ?? 0,
             currentMonthTotal: 0,
             metrics: {
-              visits: loginCountByProvider[p.id] ?? 0,
+              visits: 0,
               noShows: 0,
               paidClaims: 0,
               privatePay: 0,
@@ -160,7 +148,7 @@ export default function ClinicDashboard() {
             claims: 0,
             unpaid: 0,
             total: 0,
-            metrics: { visits: loginCountByProvider[p.id] ?? 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
+            metrics: { visits: 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
           }
         })
 
@@ -172,7 +160,7 @@ export default function ClinicDashboard() {
               claims: 0,
               unpaid: 0,
               total: 0,
-              metrics: { visits: loginCountByProvider[providerId] ?? 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
+              metrics: { visits: 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
             }
           rows.forEach((row) => {
             byProvider[providerId].claims += 1
@@ -183,8 +171,9 @@ export default function ClinicDashboard() {
             byProvider[providerId].total += ins + pat + ar
           })
           const metrics = computeBillingMetrics(rows)
+          // Visits = number of rows in the providers tab table for this provider
           byProvider[providerId].metrics = {
-            visits: byProvider[providerId].metrics.visits,
+            visits: rows.length,
             noShows: metrics.noShows,
             paidClaims: metrics.paidClaims,
             privatePay: metrics.privatePay,
@@ -199,7 +188,7 @@ export default function ClinicDashboard() {
           unpaidClaimsCount: byProvider[p.id]?.unpaid ?? 0,
           todoCount: todosRes.count ?? 0,
           currentMonthTotal: byProvider[p.id]?.total ?? 0,
-          metrics: byProvider[p.id]?.metrics ?? { visits: loginCountByProvider[p.id] ?? 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
+          metrics: byProvider[p.id]?.metrics ?? { visits: 0, noShows: 0, paidClaims: 0, privatePay: 0, secondary: 0, ccDeclines: 0 },
         }))
         setProviderStats(providerStatsList)
         const grandTotalPaid = providersList.reduce((s, p) => s + (byProvider[p.id]?.total ?? 0), 0)
