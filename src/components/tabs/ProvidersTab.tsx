@@ -238,19 +238,26 @@ export default function ProvidersTab({
   // When isProviderView and providerLevel 2, show full columns; when providerLevel 1, show only up to Appt/Note Status
   // When officeStaffView, show ID through Appt/Note Status (0-8) and Collected from PT through PT Payment AR Ref Date (14-16)
   const getTableDataFromRows = useCallback((rows: SheetRow[]) => {
+    const hasVal = (v: unknown) => v != null && v !== '' && v !== 'null'
     return rows.map(row => {
       const patient = patients.find(p => p.patient_id === row.patient_id)
       const patientDisplay = patient ? toDisplayValue(patient.patient_id) : toDisplayValue(row.patient_id)
-      const visitTypeVal = () => toDisplayValue(row.visit_type)
+      // When row has patient_id but empty patient-info columns, show from patients list (retrieve by ID)
+      const firstNameDisplay = hasVal(row.patient_first_name) ? toDisplayValue(row.patient_first_name) : (patient ? toDisplayValue(patient.first_name) : '')
+      const lastInitialDisplay = hasVal(row.last_initial) ? toDisplayValue(row.last_initial) : (patient?.last_name ? toDisplayValue(patient.last_name.charAt(0)) : '')
+      const insuranceDisplay = hasVal(row.patient_insurance) ? toDisplayValue(row.patient_insurance) : (patient ? toDisplayValue(patient.insurance) : '')
+      const copayDisplay = hasVal(row.patient_copay) ? toDisplayValue(row.patient_copay) : (patient != null ? toDisplayValue(patient.copay) : '')
+      const coinsuranceDisplay = hasVal(row.patient_coinsurance) ? toDisplayValue(row.patient_coinsurance) : (patient != null ? toDisplayValue(patient.coinsurance) : '')
+      const visitTypeVal = () => row.visit_type === 'Telehealth'
       const insertVisitType = (arr: (string | number)[]) => showVisitTypeColumn ? [...arr.slice(0, 9), visitTypeVal(), ...arr.slice(9)] : arr
       if (officeStaffView) {
         const base = [
           patientDisplay,
-          toDisplayValue(row.patient_first_name),
-          toDisplayValue(row.last_initial),
-          toDisplayValue(row.patient_insurance),
-          toDisplayValue(row.patient_copay),
-          toDisplayValue(row.patient_coinsurance),
+          firstNameDisplay,
+          lastInitialDisplay,
+          insuranceDisplay,
+          copayDisplay,
+          coinsuranceDisplay,
           toDisplayDate(row.appointment_date),
           toDisplayValue(row.cpt_code),
           toDisplayValue(row.appointment_status),
@@ -263,11 +270,11 @@ export default function ProvidersTab({
       if (isProviderView && providerLevel !== 2) {
         const base = [
           patientDisplay,
-          toDisplayValue(row.patient_first_name),
-          toDisplayValue(row.last_initial),
-          toDisplayValue(row.patient_insurance),
-          toDisplayValue(row.patient_copay),
-          toDisplayValue(row.patient_coinsurance),
+          firstNameDisplay,
+          lastInitialDisplay,
+          insuranceDisplay,
+          copayDisplay,
+          coinsuranceDisplay,
           toDisplayDate(row.appointment_date),
           toDisplayValue(row.cpt_code),
           toDisplayValue(row.appointment_status),
@@ -277,11 +284,11 @@ export default function ProvidersTab({
       if (isProviderView && providerLevel === 2) {
         const base = [
           patientDisplay,
-          toDisplayValue(row.patient_first_name),
-          toDisplayValue(row.last_initial),
-          toDisplayValue(row.patient_insurance),
-          toDisplayValue(row.patient_copay),
-          toDisplayValue(row.patient_coinsurance),
+          firstNameDisplay,
+          lastInitialDisplay,
+          insuranceDisplay,
+          copayDisplay,
+          coinsuranceDisplay,
           toDisplayDate(row.appointment_date),
           toDisplayValue(row.cpt_code),
           toDisplayValue(row.appointment_status),
@@ -300,11 +307,11 @@ export default function ProvidersTab({
       }
       const fullRow = [
         patientDisplay,
-        toDisplayValue(row.patient_first_name),
-        toDisplayValue(row.last_initial),
-        toDisplayValue(row.patient_insurance),
-        toDisplayValue(row.patient_copay),
-        toDisplayValue(row.patient_coinsurance),
+        firstNameDisplay,
+        lastInitialDisplay,
+        insuranceDisplay,
+        copayDisplay,
+        coinsuranceDisplay,
         toDisplayDate(row.appointment_date),
         toDisplayValue(row.cpt_code),
         toDisplayValue(row.appointment_status),
@@ -828,14 +835,8 @@ export default function ProvidersTab({
       ? (readOnly: boolean) => ({
           data: 9,
           title: 'Visit Type',
-          type: 'dropdown' as const,
-          width: 120,
-          selectOptions: ['In-person', 'Telehealth'],
-          renderer: createBubbleDropdownRenderer((val) => {
-            if (!val) return null
-            if (val === 'Telehealth') return { color: '#a78bfa', textColor: '#1e1b4b' }
-            return { color: '#cbd5e1', textColor: '#0f172a' }
-          }) as any,
+          type: 'checkbox' as const,
+          width: 100,
           readOnly,
         })
       : null
@@ -1214,6 +1215,9 @@ export default function ProvidersTab({
         } else if (field === 'appointment_date') {
           hadDateColumnEdit = true
           const value = (newValue === '' || newValue === 'null') ? null : String(newValue)
+          updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
+        } else if (field === 'visit_type') {
+          const value = newValue === true ? 'Telehealth' : 'In-person'
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
         } else if (field) {
           if (dateFields.includes(field)) hadDateColumnEdit = true

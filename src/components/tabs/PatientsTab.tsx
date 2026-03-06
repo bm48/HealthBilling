@@ -49,6 +49,11 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   const lastSelectedRowRef = useRef<number | null>(null)
   /** When debounced save saves a new patient, we store its real id so flush (0 to process) can still call onPatientCreated */
   const lastNewPatientIdFromDebounceRef = useRef<string | null>(null)
+  /** Resolve when current save completes; used by flush to wait for in-progress save then run save again with row-leave flag */
+  const saveCompletePromiseRef = useRef<{ promise: Promise<void>; resolve: () => void } | null>(null)
+  /** Set when user leaves row via selection (afterSelection); cleared when we run row-leave save from handlePatientsHandsontableChange so we save after any pending afterChange */
+  const pendingRowLeaveSaveRef = useRef(false)
+  const pendingRowLeaveSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0)
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
@@ -212,6 +217,9 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
 
 
     saveInProgressRef.current = true
+    let resolveSaveComplete!: () => void
+    const saveCompletePromise = new Promise<void>(r => { resolveSaveComplete = r })
+    saveCompletePromiseRef.current = { promise: saveCompletePromise, resolve: resolveSaveComplete }
     try {
       // Store saved patients with their database responses to update in place
       const savedPatientsMap = new Map<string, Patient>() // Map old ID -> new Patient data
@@ -363,13 +371,39 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
           if (oldId.startsWith('new-') || oldId.startsWith('empty-')) {
             const rowData = patientsToSave.find(p => p.id === oldId)
             const merged = rowData
-              ? { ...savedPatient, ...rowData, id: savedPatient.id, created_at: savedPatient.created_at, updated_at: savedPatient.updated_at }
+              ? {
+                  ...savedPatient,
+                  ...rowData,
+                  id: savedPatient.id,
+                  created_at: savedPatient.created_at,
+                  updated_at: savedPatient.updated_at,
+                  // patient_id: always from DB when present so provider sheets get the real ID
+                  patient_id: (savedPatient.patient_id != null && savedPatient.patient_id !== '') ? savedPatient.patient_id : (rowData.patient_id || savedPatient.patient_id || ''),
+                  // Prefer table state (rowData) for display fields so payload matches what user sees; fall back to DB
+                  first_name: (rowData.first_name != null && rowData.first_name !== '') ? rowData.first_name : (savedPatient.first_name ?? ''),
+                  last_name: (rowData.last_name != null && rowData.last_name !== '') ? rowData.last_name : (savedPatient.last_name ?? ''),
+                  insurance: (rowData.insurance != null && rowData.insurance !== '') ? rowData.insurance : (savedPatient.insurance ?? null),
+                  copay: rowData.copay != null ? rowData.copay : savedPatient.copay,
+                  coinsurance: rowData.coinsurance != null ? rowData.coinsurance : savedPatient.coinsurance,
+                }
               : savedPatient
             toSend.push(merged)
           } else if (lastNewId && savedPatient.id === lastNewId) {
             const rowData = patientsToSave.find(p => p.id === lastNewId)
             const merged = rowData
-              ? { ...savedPatient, ...rowData, id: savedPatient.id, created_at: savedPatient.created_at, updated_at: savedPatient.updated_at }
+              ? {
+                  ...savedPatient,
+                  ...rowData,
+                  id: savedPatient.id,
+                  created_at: savedPatient.created_at,
+                  updated_at: savedPatient.updated_at,
+                  patient_id: (savedPatient.patient_id != null && savedPatient.patient_id !== '') ? savedPatient.patient_id : (rowData.patient_id || savedPatient.patient_id || ''),
+                  first_name: (rowData.first_name != null && rowData.first_name !== '') ? rowData.first_name : (savedPatient.first_name ?? ''),
+                  last_name: (rowData.last_name != null && rowData.last_name !== '') ? rowData.last_name : (savedPatient.last_name ?? ''),
+                  insurance: (rowData.insurance != null && rowData.insurance !== '') ? rowData.insurance : (savedPatient.insurance ?? null),
+                  copay: rowData.copay != null ? rowData.copay : savedPatient.copay,
+                  coinsurance: rowData.coinsurance != null ? rowData.coinsurance : savedPatient.coinsurance,
+                }
               : savedPatient
             toSend.push(merged)
           }
@@ -389,6 +423,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       alert(error?.message || 'Failed to save patient. Please try again.')
     } finally {
       saveInProgressRef.current = false
+      saveCompletePromiseRef.current?.resolve()
+      saveCompletePromiseRef.current = null
       if (savePendingRef.current) {
         savePendingRef.current = false
         setRunPendingSaveTrigger(t => t + 1)
@@ -402,15 +438,16 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   useEffect(() => {
     if (!onRegisterFlushBeforeTabLeave) return
     const flush = async () => {
-      saveTriggeredByRowLeaveRef.current = true
       if (savePatientsTimeoutRef.current) {
         clearTimeout(savePatientsTimeoutRef.current)
         savePatientsTimeoutRef.current = null
       }
-      if (!saveInProgressRef.current) {
-        await savePatients(patientsRef.current)
-      } else {
+      // If save is in progress, wait for it to finish then run save again with row-leave flag so onPatientsCreated runs
+      if (saveInProgressRef.current && saveCompletePromiseRef.current) {
+        await saveCompletePromiseRef.current.promise
       }
+      saveTriggeredByRowLeaveRef.current = true
+      await savePatients(patientsRef.current)
     }
     onRegisterFlushBeforeTabLeave(flush)
   }, [onRegisterFlushBeforeTabLeave, savePatients])
@@ -694,6 +731,23 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       }
     }
 
+    // If selection had changed (pendingRowLeaveSaveRef) and we just got afterChange, run row-leave save now so last cell is in patientsRef; cancel fallback timer
+    if (pendingRowLeaveSaveRef.current) {
+      pendingRowLeaveSaveRef.current = false
+      if (pendingRowLeaveSaveTimeoutRef.current) {
+        clearTimeout(pendingRowLeaveSaveTimeoutRef.current)
+        pendingRowLeaveSaveTimeoutRef.current = null
+      }
+      saveTriggeredByRowLeaveRef.current = true
+      if (savePatientsTimeoutRef.current) {
+        clearTimeout(savePatientsTimeoutRef.current)
+        savePatientsTimeoutRef.current = null
+      }
+      if (!saveInProgressRef.current) {
+        savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save (pending row leave):', err))
+      }
+    }
+
     // Debounce save so typing multiple cells on a new row upserts one record, not one per cell
     if (savePatientsTimeoutRef.current) clearTimeout(savePatientsTimeoutRef.current)
     savePatientsTimeoutRef.current = setTimeout(() => {
@@ -711,15 +765,22 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   const handleAfterSelection = useCallback((r: number, _c: number, _r2: number, _c2: number) => {
     const prev = lastSelectedRowRef.current
     if (prev !== null && r !== prev && !saveInProgressRef.current) {
-      saveTriggeredByRowLeaveRef.current = true
-      if (savePatientsTimeoutRef.current) {
-        clearTimeout(savePatientsTimeoutRef.current)
-        savePatientsTimeoutRef.current = null
-      }
-      // Defer save so any pending afterChange for the cell we left runs first (so all typed cells are in patientsRef)
-      setTimeout(() => {
-        savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save on selection change:', err))
-      }, 0)
+      // Set flag so handlePatientsHandsontableChange will run row-leave save after any pending afterChange (captures last cell)
+      pendingRowLeaveSaveRef.current = true
+      if (pendingRowLeaveSaveTimeoutRef.current) clearTimeout(pendingRowLeaveSaveTimeoutRef.current)
+      // Fallback: if afterChange never fires (e.g. user just clicked away without editing), run save after delay
+      const FALLBACK_MS = 800
+      pendingRowLeaveSaveTimeoutRef.current = setTimeout(() => {
+        pendingRowLeaveSaveTimeoutRef.current = null
+        if (!pendingRowLeaveSaveRef.current) return
+        pendingRowLeaveSaveRef.current = false
+        saveTriggeredByRowLeaveRef.current = true
+        if (savePatientsTimeoutRef.current) {
+          clearTimeout(savePatientsTimeoutRef.current)
+          savePatientsTimeoutRef.current = null
+        }
+        savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save on selection change (fallback):', err))
+      }, FALLBACK_MS)
     }
     lastSelectedRowRef.current = r
   }, [savePatients])

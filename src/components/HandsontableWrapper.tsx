@@ -368,9 +368,9 @@ export default function HandsontableWrapper({
     }
     
     // Final safety check: ensure type is valid (never empty string)
-    // Allow date, text types, and undefined (for select editor)
+    // Allow date, text, checkbox types, and undefined (for select editor)
     const t = processedCol.type
-    if (!t || (typeof t === 'string' && t.trim() === '') || (t !== 'date' && t !== 'text')) {
+    if (!t || (typeof t === 'string' && t.trim() === '') || (t !== 'date' && t !== 'text' && t !== 'checkbox')) {
       if (processedCol.editor && processedCol.editor !== 'select' && processedCol.editor !== 'date') {
         processedCol.type = 'text' as const
       } else if (processedCol.editor === 'select') {

@@ -352,36 +352,37 @@
 
 
 .providers-handsontable table.htCore thead th:nth-child(9),
-.providers-handsontable table.htCore thead th:nth-child(10) {
+.providers-handsontable table.htCore thead th:nth-child(10),
+.providers-handsontable table.htCore thead th:nth-child(11) {
   background-color: #ead1dd !important;
   color: #000000 !important;
 }
 
 
-.providers-handsontable table.htCore thead th:nth-child(11),
-.providers-handsontable table.htCore thead th:nth-child(12){
+.providers-handsontable table.htCore thead th:nth-child(12),
+.providers-handsontable table.htCore thead th:nth-child(13){
   background-color: #d9d2e9 !important;
   color: #000000 !important;
 }
 
 
 
-.providers-handsontable table.htCore thead th:nth-child(13),
 .providers-handsontable table.htCore thead th:nth-child(14),
-.providers-handsontable table.htCore thead th:nth-child(15){
+.providers-handsontable table.htCore thead th:nth-child(15),
+.providers-handsontable table.htCore thead th:nth-child(16){
   background-color: #b191cd !important;
   color: #000000 !important;
 }
 
 
-.providers-handsontable table.htCore thead th:nth-child(16),
 .providers-handsontable table.htCore thead th:nth-child(17),
-.providers-handsontable table.htCore thead th:nth-child(18) {
+.providers-handsontable table.htCore thead th:nth-child(18),
+.providers-handsontable table.htCore thead th:nth-child(19) {
   background-color: #fce5cd !important;
   color: #000000 !important;
 }
 
-.providers-handsontable table.htCore thead th:nth-child(19) {
+.providers-handsontable table.htCore thead th:nth-child(20) {
   background-color: #5d9f5d !important;
   color: #000000 !important;
 }
@@ -822,6 +823,12 @@ providers-handsontable} */
   padding: 2px 4px !important;
   text-align: left !important;
   vertical-align: middle !important;
+}
+
+/* Checkbox cells: pointer cursor on hover */
+.handsontable-custom td .htCheckboxRendererInput,
+.handsontable-custom td:has(.htCheckboxRendererInput) {
+  cursor: pointer;
 }
 
 /* Cell highlight from context menu (Highlight) */

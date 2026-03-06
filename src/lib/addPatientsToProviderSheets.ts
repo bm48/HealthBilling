@@ -23,6 +23,10 @@ export async function addPatientsToProviderSheets(
   params: AddPatientsToProviderSheetsParams
 ): Promise<AddPatientsToProviderSheetsResult> {
   const { clinicId, selectedMonthKey, patients } = params
+  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '')
+  if (!supabaseUrl) {
+    return { success: false, error: 'App is not configured for provider sheets.' }
+  }
 
   const { data: refreshed } = await supabase.auth.refreshSession()
   const token = refreshed?.session?.access_token ?? (await supabase.auth.getSession()).data?.session?.access_token
@@ -30,29 +34,18 @@ export async function addPatientsToProviderSheets(
     return { success: false, error: 'You must be signed in.' }
   }
 
-  // Prefer same-origin API route so it works on Vercel (serverless proxy) and in dev (Vite proxy)
-  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '')
-  const url =
-    typeof window !== 'undefined'
-      ? '/api/add-patients-to-provider-sheets'
-      : supabaseUrl
-        ? `${supabaseUrl}/functions/v1/add-patients-to-provider-sheets`
-        : ''
-  if (!url) {
-    return { success: false, error: 'App is not configured for provider sheets.' }
-  }
-
+  const url = `${supabaseUrl}/functions/v1/add-patients-to-provider-sheets`
   const body = JSON.stringify({
     clinicId,
     selectedMonthKey,
     patients: patients.map((p) => ({
       id: p.id,
-      patient_id: p.patient_id ?? null,
-      first_name: p.first_name ?? null,
-      last_name: p.last_name ?? null,
-      insurance: p.insurance ?? null,
-      copay: p.copay ?? null,
-      coinsurance: p.coinsurance ?? null,
+      patient_id: (p.patient_id != null && p.patient_id !== '') ? String(p.patient_id) : null,
+      first_name: (p.first_name != null && p.first_name !== '') ? String(p.first_name) : null,
+      last_name: (p.last_name != null && p.last_name !== '') ? String(p.last_name) : null,
+      insurance: (p.insurance != null && p.insurance !== '') ? String(p.insurance) : null,
+      copay: p.copay != null ? String(p.copay) : null,
+      coinsurance: p.coinsurance != null ? String(p.coinsurance) : null,
     })),
   })
 
