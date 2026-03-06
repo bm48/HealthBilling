@@ -80,7 +80,8 @@ export default function ClinicDashboard() {
       const now = new Date()
       const y = now.getFullYear()
       const m = now.getMonth() + 1
-      // Match Providers tab: when clinic has payroll=2 there are two sheets per provider per month (1st/2nd half). Filter by payroll=1 so we only count the first-half sheet and visits match the default Providers tab view.
+      // When clinic has payroll=2 there are two sheets per provider per month (1st/2nd half). We count only
+      // payroll=1 (first half) so "Visits" matches what the user sees in the Providers tab (default is first half).
       const payroll = 1
 
       const [providersRes, patientsRes, todosRes, sheetsRes] = await Promise.all([
@@ -112,7 +113,15 @@ export default function ClinicDashboard() {
         currentMonthTotal: null,
       })
 
-      const sheets = (sheetsRes.data || []) as { id: string; provider_id: string }[]
+      const sheetsRaw = (sheetsRes.data || []) as { id: string; provider_id: string }[]
+      // When duplicate sheets exist for the same (provider, month, year, payroll), use one per provider (smallest id)
+      // so we count the same sheet the Providers tab shows (ClinicDetail also orders by id and takes one).
+      const sheetsByProvider = new Map<string, { id: string; provider_id: string }>()
+      for (const sheet of sheetsRaw) {
+        const existing = sheetsByProvider.get(sheet.provider_id)
+        if (!existing || sheet.id < existing.id) sheetsByProvider.set(sheet.provider_id, sheet)
+      }
+      const sheets = Array.from(sheetsByProvider.values())
 
       // Visits = number of rows in the providers tab table (provider_sheet_rows) for that provider
       if (sheets.length === 0) {
@@ -171,7 +180,7 @@ export default function ClinicDashboard() {
             byProvider[providerId].total += ins + pat + ar
           })
           const metrics = computeBillingMetrics(rows)
-          // Visits = number of rows in the providers tab table for this provider
+          // Visits = row count for this sheet (same period as Providers tab default view)
           byProvider[providerId].metrics = {
             visits: rows.length,
             noShows: metrics.noShows,

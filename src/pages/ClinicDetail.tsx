@@ -1260,7 +1260,7 @@ export default function ClinicDetail() {
       const year = selectedMonth.getFullYear()
       const payroll = (clinic?.payroll === 2 ? selectedPayroll : (clinic?.payroll ?? 1)) as 1 | 2
 
-      // Fetch sheet for the selected month/year (and half)
+      // Fetch sheet for the selected month/year (and half). Order by id so we get the same sheet when duplicates exist (matches dashboard).
       const { data: existingSheet, error: sheetsError } = await supabase
         .from('provider_sheets')
         .select('*')
@@ -1269,6 +1269,8 @@ export default function ClinicDetail() {
         .eq('month', month)
         .eq('year', year)
         .eq('payroll', payroll)
+        .order('id', { ascending: true })
+        .limit(1)
         .maybeSingle()
 
       if (sheetsError && sheetsError.code !== 'PGRST116') throw sheetsError
@@ -1537,7 +1539,7 @@ export default function ClinicDetail() {
       const rowsMap: Record<string, SheetRow[]> = {}
 
       for (const providerId of providerIds) {
-        // Try to fetch existing sheet
+        // Try to fetch existing sheet. Order by id so we get the same sheet when duplicates exist (matches dashboard).
         const { data: existingSheet, error: fetchError } = await supabase
           .from('provider_sheets')
           .select('*')
@@ -1546,6 +1548,8 @@ export default function ClinicDetail() {
           .eq('month', month)
           .eq('year', year)
           .eq('payroll', payroll)
+          .order('id', { ascending: true })
+          .limit(1)
           .maybeSingle()
 
         let sheet: ProviderSheet
