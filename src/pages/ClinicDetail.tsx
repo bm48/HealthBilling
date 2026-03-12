@@ -4,6 +4,9 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { addPatientsToProviderSheets } from '@/lib/addPatientsToProviderSheets'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
+import { fetchBackupCsvAsSheetRows } from '@/lib/providerSheetBackups'
+import type { BackupVersion } from '@/lib/providerSheetBackups'
+import BackupVersionsBar from '@/components/BackupVersionsBar'
 import { Patient, ProviderSheet, SheetRow, Clinic, Provider, BillingCode, StatusColor, ColumnLock, IsLockPatients, IsLockBillingTodo, IsLockProviders, IsLockAccountsReceivable } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { Users, CheckSquare, FileText, Trash2, Lock, Unlock, Download, Columns, DollarSign } from 'lucide-react'
@@ -108,6 +111,15 @@ export default function ClinicDetail() {
   /** Serialize provider sheet saves per provider so an older save (e.g. 59 rows) cannot overwrite a newer one (67 rows) in the DB. */
   const saveProviderSheetInProgressRef = useRef<Set<string>>(new Set())
   const pendingProviderSheetSaveRef = useRef<Record<string, SheetRow[]>>({})
+  /** When viewing a backup version, override rows for the current provider (super_admin only). */
+  const [backupOverrideRows, setBackupOverrideRows] = useState<SheetRow[] | null>(null)
+  const [selectedBackupVersion, setSelectedBackupVersion] = useState<BackupVersion | null>(null)
+
+  // Clear backup view when switching provider or month
+  useEffect(() => {
+    setBackupOverrideRows(null)
+    setSelectedBackupVersion(null)
+  }, [providerId, selectedMonthKey])
 
   // Billing staff and official staff may only access clinics permitted by super admin / admin
   const isBillingStaff = userProfile?.role === 'billing_staff'
@@ -2518,52 +2530,79 @@ export default function ClinicDetail() {
             isColumnLocked={isProviderPayColumnLocked}
           />
         )
-      case 'providers':
+      case 'providers': {
+        const providerSheetRowsWithOverride =
+          providerId && backupOverrideRows
+            ? { ...providerSheetRows, [providerId]: backupOverrideRows }
+            : providerSheetRows
+        const canEditProviders = canEdit && !backupOverrideRows
+        const currentSheetForBackup = providerId ? providerSheets[providerId] : null
         return (
-          <ProvidersTab
-            key={selectedMonthKey}
-            clinicId={clinicId}
-            clinicPayroll={clinic?.payroll ?? 1}
-            canEditComment={userProfile?.role === 'super_admin' || userProfile?.role === 'office_staff'}
-            userHighlightColor={userProfile?.role === 'super_admin' ? '#2d7e83' : (userProfile?.highlight_color ?? '#eab308')}
-            providers={providers}
-            providerSheetRows={providerSheetRows}
-            providerRowsVersion={providerRowsVersion}
-            billingCodes={billingCodes}
-            statusColors={statusColors}
-            patients={patients}
-            selectedMonth={selectedMonth}
-            selectedMonthKey={selectedMonthKey}
-            selectedPayroll={clinic?.payroll === 2 ? selectedPayroll : undefined}
-            providerId={providerId}
-            currentProvider={currentProvider}
-            canEdit={canEdit}
-            isInSplitScreen={!!splitScreen}
-            onUpdateProviderSheetRow={handleUpdateProviderSheetRow}
-            onSaveProviderSheetRowsDirect={saveProviderSheetRowsDirect}
-            onDeleteRow={handleDeleteProviderSheetRow}
-            onAddRowBelow={handleAddProviderRowBelow}
-            onAddRowAbove={handleAddProviderRowAbove}
-            onPreviousMonth={handlePreviousMonth}
-            onNextMonth={handleNextMonth}
-            formatMonthYear={formatMonthYear}
-            filterRowsByMonth={filterRowsByMonth}
-            isLockProviders={isLockProviders}
-            onLockProviderColumn={canLockColumns ? (columnName: string) => {
-              const existingComment = isLockProviders && isProviderColumnLocked(columnName as keyof IsLockProviders)
-                ? (isLockProviders[`${columnName}_comment` as keyof IsLockProviders] as string | null) || ''
-                : ''
-              setSelectedLockColumn({ columnName, providerId: null, isProviderColumn: true })
-              setLockComment(existingComment)
-              setShowLockDialog(true)
-            } : undefined}
-            isProviderColumnLocked={isProviderColumnLocked}
-            onReorderProviderRows={handleReorderProviderRows}
-            restrictEditToSchedulingColumns={restrictProviderSheetEditToScheduling}
-            officeStaffView={isOfficeStaff}
-            showVisitTypeColumn={providerId ? (currentProvider?.show_visit_type_column ?? false) : providers.some(p => p.show_visit_type_column)}
-          />
+          <>
+            {userProfile?.role === 'super_admin' && currentSheetForBackup?.id && (
+              <div className="mb-4">
+                <BackupVersionsBar
+                  sheetId={currentSheetForBackup.id}
+                  viewingVersion={selectedBackupVersion}
+                  onSelectVersion={async (version) => {
+                    const rows = await fetchBackupCsvAsSheetRows(supabase, version.file_path)
+                    setBackupOverrideRows(rows)
+                    setSelectedBackupVersion(version)
+                  }}
+                  onBackToCurrent={() => {
+                    setBackupOverrideRows(null)
+                    setSelectedBackupVersion(null)
+                  }}
+                />
+              </div>
+            )}
+            <ProvidersTab
+              key={selectedMonthKey}
+              clinicId={clinicId}
+              clinicPayroll={clinic?.payroll ?? 1}
+              canEditComment={userProfile?.role === 'super_admin' || userProfile?.role === 'office_staff'}
+              userHighlightColor={userProfile?.role === 'super_admin' ? '#2d7e83' : (userProfile?.highlight_color ?? '#eab308')}
+              providers={providers}
+              providerSheetRows={providerSheetRowsWithOverride}
+              providerRowsVersion={providerRowsVersion}
+              billingCodes={billingCodes}
+              statusColors={statusColors}
+              patients={patients}
+              selectedMonth={selectedMonth}
+              selectedMonthKey={selectedMonthKey}
+              selectedPayroll={clinic?.payroll === 2 ? selectedPayroll : undefined}
+              providerId={providerId}
+              currentProvider={currentProvider}
+              canEdit={canEditProviders}
+              isInSplitScreen={!!splitScreen}
+              onUpdateProviderSheetRow={handleUpdateProviderSheetRow}
+              onSaveProviderSheetRowsDirect={saveProviderSheetRowsDirect}
+              onDeleteRow={handleDeleteProviderSheetRow}
+              onAddRowBelow={handleAddProviderRowBelow}
+              onAddRowAbove={handleAddProviderRowAbove}
+              onPreviousMonth={handlePreviousMonth}
+              onNextMonth={handleNextMonth}
+              formatMonthYear={formatMonthYear}
+              filterRowsByMonth={filterRowsByMonth}
+              isLockProviders={isLockProviders}
+              onLockProviderColumn={canLockColumns ? (columnName: string) => {
+                const existingComment = isLockProviders && isProviderColumnLocked(columnName as keyof IsLockProviders)
+                  ? (isLockProviders[`${columnName}_comment` as keyof IsLockProviders] as string | null) || ''
+                  : ''
+                setSelectedLockColumn({ columnName, providerId: null, isProviderColumn: true })
+                setLockComment(existingComment)
+                setShowLockDialog(true)
+              } : undefined}
+              isProviderColumnLocked={isProviderColumnLocked}
+              onReorderProviderRows={handleReorderProviderRows}
+              restrictEditToSchedulingColumns={restrictProviderSheetEditToScheduling}
+              officeStaffView={isOfficeStaff}
+              showVisitTypeColumn={providerId ? (currentProvider?.show_visit_type_column ?? false) : providers.some(p => p.show_visit_type_column)}
+              isViewingBackup={!!selectedBackupVersion}
+            />
+          </>
         )
+      }
       default:
         return null
     }

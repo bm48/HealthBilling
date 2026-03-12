@@ -1,4 +1,5 @@
 import Handsontable from 'handsontable'
+import { formatDateOfServiceAsYouType, toDisplayDate } from '@/lib/utils'
 
 /**
  * Renders a numeric value as currency ($10.00). Empty/null shows blank.
@@ -461,6 +462,55 @@ export class DateEditor extends Handsontable.editors.TextEditor {
     if (this.TEXTAREA) {
       (this.TEXTAREA as HTMLInputElement).value = value
     }
+  }
+}
+
+/**
+ * Text editor that auto-formats input as MM-DD-YY while typing (digits only, auto-inserts dashes).
+ */
+export class DateOfServiceEditor extends Handsontable.editors.TextEditor {
+  createElements() {
+    super.createElements()
+    const input = this.TEXTAREA as HTMLInputElement
+    if (!input) return
+    const formatInput = () => {
+      const raw = input.value
+      const formatted = formatDateOfServiceAsYouType(raw)
+      if (formatted !== raw) {
+        input.value = formatted
+        input.setSelectionRange(formatted.length, formatted.length)
+      }
+    }
+    input.addEventListener('input', formatInput)
+    input.setAttribute('placeholder', 'MM-DD-YY')
+  }
+
+  open(event?: Event) {
+    super.open(event)
+    const input = this.TEXTAREA as HTMLInputElement
+    if (!input) return
+    const raw = input.value
+    if (raw && raw.trim()) return
+    const ed = this as any
+    let cellValue = ed.originalValue
+    if (cellValue == null) {
+      try {
+        cellValue = ed.hot?.getSourceDataAtCell?.(ed.row, ed.col) ?? ed.hot?.getDataAtCell?.(ed.row, ed.col)
+      } catch {
+        cellValue = ed.hot?.getDataAtCell?.(ed.row, ed.col)
+      }
+    }
+    const display = toDisplayDate(cellValue != null ? String(cellValue) : '')
+    if (display) input.value = display
+  }
+
+  beginEditing(initialValue?: string) {
+    super.beginEditing(initialValue)
+    const input = this.TEXTAREA as HTMLInputElement
+    if (!input) return
+    const raw = (initialValue != null && initialValue !== '') ? String(initialValue) : input.value
+    const display = toDisplayDate(raw)
+    if (display) input.value = display
   }
 }
 

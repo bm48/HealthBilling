@@ -2,12 +2,12 @@ import { Provider, SheetRow, BillingCode, StatusColor, Patient, IsLockProviders 
 import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
-import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor, currencyCellRenderer, copayTextCellRenderer, coinsuranceTextCellRenderer } from '@/lib/handsontableCustomRenderers'
+import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor, DateOfServiceEditor, currencyCellRenderer, copayTextCellRenderer, coinsuranceTextCellRenderer } from '@/lib/handsontableCustomRenderers'
 import { useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { toDisplayValue, toDisplayDate } from '@/lib/utils'
+import { toDisplayValue, toDisplayDate, parseDateOfServiceInput } from '@/lib/utils'
 import { computeBillingMetrics } from '@/lib/billingMetrics'
 
 interface ProvidersTabProps {
@@ -61,6 +61,8 @@ interface ProvidersTabProps {
   userHighlightColor?: string | null
   /** When true, show an extra "Visit Type" column (In-person / Telehealth) after Appt/Note Status. Set per provider in User Management. */
   showVisitTypeColumn?: boolean
+  /** When true, parent is showing backup override rows; always use props and do not prefer ref (so backup data displays after edits). */
+  isViewingBackup?: boolean
 }
 
 export default function ProvidersTab({
@@ -99,6 +101,7 @@ export default function ProvidersTab({
   canEditComment = false,
   userHighlightColor = '#eab308',
   showVisitTypeColumn = false,
+  isViewingBackup = false,
 }: ProvidersTabProps) {
   
   const { userProfile } = useAuth()
@@ -144,20 +147,25 @@ export default function ProvidersTab({
   const [localRowsForProvider, setLocalRowsForProvider] = useState<SheetRow[]>([])
   const localRowsProviderKeyRef = useRef<string | null>(null)
 
-  // Clear refs when provider/month changes or when parent refetched (providerRowsVersion bump after Edge Function add)
+  // Clear refs when provider/month changes, when parent refetched, or when viewing backup (so backup rows from props are used)
   useEffect(() => {
     latestTableDataRef.current = null
     latestProviderRowsRef.current = null
     localRowsProviderKeyRef.current = null
-  }, [activeProvider?.id, selectedMonth.getTime(), providerRowsVersion])
+  }, [activeProvider?.id, selectedMonth.getTime(), providerRowsVersion, isViewingBackup])
 
-  // Sync display rows from props or ref: when we have local edits (ref set for this provider), keep them; otherwise use props (like PatientsTab merge on fetch)
+  // Sync display rows from props or ref: when viewing backup always use props; otherwise when we have local edits (ref set), keep them; else use props
   useEffect(() => {
     if (!activeProvider) {
       setLocalRowsForProvider([])
       return
     }
     const key = `${activeProvider.id}-${selectedMonth.getTime()}`
+    if (isViewingBackup) {
+      setLocalRowsForProvider(activeProviderRows)
+      localRowsProviderKeyRef.current = key
+      return
+    }
     const fromRef = latestProviderRowsRef.current?.providerId === activeProvider.id ? latestProviderRowsRef.current.rows : null
     if (fromRef != null && fromRef.length > 0) {
       setLocalRowsForProvider(fromRef)
@@ -166,7 +174,7 @@ export default function ProvidersTab({
     }
     setLocalRowsForProvider(activeProviderRows)
     localRowsProviderKeyRef.current = key
-  }, [activeProvider?.id, activeProviderRows, selectedMonth.getTime()])
+  }, [activeProvider?.id, activeProviderRows, selectedMonth.getTime(), isViewingBackup])
 
   // Load persisted highlights and comments for this clinic (so they survive reload and show for providers)
   useEffect(() => {
@@ -836,7 +844,7 @@ export default function ProvidersTab({
           data: 9,
           title: 'Tele',
           type: 'checkbox' as const,
-          width: 100,
+          width: 50,
           readOnly,
         })
       : null
@@ -849,7 +857,7 @@ export default function ProvidersTab({
         { data: 3, title: 'Ins', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance')) },
         { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay')) },
         { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance')) },
-        { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyForColumn(6, !canEdit || getReadOnly('date_of_service')) },
+        { data: 6, title: 'Date of Service', type: 'text' as const, width: 120, editor: DateOfServiceEditor, readOnly: getReadOnlyForColumn(6, !canEdit || getReadOnly('date_of_service')) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyForColumn(7, !canEdit || getReadOnly('cpt_code')) },
         ...(visitTypeCol ? [visitTypeCol(getReadOnlyForColumn(9, !canEdit))] : []),
         { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 150, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyForColumn(8, !canEdit || getReadOnly('appointment_note_status')) },
@@ -868,7 +876,7 @@ export default function ProvidersTab({
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
         { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
         { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyProviderView(5) },
-        { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyProviderView(6) },
+        { data: 6, title: 'Date of Service', type: 'text' as const, width: 120, editor: DateOfServiceEditor, readOnly: getReadOnlyProviderView(6) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyProviderView(7) },
         ...(visitTypeCol ? [visitTypeCol(getReadOnlyProviderView(9))] : []),
         { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
@@ -883,7 +891,7 @@ export default function ProvidersTab({
         { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
         { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
         { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyProviderView(5) },
-        { data: 6, title: 'Date of Service', type: 'date' as const, width: 120, format: 'YYYY-MM-DD', readOnly: getReadOnlyProviderView(6) },
+        { data: 6, title: 'Date of Service', type: 'text' as const, width: 120, editor: DateOfServiceEditor, readOnly: getReadOnlyProviderView(6) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyProviderView(7) },
         ...(visitTypeCol ? [visitTypeCol(getReadOnlyProviderView(9))] : []),
         { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 150, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
@@ -912,7 +920,7 @@ export default function ProvidersTab({
         data: 1, 
         title: 'First Name', 
         type: 'text' as const, 
-        width: 120,
+        width: 90,
         readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name'))
       },
       { 
@@ -926,7 +934,7 @@ export default function ProvidersTab({
         data: 3, 
         title: 'Ins', 
         type: 'text' as const, 
-        width: 120,
+        width: 80,
         readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance'))
       },
       { 
@@ -948,9 +956,9 @@ export default function ProvidersTab({
       { 
         data: 6, 
         title: 'Date of Service', 
-        type: 'date' as const, 
-        width: 120, 
-        format: 'YYYY-MM-DD',
+        type: 'text' as const, 
+        width: 90, 
+        editor: DateOfServiceEditor,
         readOnly: getReadOnlyForColumn(6, !canEdit || getReadOnly('date_of_service'))
       },
       { 
@@ -968,7 +976,7 @@ export default function ProvidersTab({
         data: 8, 
         title: 'Appt/Note Status', 
         type: 'dropdown' as const, 
-        width: 150,
+        width: 90,
         selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'],
         renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any,
         readOnly: getReadOnlyForColumn(8, !canEdit || getReadOnly('appointment_note_status'))
@@ -977,7 +985,7 @@ export default function ProvidersTab({
         data: 9 + (showVisitTypeColumn ? 1 : 0), 
         title: 'Claim Status', 
         type: 'dropdown' as const, 
-        width: 120,
+        width: 90,
         selectOptions: ['Claim Sent', 'RS', 'IP', 'Pending Pay', 'Paid', 'Deductible', 'N/A', 'PP', 'Denial', 'Rejected', 'No Coverage'],
         renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'claim')) as any,
         readOnly: getReadOnlyForColumn(9 + (showVisitTypeColumn ? 1 : 0), !canEdit || getReadOnly('claim_status'))
@@ -1214,7 +1222,7 @@ export default function ProvidersTab({
           } as SheetRow
         } else if (field === 'appointment_date') {
           hadDateColumnEdit = true
-          const value = (newValue === '' || newValue === 'null') ? null : String(newValue)
+          const value = (newValue === '' || newValue === 'null') ? null : parseDateOfServiceInput(String(newValue))
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
         } else if (field === 'visit_type') {
           const value = newValue === true ? 'Telehealth' : 'In-person'
