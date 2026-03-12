@@ -19,8 +19,9 @@ const CSV_DB_COLUMNS = [
 ]
 
 function escapeCsvCell(val: unknown): string {
-  if (val === null || val === undefined) return ''
-  const s = String(val)
+  if (val === null || val === undefined || val === '') return ''
+  const s = String(val).trim()
+  if (s === '' || s.toLowerCase() === 'null') return ''
   if (s.includes('"') || s.includes(',') || s.includes('\n') || s.includes('\r')) {
     return '"' + s.replace(/"/g, '""') + '"'
   }
@@ -29,11 +30,11 @@ function escapeCsvCell(val: unknown): string {
 
 const USD_COLUMNS = new Set(['patient_copay', 'insurance_payment', 'invoice_amount', 'collected_from_patient', 'total'])
 
-/** Format value for CSV to match UI: copay/ins pay/pt paid/total as USD ($0.00), coinsurance as percentage (0%). */
+/** Format value for CSV to match UI: copay/ins pay/pt paid/total as USD ($0.00), coinsurance as percentage (0%). Null/empty/"null" → empty cell. */
 function formatCsvValue(col: string, val: unknown): unknown {
-  if (val === null || val === undefined || val === '') return val
+  if (val === null || val === undefined || val === '') return null
   const str = String(val).trim()
-  if (str === '' || str === 'null') return val
+  if (str === '' || str.toLowerCase() === 'null') return null
   const num = parseFloat(str)
   if (USD_COLUMNS.has(col) && !Number.isNaN(num)) {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num)
