@@ -162,10 +162,19 @@ export default function ClinicDetail() {
     }
   }, [tab, clinicId, navigate, providerId, isProvidersRoute, userProfile?.role, isBillingStaff, isOfficialStaff])
 
-  // Remember provider when viewing a provider's sheet so Billing tab can return to it
+  // Remember provider when viewing a provider's sheet so Billing tab can return to it (persist in sessionStorage so it survives switching to another tab, which mounts a different route/instance)
+  const lastProviderStorageKey = clinicId ? `clinic_${clinicId}_lastProviderId` : null
   useEffect(() => {
-    if (providerId) lastSelectedProviderIdRef.current = providerId
-  }, [providerId])
+    if (providerId && clinicId) {
+      lastSelectedProviderIdRef.current = providerId
+      try {
+        sessionStorage.setItem(`clinic_${clinicId}_lastProviderId`, providerId)
+      } catch (_) {}
+    }
+  }, [providerId, clinicId])
+
+  const getLastSelectedProviderId = () =>
+    lastSelectedProviderIdRef.current ?? (lastProviderStorageKey ? sessionStorage.getItem(lastProviderStorageKey) : null)
 
   useEffect(() => {
     patientsRef.current = patients
@@ -2413,28 +2422,31 @@ export default function ClinicDetail() {
         setLoading(true)
         patientsTabFlushRef.current().then(() => {
           setActiveTab(tab)
+          const lastProviderId = getLastSelectedProviderId()
           const path =
-            tab === 'providers' && lastSelectedProviderIdRef.current
-              ? `/clinic/${clinicId}/providers/${lastSelectedProviderIdRef.current}`
+            tab === 'providers' && lastProviderId
+              ? `/clinic/${clinicId}/providers/${lastProviderId}`
               : `/clinic/${clinicId}/${tab}`
           navigate(path, { replace: true })
         }).catch(err => {
           console.error('[ClinicDetail] Flush before tab leave failed:', err)
           setLoading(false)
           setActiveTab(tab)
+          const lastProviderId = getLastSelectedProviderId()
           const path =
-            tab === 'providers' && lastSelectedProviderIdRef.current
-              ? `/clinic/${clinicId}/providers/${lastSelectedProviderIdRef.current}`
+            tab === 'providers' && lastProviderId
+              ? `/clinic/${clinicId}/providers/${lastProviderId}`
               : `/clinic/${clinicId}/${tab}`
           navigate(path, { replace: true })
         })
         return
       }
       setActiveTab(tab)
-      // When switching to Billing (providers), go to last selected provider's sheet if we have one
+      // When switching to Billing (providers), go to last selected provider's sheet if we have one (use sessionStorage so it works after switching from another tab, which uses a different route instance)
+      const lastProviderId = getLastSelectedProviderId()
       const path =
-        tab === 'providers' && lastSelectedProviderIdRef.current
-          ? `/clinic/${clinicId}/providers/${lastSelectedProviderIdRef.current}`
+        tab === 'providers' && lastProviderId
+          ? `/clinic/${clinicId}/providers/${lastProviderId}`
           : `/clinic/${clinicId}/${tab}`
       navigate(path, { replace: true })
     }
