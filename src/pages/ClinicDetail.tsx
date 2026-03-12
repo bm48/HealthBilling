@@ -4,7 +4,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { addPatientsToProviderSheets } from '@/lib/addPatientsToProviderSheets'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
-import { fetchBackupCsvAsSheetRows } from '@/lib/providerSheetBackups'
+import { fetchBackupCsvAsSheetRows, padSheetRowsTo200 } from '@/lib/providerSheetBackups'
 import type { BackupVersion } from '@/lib/providerSheetBackups'
 import BackupVersionsBar from '@/components/BackupVersionsBar'
 import { Patient, ProviderSheet, SheetRow, Clinic, Provider, BillingCode, StatusColor, ColumnLock, IsLockPatients, IsLockBillingTodo, IsLockProviders, IsLockAccountsReceivable } from '@/types'
@@ -2546,7 +2546,7 @@ export default function ClinicDetail() {
                   viewingVersion={selectedBackupVersion}
                   onSelectVersion={async (version) => {
                     const rows = await fetchBackupCsvAsSheetRows(supabase, version.file_path)
-                    setBackupOverrideRows(rows)
+                    setBackupOverrideRows(padSheetRowsTo200(rows))
                     setSelectedBackupVersion(version)
                   }}
                   onBackToCurrent={() => {

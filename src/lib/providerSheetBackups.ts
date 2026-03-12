@@ -86,6 +86,66 @@ export async function getBackupDownloadUrl(
   return data.signedUrl
 }
 
+const ROWS_PER_PROVIDER = 200
+
+function createEmptySheetRow(index: number): SheetRow {
+  const iso = new Date().toISOString()
+  return {
+    id: `empty-backup-${index}`,
+    patient_id: null,
+    patient_first_name: null,
+    patient_last_name: null,
+    last_initial: null,
+    patient_insurance: null,
+    patient_copay: null,
+    patient_coinsurance: null,
+    appointment_date: null,
+    appointment_time: null,
+    visit_type: null,
+    notes: null,
+    billing_code: null,
+    billing_code_color: null,
+    cpt_code: null,
+    cpt_code_color: null,
+    appointment_status: null,
+    appointment_status_color: null,
+    claim_status: null,
+    claim_status_color: null,
+    submit_date: null,
+    insurance_payment: null,
+    insurance_adjustment: null,
+    invoice_amount: null,
+    collected_from_patient: null,
+    patient_pay_status: null,
+    patient_pay_status_color: null,
+    payment_date: null,
+    payment_date_color: null,
+    ar_type: null,
+    ar_amount: null,
+    ar_date: null,
+    ar_date_color: null,
+    ar_notes: null,
+    provider_payment_amount: null,
+    provider_payment_date: null,
+    provider_payment_notes: null,
+    highlight_color: null,
+    total: null,
+    created_at: iso,
+    updated_at: iso,
+  }
+}
+
+/**
+ * Pad rows to ROWS_PER_PROVIDER (200) so the table displays the same height as the live view.
+ */
+export function padSheetRowsTo200(rows: SheetRow[]): SheetRow[] {
+  if (rows.length >= ROWS_PER_PROVIDER) return rows
+  const padding = Array.from({ length: ROWS_PER_PROVIDER - rows.length }, (_, i) =>
+    createEmptySheetRow(rows.length + i)
+  )
+  return [...rows, ...padding]
+}
+
 /**
  * Fetch backup CSV and parse into SheetRow[] (same shape as provider_sheet_rows for display).
  */

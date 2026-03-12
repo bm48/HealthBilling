@@ -27,10 +27,29 @@ function escapeCsvCell(val: unknown): string {
   return s
 }
 
+const USD_COLUMNS = new Set(['patient_copay', 'insurance_payment', 'invoice_amount', 'collected_from_patient', 'total'])
+
+/** Format value for CSV to match UI: copay/ins pay/pt paid/total as USD ($0.00), coinsurance as percentage (0%). */
+function formatCsvValue(col: string, val: unknown): unknown {
+  if (val === null || val === undefined || val === '') return val
+  const str = String(val).trim()
+  if (str === '' || str === 'null') return val
+  const num = parseFloat(str)
+  if (USD_COLUMNS.has(col) && !Number.isNaN(num)) {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num)
+  }
+  if (col === 'patient_coinsurance' && !Number.isNaN(num)) {
+    return `${num}%`
+  }
+  return val
+}
+
 function rowsToCsv(rows: Record<string, unknown>[]): string {
   const header = CSV_HEADERS.map((h) => escapeCsvCell(h)).join(',')
   const body = rows
-    .map((row) => CSV_DB_COLUMNS.map((col) => escapeCsvCell(row[col])).join(','))
+    .map((row) =>
+      CSV_DB_COLUMNS.map((col) => escapeCsvCell(formatCsvValue(col, row[col]))).join(',')
+    )
     .join('\n')
   return header + '\n' + body
 }
