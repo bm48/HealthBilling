@@ -63,6 +63,8 @@ interface ProvidersTabProps {
   showVisitTypeColumn?: boolean
   /** When true, parent is showing backup override rows; always use props and do not prefer ref (so backup data displays after edits). */
   isViewingBackup?: boolean
+  /** When viewing backup, a value that changes when the user selects a different version (e.g. version number), so the grid refreshes. */
+  backupVersionKey?: number
 }
 
 export default function ProvidersTab({
@@ -102,6 +104,7 @@ export default function ProvidersTab({
   userHighlightColor = '#eab308',
   showVisitTypeColumn = false,
   isViewingBackup = false,
+  backupVersionKey = 0,
 }: ProvidersTabProps) {
   
   const { userProfile } = useAuth()
@@ -835,16 +838,16 @@ export default function ProvidersTab({
     const officeStaffColOffset = showVisitTypeColumn ? 1 : 0
     if (officeStaffView) {
       const base = [
-        { data: 0, title: 'ID', type: 'text' as const, width: 100, readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id')) },
-        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name')) },
+        { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id')) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name')) },
         { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: getReadOnlyForColumn(2, !canEdit || getReadOnly('last_initial')) },
-        { data: 3, title: 'Ins', type: 'text' as const, width: 120, readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance')) },
+        { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance')) },
         { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay')) },
         { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance')) },
-        { data: 6, title: 'Date of Service', type: 'text' as const, width: 120, editor: DateOfServiceEditor, readOnly: getReadOnlyForColumn(6, !canEdit || getReadOnly('date_of_service')) },
+        { data: 6, title: 'Date of Service', type: 'text' as const, width: 90, editor: DateOfServiceEditor, readOnly: getReadOnlyForColumn(6, !canEdit || getReadOnly('date_of_service')) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyForColumn(7, !canEdit || getReadOnly('cpt_code')) },
         ...(visitTypeCol ? [visitTypeCol(getReadOnlyForColumn(9, !canEdit))] : []),
-        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 150, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyForColumn(8, !canEdit || getReadOnly('appointment_note_status')) },
+        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 90, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyForColumn(8, !canEdit || getReadOnly('appointment_note_status')) },
         { data: 9 + officeStaffColOffset, title: 'Collected from PT', type: 'numeric' as const, width: 120, renderer: currencyCellRenderer, readOnly: getReadOnlyForColumn(9 + officeStaffColOffset, !canEdit || getReadOnly('collected_from_pt')) },
         { data: 10 + officeStaffColOffset, title: 'PT Pay Status', type: 'dropdown' as const, width: 120, selectOptions: ['Paid', 'CC declined', 'Secondary', 'Refunded', 'Payment Plan', 'Waiting on Claim', 'Collections'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'patient_pay')) as any, readOnly: getReadOnlyForColumn(10 + officeStaffColOffset, !canEdit || getReadOnly('pt_pay_status')) },
         { data: 11 + officeStaffColOffset, title: 'PT Payment AR Ref Date', type: 'dropdown' as const, width: 120, selectOptions: months, renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any, readOnly: getReadOnlyForColumn(11 + officeStaffColOffset, !canEdit || getReadOnly('pt_payment_ar_ref_date')) },
@@ -854,32 +857,32 @@ export default function ProvidersTab({
     const pvOffset = showVisitTypeColumn ? 1 : 0
     if (isProviderView && providerLevel !== 2) {
       const base = [
-        { data: 0, title: 'ID', type: 'text' as const, width: 180, readOnly: getReadOnlyProviderView(0) },
-        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
+        { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyProviderView(0) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(1) },
         { data: 2, title: 'LI', type: 'text' as const, width: 80, readOnly: getReadOnlyProviderView(2) },
-        { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
-        { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
-        { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyProviderView(5) },
-        { data: 6, title: 'Date of Service', type: 'text' as const, width: 120, editor: DateOfServiceEditor, readOnly: getReadOnlyProviderView(6) },
+        // { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(3) },
+        // { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
+        // { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyProviderView(5) },
+        { data: 6, title: 'Date of Service', type: 'text' as const, width: 90, editor: DateOfServiceEditor, readOnly: getReadOnlyProviderView(6) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyProviderView(7) },
         ...(visitTypeCol ? [visitTypeCol(getReadOnlyProviderView(9))] : []),
-        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 180, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
+        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 90, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
       ]
       return base
     }
     if (isProviderView && providerLevel === 2) {
       return [
-        { data: 0, title: 'ID', type: 'text' as const, width: 100, readOnly: getReadOnlyProviderView(0) },
-        { data: 1, title: 'First Name', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(1) },
+        { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyProviderView(0) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(1) },
         { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: getReadOnlyProviderView(2) },
-        { data: 3, title: 'Insurance', type: 'text' as const, width: 120, readOnly: getReadOnlyProviderView(3) },
+        { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(3) },
         { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
         { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyProviderView(5) },
-        { data: 6, title: 'Date of Service', type: 'text' as const, width: 120, editor: DateOfServiceEditor, readOnly: getReadOnlyProviderView(6) },
+        { data: 6, title: 'Date of Service', type: 'text' as const, width: 90, editor: DateOfServiceEditor, readOnly: getReadOnlyProviderView(6) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyProviderView(7) },
         ...(visitTypeCol ? [visitTypeCol(getReadOnlyProviderView(9))] : []),
-        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 150, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
-        { data: 9 + pvOffset, title: 'Claim Status', type: 'dropdown' as const, width: 120, selectOptions: ['Claim Sent', 'RS', 'IP', 'Pending Pay', 'Paid', 'Deductible', 'N/A', 'PP', 'Denial', 'Rejected', 'No Coverage'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'claim')) as any, readOnly: getReadOnlyProviderView(9) },
+        { data: 8, title: 'Appt/Note Status', type: 'dropdown' as const, width: 90, selectOptions: ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'appointment')) as any, readOnly: getReadOnlyProviderView(8) },
+        { data: 9 + pvOffset, title: 'Claim Status', type: 'dropdown' as const, width: 90, selectOptions: ['Claim Sent', 'RS', 'IP', 'Pending Pay', 'Paid', 'Deductible', 'N/A', 'PP', 'Denial', 'Rejected', 'No Coverage'], renderer: createBubbleDropdownRenderer((val) => getStatusColor(val, 'claim')) as any, readOnly: getReadOnlyProviderView(9) },
         { data: 10 + pvOffset, title: 'Most Recent Submit Date', type: 'text' as const, width: 120, editor: 'text', readOnly: getReadOnlyProviderView(10) },
         { data: 11 + pvOffset, title: 'Ins Pay', type: 'numeric' as const, width: 100, renderer: currencyCellRenderer, readOnly: getReadOnlyProviderView(11) },
         { data: 12 + pvOffset, title: 'Ins Pay Date', type: 'dropdown' as const, width: 100, selectOptions: months, renderer: createBubbleDropdownRenderer((val) => getMonthColor(val)) as any, readOnly: getReadOnlyProviderView(12) },
@@ -918,7 +921,7 @@ export default function ProvidersTab({
         data: 3, 
         title: 'Ins', 
         type: 'text' as const, 
-        width: 80,
+        width: 90,
         readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance'))
       },
       { 
@@ -1051,6 +1054,34 @@ export default function ProvidersTab({
     ]
     return (showCondenseButton && isCondensed) ? fullProviderColumns.slice(0, showVisitTypeColumn ? 10 : 9) : fullProviderColumns
   }, [activeProvider, clinicPayroll, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, showVisitTypeColumn, restrictEditToSchedulingColumns])
+
+  // When Visit Type column is present, fill/drag can copy boolean into Appt/Note Status (col 8). Replace with source cell value so fill works.
+  const beforeChangeCorrectProviderRows = useCallback((
+    changes: Handsontable.CellChange[] | null,
+    _source: Handsontable.ChangeSource,
+    hotInstance?: Handsontable | null
+  ) => {
+    if (!showVisitTypeColumn || !changes) return
+    const APPT_NOTE_STATUS_COL = 8
+    const badChanges = changes.filter(
+      (ch) => ch[1] === APPT_NOTE_STATUS_COL && (ch[3] === true || ch[3] === false)
+    )
+    if (badChanges.length === 0) return
+    // Fill-down: source is the row above the first filled row; use its value for all bad cells
+    const minRow = Math.min(...badChanges.map((ch) => ch[0]))
+    const sourceRow = minRow - 1
+    const sourceValue =
+      hotInstance && sourceRow >= 0
+        ? hotInstance.getDataAtCell(sourceRow, APPT_NOTE_STATUS_COL)
+        : undefined
+    const valueToApply =
+      sourceValue !== undefined && sourceValue !== null && sourceValue !== true && sourceValue !== false
+        ? sourceValue
+        : null
+    badChanges.forEach((change) => {
+      ;(change as unknown[])[3] = valueToApply
+    })
+  }, [showVisitTypeColumn])
 
   const handleProviderRowsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData' || !activeProvider) return
@@ -1208,6 +1239,13 @@ export default function ProvidersTab({
           hadDateColumnEdit = true
           const value = (newValue === '' || newValue === 'null') ? null : parseDateOfServiceInput(String(newValue))
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
+        } else if (field === 'appointment_status') {
+          // Only accept valid dropdown options; reject boolean/"true"/"false" (can appear when fill/drag copies from Visit Type column)
+          const validStatuses = ['Complete', 'PP Complete', 'NS/LC - Charge', 'NS/LC/RS - No Charge', 'NS/LC - No Charge', 'Note Not Complete']
+          if (newValue === true || newValue === false || newValue === 'true' || newValue === 'false') return
+          const strVal = (newValue === '' || newValue === 'null') ? null : String(newValue)
+          if (strVal !== null && !validStatuses.includes(strVal)) return
+          updatedRows[row] = { ...sheetRow, id: newId, [field]: strVal, updated_at: new Date().toISOString() } as SheetRow
         } else if (field === 'visit_type') {
           const value = newValue === true ? 'Telehealth' : 'In-person'
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
@@ -1660,12 +1698,13 @@ export default function ProvidersTab({
           <HandsontableWrapper
             key={`providers-${activeProvider?.id ?? ''}`}
             data={getProviderRowsHandsontableData()}
-            dataVersion={(providerRowsVersion ?? 0) + structureVersion + selectedMonth.getTime() + (isViewingBackup ? 1000000 : 0)}
+            dataVersion={(providerRowsVersion ?? 0) + structureVersion + selectedMonth.getTime() + (isViewingBackup ? 1000000 + backupVersionKey : 0)}
             columns={providerColumnsWithLocks}
             colHeaders={columnTitles}
             rowHeaders={true}
             width="100%"
             height={isInSplitScreen ? tableHeight : 600}
+            beforeChangeCorrect={beforeChangeCorrectProviderRows}
             afterChange={handleProviderRowsHandsontableChange}
             onAfterRowMove={handleProviderRowMove}
             onContextMenu={handleProviderRowsHandsontableContextMenu}
@@ -1809,7 +1848,7 @@ export default function ProvidersTab({
       {tableContextMenu != null && createPortal(
         <div
           ref={tableContextMenuRef}
-          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[160px]"
+          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-[9999] py-1 min-w-[160px]"
           style={{ left: tableContextMenu.x, top: tableContextMenu.y }}
         >
           <button

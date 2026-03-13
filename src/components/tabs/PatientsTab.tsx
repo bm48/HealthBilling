@@ -24,9 +24,14 @@ interface PatientsTabProps {
   onPatientsCreated?: (patients: Patient[]) => void
   /** Register a flush function to call before switching away from this tab (so save + onPatientCreated run with full row data) */
   onRegisterFlushBeforeTabLeave?: (flush: () => Promise<void>) => void
+  /** When viewing a backup version, parent passes the patient list from backup. */
+  overridePatients?: Patient[] | null
+  isViewingBackup?: boolean
+  /** When viewing backup, a value that changes when the user selects a different version, so the grid refreshes. */
+  backupVersionKey?: number
 }
 
-export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUndo, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen, onPatientCreated, onPatientsCreated, onRegisterFlushBeforeTabLeave }: PatientsTabProps) {
+export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUndo, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen, onPatientCreated, onPatientsCreated, onRegisterFlushBeforeTabLeave, overridePatients = null, isViewingBackup = false, backupVersionKey = 0 }: PatientsTabProps) {
   const { userProfile } = useAuth()
   const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
@@ -170,10 +175,14 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   }, [])
 
   useEffect(() => {
-    if (clinicId) {
-      fetchPatients()
+    if (!clinicId) return
+    if (isViewingBackup && overridePatients) {
+      setPatients(overridePatients)
+      setLoading(false)
+      return
     }
-  }, [clinicId, fetchPatients])
+    fetchPatients()
+  }, [clinicId, fetchPatients, isViewingBackup, overridePatients])
 
   const savePatients = useCallback(async (patientsToSave: Patient[]) => {
     const flushTriggered = saveTriggeredByRowLeaveRef.current
@@ -533,8 +542,14 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     setStructureVersion(v => v + 1)
   }, [])
 
+  /** When viewing a backup, use override so the grid shows the correct version on first render (avoids one-version-behind bug). */
+  const displayPatients = useMemo(
+    () => (isViewingBackup && overridePatients && overridePatients.length > 0 ? overridePatients : patients),
+    [isViewingBackup, overridePatients, patients]
+  )
+
   const getPatientsHandsontableData = useCallback(() => {
-    return patients.map(patient => [
+    return displayPatients.map(patient => [
       toDisplayValue(patient.patient_id),
       toDisplayValue(patient.first_name),
       toDisplayValue(patient.last_name),
@@ -542,34 +557,34 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       toDisplayValue(patient.copay),
       toDisplayValue(patient.coinsurance),
     ])
-  }, [patients])
+  }, [displayPatients])
   const columnFields: Array<keyof IsLockPatients> = ['patient_id', 'first_name', 'last_name', 'insurance', 'copay', 'coinsurance']
   const columnTitles = ['Patient ID', 'Patient First', 'Patient Last', 'Insurance', 'Copay', 'Coinsurance']
 
   const patientsCellsCallback = useCallback(
     (row: number, col: number) => {
-      const patient = patients[row]
+      const patient = displayPatients[row]
       const colKey = columnFields[col]
       if (!colKey) return {}
       const key = `${patient?.id ?? `row-${row}`}:${colKey}`
       return highlightedCells.has(key) ? { className: 'cell-highlight-yellow' } : {}
     },
-    [patients, columnFields, highlightedCells]
+    [displayPatients, columnFields, highlightedCells]
   )
 
   const getCellIsHighlighted = useCallback(
     (row: number, col: number) => {
-      const patient = patients[row]
+      const patient = displayPatients[row]
       const colKey = columnFields[col]
       if (!colKey) return false
       const key = `${patient?.id ?? `row-${row}`}:${colKey}`
       return highlightedCells.has(key)
     },
-    [patients, columnFields, highlightedCells]
+    [displayPatients, columnFields, highlightedCells]
   )
 
   const handleCellHighlight = useCallback((row: number, col: number) => {
-    const patient = patients[row]
+    const patient = displayPatients[row]
     const colKey = columnFields[col]
     if (!colKey) return
     const key = `${patient?.id ?? `row-${row}`}:${colKey}`
@@ -579,7 +594,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       else next.add(key)
       return next
     })
-  }, [patients, columnFields])
+  }, [displayPatients, columnFields])
 
   // Right-click on column headers to lock/unlock (no lock icon in header)
   useEffect(() => {
@@ -839,11 +854,11 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
   const handlePatientsHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
     event.preventDefault()
     if (!canEdit) return
-    const patient = patients[row]
+    const patient = displayPatients[row]
     if (patient) {
       setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row, patientId: patient.id })
     }
-  }, [patients, canEdit])
+  }, [displayPatients, canEdit])
 
   const handleContextMenuAddRowBelow = useCallback(() => {
     if (tableContextMenu == null) return
@@ -970,7 +985,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         <HandsontableWrapper
           key={`patients-${clinicId}`}
           data={getPatientsHandsontableData()}
-          dataVersion={structureVersion}
+          dataVersion={structureVersion + (isViewingBackup ? 1000000 + backupVersionKey : 0)}
           columns={patientsColumns}
           colHeaders={columnTitles}
           rowHeaders={true}

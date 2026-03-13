@@ -20,9 +20,14 @@ interface AccountsReceivableTabProps {
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockAccountsReceivable) => boolean
   isInSplitScreen?: boolean
+  /** When viewing a backup version, parent passes the full AR list from backup (padded to 200). */
+  overrideFullAR?: AccountsReceivable[] | null
+  isViewingBackup?: boolean
+  /** When viewing backup, a value that changes when the user selects a different version, so the grid refreshes. */
+  backupVersionKey?: number
 }
 
-export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, canEdit, onDelete, onRegisterUndo, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen }: AccountsReceivableTabProps) {
+export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, canEdit, onDelete, onRegisterUndo, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen, overrideFullAR = null, isViewingBackup = false, backupVersionKey = 0 }: AccountsReceivableTabProps) {
   const { userProfile } = useAuth()
   const [statusColors, setStatusColors] = useState<StatusColor[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,9 +48,15 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
   const scrollToRowAfterUpdateRef = useRef<number | null>(null)
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
 
-  const formatMonthYear = useCallback((date: Date) => {
+  /** When clinicPayroll=2 and payroll is passed, show "March 1st Half 2025"; otherwise "March 2025". */
+  const formatMonthYear = useCallback((date: Date, payroll?: 1 | 2) => {
+    if (clinicPayroll === 2 && payroll != null) {
+      const monthName = date.toLocaleDateString('en-US', { month: 'long' })
+      const half = payroll === 1 ? '1st' : '2nd'
+      return `${monthName} ${half} Half ${date.getFullYear()}`
+    }
     return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-  }, [])
+  }, [clinicPayroll])
 
   const isARInMonth = useCallback((ar: AccountsReceivable, monthDate: Date): boolean => {
     const month = monthDate.getMonth()
@@ -74,15 +85,14 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
   // Use isLockAccountsReceivable from props directly - it will update when parent refreshes
   const lockData = isLockAccountsReceivable || null
 
-  /** Build displayed list (200 rows) for selected month from full list - same pattern as Patients: one list = what we show */
-  const buildDisplayedFromFull = useCallback((): AccountsReceivable[] => {
-    const full = fullListRef.current
-    let list = full.filter(ar => isARInMonth(ar, selectedMonth))
+  /** Build displayed list (200 rows) for selected month from a full list. Used for both live (fullListRef) and backup override. */
+  const buildDisplayedFromList = useCallback((list: AccountsReceivable[]): AccountsReceivable[] => {
+    let filtered = list.filter(ar => isARInMonth(ar, selectedMonth))
     if (clinicPayroll === 2) {
-      list = list.filter(ar => (ar.payroll ?? 1) === selectedPayroll)
+      filtered = filtered.filter(ar => (ar.payroll ?? 1) === selectedPayroll)
     }
-    if (list.length >= 200) return list
-    const need = 200 - list.length
+    if (filtered.length >= 200) return filtered
+    const need = 200 - filtered.length
     const monthKey = selectedMonth.getTime()
     const placeholders: AccountsReceivable[] = Array.from({ length: need }, (_, i) => ({
       id: `placeholder-${monthKey}-${i}`,
@@ -98,8 +108,12 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }))
-    return [...list, ...placeholders]
+    return [...filtered, ...placeholders]
   }, [selectedMonth, clinicPayroll, selectedPayroll, clinicId, isARInMonth])
+
+  const buildDisplayedFromFull = useCallback((): AccountsReceivable[] => {
+    return buildDisplayedFromList(fullListRef.current)
+  }, [buildDisplayedFromList])
 
   const currentPayrollForAR = clinicPayroll === 2 ? selectedPayroll : 1
   const createEmptyAR = useCallback((index: number): AccountsReceivable => ({
@@ -222,6 +236,12 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
 
   useEffect(() => {
     if (!clinicId) return
+    if (isViewingBackup && overrideFullAR) {
+      fullListRef.current = overrideFullAR
+      setDisplayedAR(buildDisplayedFromFull())
+      setLoading(false)
+      return
+    }
     if (clinicPayroll === 2) {
       fullListRef.current = []
       setDisplayedAR([])
@@ -229,7 +249,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
     }
     fetchStatusColors()
     fetchAccountsReceivable()
-  }, [clinicId, clinicPayroll, selectedPayroll, fetchStatusColors, fetchAccountsReceivable])
+  }, [clinicId, clinicPayroll, selectedPayroll, fetchStatusColors, fetchAccountsReceivable, isViewingBackup, overrideFullAR, buildDisplayedFromFull])
 
   /** Sync displayed ref from state - same as PatientsTab */
   useEffect(() => {
@@ -426,9 +446,15 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
     return null
   }, [statusColors])
 
-  /** Same as PatientsTab: data from state (displayed list) */
+  /** When viewing backup, use override so the grid shows the correct version on first render (same fix as Patients tab). */
+  const displayAR = useMemo(
+    () => (isViewingBackup && overrideFullAR && overrideFullAR.length > 0 ? buildDisplayedFromList(overrideFullAR) : displayedAR),
+    [isViewingBackup, overrideFullAR, displayedAR, buildDisplayedFromList]
+  )
+
+  /** Same as PatientsTab: data from display source (override when viewing backup, else state) */
   const getARHandsontableData = useCallback(() => {
-    return displayedAR.map(ar => [
+    return displayAR.map(ar => [
       toDisplayValue(ar.ar_id),
       toDisplayValue(ar.name),
       toDisplayDate(ar.date_of_service),
@@ -437,7 +463,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       toDisplayValue(ar.type),
       toDisplayValue(ar.notes),
     ])
-  }, [displayedAR])
+  }, [displayAR])
 
   // Column field names mapping to is_lock_accounts_receivable table columns
   const columnFields: Array<keyof IsLockAccountsReceivable> = ['ar_id', 'name', 'date_of_service', 'amount', 'date_recorded', 'type', 'notes']
@@ -607,28 +633,28 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
 
   const arCellsCallback = useCallback(
     (row: number, col: number) => {
-      const ar = displayedAR[row]
+      const ar = displayAR[row]
       const colKey = columnFields[col]
       if (!colKey) return {}
       const key = `${ar?.id ?? `row-${row}`}:${colKey}`
       return highlightedCells.has(key) ? { className: 'cell-highlight-yellow' } : {}
     },
-    [displayedAR, columnFields, highlightedCells]
+    [displayAR, columnFields, highlightedCells]
   )
 
   const getCellIsHighlighted = useCallback(
     (row: number, col: number) => {
-      const ar = displayedAR[row]
+      const ar = displayAR[row]
       const colKey = columnFields[col]
       if (!colKey) return false
       const key = `${ar?.id ?? `row-${row}`}:${colKey}`
       return highlightedCells.has(key)
     },
-    [displayedAR, columnFields, highlightedCells]
+    [displayAR, columnFields, highlightedCells]
   )
 
   const handleCellHighlight = useCallback((row: number, col: number) => {
-    const ar = displayedAR[row]
+    const ar = displayAR[row]
     const colKey = columnFields[col]
     if (!colKey) return
     const key = `${ar?.id ?? `row-${row}`}:${colKey}`
@@ -638,7 +664,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       else next.add(key)
       return next
     })
-  }, [displayedAR, columnFields])
+  }, [displayAR, columnFields])
 
   const firstDayOfSelectedMonth = useMemo(() => {
     return `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}-01`
@@ -766,11 +792,11 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
   const handleARHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
     event.preventDefault()
     if (!canEdit) return
-    const ar = displayedAR[row]
+    const ar = displayAR[row]
     if (ar) {
       setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row })
     }
-  }, [displayedAR, canEdit])
+  }, [displayAR, canEdit])
 
   const handleContextMenuAddRowBelow = useCallback(() => {
     if (tableContextMenu == null) return
@@ -922,20 +948,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
           <h2 className="text-2xl font-bold text-white">ACCOUNTS RECEIVABLE</h2>
         </div>
       )}
-      {clinicPayroll === 2 && (
-        <div className="flex items-center gap-3 mb-3">
-          <label className="text-white font-medium">Payroll:</label>
-          <select
-            value={selectedPayroll}
-            onChange={(e) => setSelectedPayroll(Number(e.target.value) as 1 | 2)}
-            className="px-3 py-2 rounded-lg border border-slate-600 bg-slate-800 text-white"
-          >
-            <option value={1}>Payroll 1</option>
-            <option value={2}>Payroll 2</option>
-          </select>
-        </div>
-      )}
-      {/* Month selector - colors from status_colors (type 'month') like Providers tab */}
+      {/* Month selector - like Providers tab; when clinicPayroll=2 shows "March 1st Half" / "March 2nd Half" */}
       {(() => {
         const monthName = selectedMonth.toLocaleString('en-US', { month: 'long' })
         const monthColor = getMonthColor(monthName)
@@ -947,21 +960,43 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
             style={{ backgroundColor: bgColor, color: textColor, maxWidth: '40%', margin: 'auto', marginBottom: '10px' }}
           >
             <button
-              onClick={() => setSelectedMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
+              onClick={() => {
+                if (clinicPayroll === 2) {
+                  if (selectedPayroll === 2) {
+                    setSelectedPayroll(1)
+                  } else {
+                    setSelectedPayroll(2)
+                    setSelectedMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))
+                  }
+                } else {
+                  setSelectedMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))
+                }
+              }}
               className="absolute left-0 p-2 hover:opacity-80 rounded-lg transition-opacity"
               style={{ color: textColor }}
-              title="Previous month"
+              title={clinicPayroll === 2 ? 'Previous period' : 'Previous month'}
             >
               <ChevronLeft size={20} />
             </button>
             <div className="text-lg font-semibold min-w-[200px] text-center">
-              {formatMonthYear(selectedMonth)}
+              {formatMonthYear(selectedMonth, clinicPayroll === 2 ? selectedPayroll : undefined)}
             </div>
             <button
-              onClick={() => setSelectedMonth(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
+              onClick={() => {
+                if (clinicPayroll === 2) {
+                  if (selectedPayroll === 1) {
+                    setSelectedPayroll(2)
+                  } else {
+                    setSelectedPayroll(1)
+                    setSelectedMonth(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))
+                  }
+                } else {
+                  setSelectedMonth(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))
+                }
+              }}
               className="absolute right-0 p-2 hover:opacity-80 rounded-lg transition-opacity"
               style={{ color: textColor }}
-              title="Next month"
+              title={clinicPayroll === 2 ? 'Next period' : 'Next month'}
             >
               <ChevronRight size={20} />
             </button>
@@ -984,7 +1019,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
         <HandsontableWrapper
           key={`ar-${selectedMonth.getTime()}-${selectedPayroll}-${JSON.stringify(lockData)}`}
           data={getARHandsontableData()}
-          dataVersion={structureVersion}
+          dataVersion={structureVersion + (isViewingBackup ? 1000000 + backupVersionKey : 0)}
           scrollToRowAfterUpdateRef={scrollToRowAfterUpdateRef}
           columns={arColumns}
           colHeaders={columnTitles}

@@ -94,6 +94,11 @@ export interface ProviderPayTabProps {
   isLockProviderPay?: IsLockProviderPay | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockProviderPay) => boolean
+  /** When viewing a backup version, parent passes table rows for current provider+month. */
+  overrideTableData?: string[][] | null
+  isViewingBackup?: boolean
+  /** When viewing backup, a value that changes when the user selects a different version, so the grid refreshes. */
+  backupVersionKey?: number
 }
 
 export default function ProviderPayTab({
@@ -111,6 +116,9 @@ export default function ProviderPayTab({
   isLockProviderPay,
   onLockColumn: _onLockColumn,
   isColumnLocked: _isColumnLocked,
+  overrideTableData = null,
+  isViewingBackup = false,
+  backupVersionKey = 0,
 }: ProviderPayTabProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [tableHeight, setTableHeight] = useState(600)
@@ -120,7 +128,7 @@ export default function ProviderPayTab({
   const [tableData, setTableData] = useState<string[][]>(() => INITIAL_TABLE_DATA.map(row => [...row]))
   const [providerPayDataVersion, setProviderPayDataVersion] = useState(0)
   const [sideNotes, setSideNotes] = useState('')
-  const [selectedPayroll, setSelectedPayroll] = useState<1 | 2>(1)
+  const [selectedPayroll] = useState<1 | 2>(1)
 
   type CachedPay = { payDate: string; payPeriodFrom: string; payPeriodTo: string; sideNotes: string; tableData: string[][] }
   const [providerPayCache, setProviderPayCache] = useState<Record<string, CachedPay>>({})
@@ -159,6 +167,11 @@ export default function ProviderPayTab({
   // Fetch from DB when clinicId, effectiveProviderId, and selectedMonth are set. Use cache for instant display when switching month/provider.
   useEffect(() => {
     if (!clinicId || !effectiveProviderId) {
+      setLoading(false)
+      return
+    }
+    if (isViewingBackup) {
+      setTableData(overrideTableData && overrideTableData.length > 0 ? overrideTableData.map((r) => [...r]) : INITIAL_TABLE_DATA.map((row) => [...row]))
       setLoading(false)
       return
     }
@@ -236,7 +249,16 @@ export default function ProviderPayTab({
         setLoading(false)
         hasLoadedOnceRef.current = true
       })
-  }, [clinicId, effectiveProviderId, year, month, providerCutPercent, clinicPayroll, selectedPayroll])
+  }, [clinicId, effectiveProviderId, year, month, providerCutPercent, clinicPayroll, selectedPayroll, isViewingBackup, overrideTableData])
+
+  /** When viewing backup, use override so the grid shows the correct version on first render (same fix as AR and Patients tabs). */
+  const displayTableData = useMemo(
+    () =>
+      isViewingBackup && overrideTableData && overrideTableData.length > 0
+        ? overrideTableData.map((r) => [...r])
+        : tableData,
+    [isViewingBackup, overrideTableData, tableData]
+  )
 
   // Debounced save when payDate, payPeriod, tableData, or sideNotes change (only when effectiveProviderId is set and not loading)
   useEffect(() => {
@@ -418,7 +440,7 @@ export default function ProviderPayTab({
     }
     const t = setTimeout(applyHeaderStyle, 100)
     return () => clearTimeout(t)
-  }, [headerStyle, tableData])
+  }, [headerStyle, displayTableData])
 
   if (loading) {
     return (
@@ -437,7 +459,7 @@ export default function ProviderPayTab({
           : { maxWidth: '45vw', width: '100%' }
       }
     >
-      {clinicPayroll === 2 && (
+      {/* {clinicPayroll === 2 && (
         <div className="flex items-center gap-3 mb-3">
           <label className="text-white font-medium">Payroll:</label>
           <select
@@ -449,7 +471,7 @@ export default function ProviderPayTab({
             <option value={2}>Payroll 2</option>
           </select>
         </div>
-      )}
+      )} */}
       <div className="flex items-center gap-2 justify-between">
         {/* Month selector - same style as other tabs */}
         {(() => {
@@ -573,8 +595,8 @@ export default function ProviderPayTab({
         >
           <HandsontableWrapper
             key={`provider-pay-${clinicId}-${effectiveProviderId}-${JSON.stringify(lockData)}`}
-            data={tableData}
-            dataVersion={providerPayDataVersion + selectedMonth.getTime()}
+            data={displayTableData}
+            dataVersion={providerPayDataVersion + selectedMonth.getTime() + (isViewingBackup ? 1000000 + backupVersionKey : 0)}
             columns={columns}
             colHeaders={false}
             rowHeaders={false}

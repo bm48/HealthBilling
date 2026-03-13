@@ -112,6 +112,7 @@ export function parseDateOfServiceInput(value: string | null | undefined): strin
 /** Use for table cell display: never show the literal "null" or null/undefined. */
 export function toDisplayValue(value: string | number | null | undefined): string {
   if (value == null || value === '' || value === 'null') return ''
+  if (typeof value === 'number' && Number.isNaN(value)) return ''
   return String(value)
 }
 

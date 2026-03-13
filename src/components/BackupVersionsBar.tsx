@@ -1,17 +1,40 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
-import {
-  listBackupVersions,
-  getBackupDownloadUrl,
-  type BackupVersion,
-} from '@/lib/providerSheetBackups'
+import { listBackupVersions, getBackupDownloadUrl } from '@/lib/providerSheetBackups'
+import { listTabBackupVersions, getTabBackupDownloadUrl, type TabBackupType } from '@/lib/tabBackups'
 import { History, Download, RotateCcw, Loader2, X } from 'lucide-react'
 
+/** Minimal version shape shared by provider sheet and tab backups */
+export interface BackupVersionMeta {
+  id: string
+  version: number
+  created_at: string
+  file_path: string
+}
+
+export type BackupBarType = 'providers' | TabBackupType
+
 interface BackupVersionsBarProps {
-  sheetId: string
-  onSelectVersion: (version: BackupVersion) => Promise<void>
+  /** providers = provider sheet (entityId = sheetId); ar | provider_pay | patients = tab backup (entityId = clinicId) */
+  backupType: BackupBarType
+  /** sheetId when backupType=providers, clinicId otherwise */
+  entityId: string
+  onSelectVersion: (version: BackupVersionMeta) => Promise<void>
   onBackToCurrent: () => void
-  viewingVersion: BackupVersion | null
+  viewingVersion: BackupVersionMeta | null
+  formatDate?: (iso: string) => string
+  /** If provided, download uses this filename (fetch + blob). Second arg is the modal display version number (1-based index for selected date). */
+  getDownloadFilename?: (version: BackupVersionMeta, displayVersionNumber: number) => string
+  /** If provided, download uses this blob instead of fetching the URL (e.g. to build custom CSV format). Requires getDownloadFilename. */
+  getDownloadBlob?: (version: BackupVersionMeta) => Promise<Blob>
+}
+
+/** Legacy props: sheetId only (providers backup) */
+interface LegacyBackupVersionsBarProps {
+  sheetId: string
+  onSelectVersion: (version: BackupVersionMeta) => Promise<void>
+  onBackToCurrent: () => void
+  viewingVersion: BackupVersionMeta | null
   formatDate?: (iso: string) => string
 }
 
@@ -24,14 +47,19 @@ function toLocalTimeString(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
-export default function BackupVersionsBar({
-  sheetId,
-  onSelectVersion,
-  onBackToCurrent,
-  viewingVersion,
-  formatDate = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }),
-}: BackupVersionsBarProps) {
-  const [versions, setVersions] = useState<BackupVersion[]>([])
+function normalizeToMeta(v: { id: string; version: number; created_at: string; file_path: string }): BackupVersionMeta {
+  return { id: v.id, version: v.version, created_at: v.created_at, file_path: v.file_path }
+}
+
+export default function BackupVersionsBar(
+  props: BackupVersionsBarProps | LegacyBackupVersionsBarProps
+) {
+  const isLegacy = 'sheetId' in props && !('backupType' in props)
+  const backupType: BackupBarType = isLegacy ? 'providers' : (props as BackupVersionsBarProps).backupType
+  const entityId = isLegacy ? (props as LegacyBackupVersionsBarProps).sheetId : (props as BackupVersionsBarProps).entityId
+  const { onSelectVersion, onBackToCurrent, viewingVersion, formatDate = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }), getDownloadFilename, getDownloadBlob } = props as BackupVersionsBarProps
+
+  const [versions, setVersions] = useState<BackupVersionMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingVersion, setLoadingVersion] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -40,26 +68,29 @@ export default function BackupVersionsBar({
   const [selectedVersionId, setSelectedVersionId] = useState<string>('')
 
   const fetchVersions = useCallback(() => {
-    listBackupVersions(supabase, sheetId)
-      .then((list) => setVersions(list))
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load versions'))
-  }, [sheetId])
+    if (backupType === 'providers') {
+      listBackupVersions(supabase, entityId)
+        .then((list) => setVersions(list.map(normalizeToMeta)))
+        .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load versions'))
+    } else {
+      listTabBackupVersions(supabase, backupType, entityId)
+        .then((list) => setVersions(list.map(normalizeToMeta)))
+        .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load versions'))
+    }
+  }, [backupType, entityId])
 
   useEffect(() => {
     let cancelled = false
     setError(null)
-    listBackupVersions(supabase, sheetId)
-      .then((list) => {
-        if (!cancelled) setVersions(list)
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load versions')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+    const load = backupType === 'providers'
+      ? listBackupVersions(supabase, entityId).then((list) => list.map(normalizeToMeta))
+      : listTabBackupVersions(supabase, backupType, entityId).then((list) => list.map(normalizeToMeta))
+    load
+      .then((list) => { if (!cancelled) setVersions(list) })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load versions') })
+      .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [sheetId])
+  }, [backupType, entityId])
 
   useEffect(() => {
     const POLL_MS = 60_000
@@ -94,12 +125,14 @@ export default function BackupVersionsBar({
     }
   }, [modalOpen, versionsForSelectedDate, selectedVersionId])
 
-  const handleViewVersion = async (v: BackupVersion) => {
+  const handleViewVersion = async (v: BackupVersionMeta) => {
     if (viewingVersion?.version === v.version) return
     setLoadingVersion(v.id)
     setError(null)
     try {
       await onSelectVersion(v)
+      // Allow React to commit and paint the updated table before closing the modal
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
       setModalOpen(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load backup')
@@ -108,10 +141,33 @@ export default function BackupVersionsBar({
     }
   }
 
-  const handleDownload = async (v: BackupVersion) => {
+  const handleDownload = async (v: BackupVersionMeta) => {
     try {
-      const url = await getBackupDownloadUrl(supabase, v.file_path)
-      window.open(url, '_blank', 'noopener,noreferrer')
+      const displayVersionNumber = versionsForSelectedDate.findIndex((ver) => ver.id === v.id) + 1 || v.version
+      if (getDownloadBlob && getDownloadFilename) {
+        const blob = await getDownloadBlob(v)
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = getDownloadFilename(v, displayVersionNumber)
+        a.click()
+        URL.revokeObjectURL(a.href)
+        return
+      }
+      const url = backupType === 'providers'
+        ? await getBackupDownloadUrl(supabase, v.file_path)
+        : await getTabBackupDownloadUrl(supabase, v.file_path)
+      if (getDownloadFilename) {
+        const res = await fetch(url)
+        if (!res.ok) throw new Error('Download failed')
+        const blob = await res.blob()
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = getDownloadFilename(v, displayVersionNumber)
+        a.click()
+        URL.revokeObjectURL(a.href)
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to get download link')
     }
@@ -132,7 +188,7 @@ export default function BackupVersionsBar({
     <>
       <div className="flex items-center justify-end gap-2 flex-wrap mt-2 pr-4 -mb-6">
         {versions.length === 0 && !viewingVersion && (
-          <span className="text-white/50 text-sm">No backup versions yet. Backups run every 12 hours.</span>
+          <span className="text-white/50 text-sm">No backup versions yet. Backups run every 3 minutes.</span>
         )}
         {viewingVersion && (
           <div>
@@ -215,10 +271,16 @@ export default function BackupVersionsBar({
                 type="button"
                 disabled={!selectedVersion || loadingVersion !== null}
                 onClick={() => selectedVersion && handleViewVersion(selectedVersion)}
-                className="px-4 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white font-medium disabled:opacity-50 disabled:pointer-events-none flex items-center gap-2"
+                className="px-4 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white font-medium disabled:opacity-50 disabled:pointer-events-none flex items-center gap-2 min-w-[180px] justify-center"
               >
-                {loadingVersion === selectedVersionId ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                View this version
+                {loadingVersion === selectedVersionId ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" aria-hidden />
+                    <span>Loading…</span>
+                  </>
+                ) : (
+                  'View this version'
+                )}
               </button>
               <button
                 type="button"

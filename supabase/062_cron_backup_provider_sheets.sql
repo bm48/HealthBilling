@@ -1,4 +1,5 @@
--- Schedule backup-provider-sheets Edge Function every 12 hours at 00:00 and 12:00 UTC-7 (07:00 and 19:00 UTC) using pg_cron + pg_net.
+-- Schedule backup-provider-sheets Edge Function twice a day at 8:00 and 20:00 (UTC-7).
+-- Cron runs in UTC: 8:00 UTC-7 = 15:00 UTC, 20:00 UTC-7 = 03:00 UTC → '0 3,15 * * *'
 --
 -- Prerequisites:
 -- 1. Enable "pg_cron" and "pg_net" in Supabase Dashboard → Database → Extensions.
@@ -13,12 +14,25 @@
 CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
 CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
 
--- To replace an existing schedule, first run: SELECT cron.unschedule('backup-provider-sheets-every-3min'); or SELECT cron.unschedule('backup-provider-sheets-every-12h');
+-- Unschedule old jobs if they exist (ignore error if job name not found)
+DO $$
+BEGIN
+  PERFORM cron.unschedule('backup-provider-sheets-every-3min');
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END
+$$;
+DO $$
+BEGIN
+  PERFORM cron.unschedule('backup-provider-sheets-every-12h');
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END
+$$;
 
--- Schedule: at 07:00 and 19:00 UTC (= 00:00 and 12:00 UTC-7)
 SELECT cron.schedule(
   'backup-provider-sheets-every-12h',
-  '0 7,19 * * *',
+  '0 3,15 * * *',
   $$
   SELECT net.http_post(
     url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'backup_project_url') || '/functions/v1/backup-provider-sheets',

@@ -22,7 +22,6 @@ import {
   Lock,
   KeyRound,
   X,
-  MessageCircle
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -484,7 +483,8 @@ export default function Layout({ children }: LayoutProps) {
                     )}
                   </div>
                 )}
-                <Link
+
+                {/* <Link
                   to="/messages"
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mt-1 ${
                     isActive('/messages')
@@ -495,7 +495,8 @@ export default function Layout({ children }: LayoutProps) {
                 >
                   <MessageCircle size={20} />
                   {!sidebarCollapsed && <span>Messages</span>}
-                </Link>
+                </Link> */}
+
               </>
             ) : (userProfile?.role === 'super_admin' || userProfile?.role === 'admin') ? (
               <>
@@ -706,7 +707,7 @@ export default function Layout({ children }: LayoutProps) {
                     )
                   }
 
-                  <Link
+                  {/* <Link
                     to="/messages"
                     className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
                       isActive('/messages')
@@ -717,7 +718,7 @@ export default function Layout({ children }: LayoutProps) {
                   >
                     <MessageCircle size={20} />
                     {!sidebarCollapsed && <span>Messages</span>}
-                  </Link>
+                  </Link> */}
 
                   {/* Settings with submenu */}
                   {!sidebarCollapsed ? (
@@ -892,7 +893,7 @@ export default function Layout({ children }: LayoutProps) {
                     )}
                   </div>
                 )}
-                <Link
+                {/* <Link
                   to="/messages"
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mt-1 ${
                     isActive('/messages')
@@ -903,7 +904,7 @@ export default function Layout({ children }: LayoutProps) {
                 >
                   <MessageCircle size={20} />
                   {!sidebarCollapsed && <span>Messages</span>}
-                </Link>
+                </Link> */}
               </>
             ) : isBillingStaff ? (
               <>
@@ -1081,7 +1082,7 @@ export default function Layout({ children }: LayoutProps) {
                     <Clock size={20} />
                     {!sidebarCollapsed && <span>Timecards</span>}
                   </Link>
-                  <Link
+                  {/* <Link
                     to="/messages"
                     className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
                       isActive('/messages')
@@ -1092,7 +1093,7 @@ export default function Layout({ children }: LayoutProps) {
                   >
                     <MessageCircle size={20} />
                     {!sidebarCollapsed && <span>Messages</span>}
-                  </Link>
+                  </Link> */}
                 </div>
               </>
             ) : isOfficeStaff ? (
@@ -1125,7 +1126,7 @@ export default function Layout({ children }: LayoutProps) {
                   {!sidebarCollapsed && <span>Timecards</span>}
                 </Link>
 
-                <Link
+                {/* <Link
                   to="/messages"
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors mb-1 ${
                     isActive('/messages')
@@ -1136,7 +1137,7 @@ export default function Layout({ children }: LayoutProps) {
                 >
                   <MessageCircle size={20} />
                   {!sidebarCollapsed && <span>Messages</span>}
-                </Link>
+                </Link> */}
 
                 {/* <Link
                   to="/patients"

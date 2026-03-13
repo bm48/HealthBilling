@@ -5,9 +5,15 @@ import { supabase } from '@/lib/supabase'
 import { addPatientsToProviderSheets } from '@/lib/addPatientsToProviderSheets'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
 import { fetchBackupCsvAsSheetRows, padSheetRowsTo200 } from '@/lib/providerSheetBackups'
-import type { BackupVersion } from '@/lib/providerSheetBackups'
-import BackupVersionsBar from '@/components/BackupVersionsBar'
-import { Patient, ProviderSheet, SheetRow, Clinic, Provider, BillingCode, StatusColor, ColumnLock, IsLockPatients, IsLockBillingTodo, IsLockProviders, IsLockAccountsReceivable } from '@/types'
+import BackupVersionsBar, { type BackupVersionMeta } from '@/components/BackupVersionsBar'
+import {
+  fetchBackupCsvAsAR,
+  fetchBackupCsvAsPatients,
+  fetchBackupCsvAsProviderPay,
+  padARTo200,
+  padPatientsTo500,
+} from '@/lib/tabBackups'
+import { Patient, ProviderSheet, SheetRow, Clinic, Provider, BillingCode, StatusColor, ColumnLock, IsLockPatients, IsLockBillingTodo, IsLockProviders, IsLockAccountsReceivable, AccountsReceivable } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import { Users, CheckSquare, FileText, Trash2, Lock, Unlock, Download, Columns, DollarSign } from 'lucide-react'
 import { useDebouncedSave } from '@/lib/useDebouncedSave'
@@ -113,9 +119,28 @@ export default function ClinicDetail() {
   const pendingProviderSheetSaveRef = useRef<Record<string, SheetRow[]>>({})
   /** When viewing a backup version, override rows for the current provider (super_admin only). */
   const [backupOverrideRows, setBackupOverrideRows] = useState<SheetRow[] | null>(null)
-  const [selectedBackupVersion, setSelectedBackupVersion] = useState<BackupVersion | null>(null)
+  const [selectedBackupVersion, setSelectedBackupVersion] = useState<BackupVersionMeta | null>(null)
+  /** Increments each time user selects a backup version (so grid dataVersion changes and UI refreshes). */
+  const [backupViewKey, setBackupViewKey] = useState(0)
+  /** Tracks which version fetch is current; ignore stale completions (race when user selects 1, 2, 3 quickly). */
+  const lastRequestedBackupIdRef = useRef<string | null>(null)
+  /** AR tab backup override (full list from backup CSV). */
+  const [backupOverrideAR, setBackupOverrideAR] = useState<AccountsReceivable[] | null>(null)
+  const [selectedBackupVersionAR, setSelectedBackupVersionAR] = useState<BackupVersionMeta | null>(null)
+  const [backupViewKeyAR, setBackupViewKeyAR] = useState(0)
+  const lastRequestedBackupIdARRef = useRef<string | null>(null)
+  /** Patient Info tab backup override. */
+  const [backupOverridePatients, setBackupOverridePatients] = useState<Patient[] | null>(null)
+  const [selectedBackupVersionPatients, setSelectedBackupVersionPatients] = useState<BackupVersionMeta | null>(null)
+  const [backupViewKeyPatients, setBackupViewKeyPatients] = useState(0)
+  const lastRequestedBackupIdPatientsRef = useRef<string | null>(null)
+  /** Provider Pay tab backup override (byKey from backup; we pass table for current provider+month). */
+  const [backupOverrideProviderPayByKey, setBackupOverrideProviderPayByKey] = useState<Record<string, string[][]> | null>(null)
+  const [selectedBackupVersionProviderPay, setSelectedBackupVersionProviderPay] = useState<BackupVersionMeta | null>(null)
+  const [backupViewKeyProviderPay, setBackupViewKeyProviderPay] = useState(0)
+  const lastRequestedBackupIdProviderPayRef = useRef<string | null>(null)
 
-  // Clear backup view when switching provider or month
+  // Clear backup view when switching provider or month (providers only)
   useEffect(() => {
     setBackupOverrideRows(null)
     setSelectedBackupVersion(null)
@@ -2457,9 +2482,33 @@ export default function ClinicDetail() {
     switch (tab) {
       case 'patients':
         return (
-          <PatientsTab
-            clinicId={clinicId!}
-            canEdit={canEdit}
+          <>
+            {userProfile?.role === 'super_admin' && clinicId && (
+              <div className="mb-4">
+                <BackupVersionsBar
+                  backupType="patients"
+                  entityId={clinicId}
+                  viewingVersion={selectedBackupVersionPatients}
+                  getDownloadFilename={(v, displayNum) => `Patients_Version ${displayNum}_${v.created_at.slice(0, 10)}.csv`}
+                  onSelectVersion={async (version) => {
+                    const requestedId = version.id
+                    lastRequestedBackupIdPatientsRef.current = requestedId
+                    const list = await fetchBackupCsvAsPatients(supabase, version.file_path, clinicId!)
+                    if (lastRequestedBackupIdPatientsRef.current !== requestedId) return
+                    setBackupOverridePatients(padPatientsTo500(list, clinicId!))
+                    setSelectedBackupVersionPatients(version)
+                    setBackupViewKeyPatients((k) => k + 1)
+                  }}
+                  onBackToCurrent={() => {
+                    setBackupOverridePatients(null)
+                    setSelectedBackupVersionPatients(null)
+                  }}
+                />
+              </div>
+            )}
+            <PatientsTab
+              clinicId={clinicId!}
+              canEdit={canEdit && !backupOverridePatients}
             isInSplitScreen={!!splitScreen}
             isLockPatients={isLockPatients}
             onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
@@ -2475,7 +2524,11 @@ export default function ClinicDetail() {
             onPatientCreated={handlePatientCreated}
             onPatientsCreated={handlePatientsCreated}
             onRegisterFlushBeforeTabLeave={(flush) => { patientsTabFlushRef.current = flush }}
+            overridePatients={backupOverridePatients}
+            isViewingBackup={!!selectedBackupVersionPatients}
+            backupVersionKey={backupViewKeyPatients}
           />
+          </>
         )
       case 'todo':
         if (!showBillingTodoTab) return null
@@ -2500,48 +2553,126 @@ export default function ClinicDetail() {
         )
       case 'accounts_receivable':
         return (
-          <AccountsReceivableTab
-            clinicId={clinicId!}
-            clinicPayroll={clinic?.payroll ?? 1}
-            canEdit={canEdit}
-            isInSplitScreen={!!splitScreen}
-            isLockAccountsReceivable={isLockAccountsReceivable}
-            onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
-            onLockColumn={canLockColumns ? (columnName: string) => {
-              const existingComment = isLockAccountsReceivable && isARColumnLocked(columnName as keyof IsLockAccountsReceivable)
-                ? (isLockAccountsReceivable[`${columnName}_comment` as keyof IsLockAccountsReceivable] as string | null) || ''
-                : ''
-              setSelectedLockColumn({ columnName, providerId: null, isARColumn: true })
-              setLockComment(existingComment)
-              setShowLockDialog(true)
-            } : undefined}
-            isColumnLocked={isARColumnLocked}
-          />
+          <>
+            {userProfile?.role === 'super_admin' && clinicId && (
+              <div className="mb-4">
+                <BackupVersionsBar
+                  backupType="ar"
+                  entityId={clinicId}
+                  viewingVersion={selectedBackupVersionAR}
+                  getDownloadFilename={(v, displayNum) => `AR_Version ${displayNum}_${v.created_at.slice(0, 10)}.csv`}
+                  onSelectVersion={async (version) => {
+                    const requestedId = version.id
+                    lastRequestedBackupIdARRef.current = requestedId
+                    const list = await fetchBackupCsvAsAR(supabase, version.file_path, clinicId!)
+                    if (lastRequestedBackupIdARRef.current !== requestedId) return
+                    setBackupOverrideAR(padARTo200(list, clinicId!))
+                    setSelectedBackupVersionAR(version)
+                    setBackupViewKeyAR((k) => k + 1)
+                  }}
+                  onBackToCurrent={() => {
+                    setBackupOverrideAR(null)
+                    setSelectedBackupVersionAR(null)
+                  }}
+                />
+              </div>
+            )}
+            <AccountsReceivableTab
+              clinicId={clinicId!}
+              clinicPayroll={clinic?.payroll ?? 1}
+              canEdit={canEdit && !backupOverrideAR}
+              isInSplitScreen={!!splitScreen}
+              isLockAccountsReceivable={isLockAccountsReceivable}
+              onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
+              onLockColumn={canLockColumns ? (columnName: string) => {
+                const existingComment = isLockAccountsReceivable && isARColumnLocked(columnName as keyof IsLockAccountsReceivable)
+                  ? (isLockAccountsReceivable[`${columnName}_comment` as keyof IsLockAccountsReceivable] as string | null) || ''
+                  : ''
+                setSelectedLockColumn({ columnName, providerId: null, isARColumn: true })
+                setLockComment(existingComment)
+                setShowLockDialog(true)
+              } : undefined}
+              isColumnLocked={isARColumnLocked}
+              overrideFullAR={backupOverrideAR}
+              isViewingBackup={!!selectedBackupVersionAR}
+              backupVersionKey={backupViewKeyAR}
+            />
+          </>
         )
-      case 'provider_pay':
+      case 'provider_pay': {
+        const effectiveProviderPay = providerId ?? providers.filter((p): p is Provider => p.level === 2)[0]?.id
+        const year = selectedMonthProviderPay.getFullYear()
+        const month = selectedMonthProviderPay.getMonth() + 1
+        const payrollForBackup = clinic?.payroll === 2 ? selectedPayrollProviderPay : 1
+        const providerPayBackupKey = effectiveProviderPay ? `${effectiveProviderPay}-${year}-${month}-${payrollForBackup}` : ''
+        const overrideTableData = backupOverrideProviderPayByKey && providerPayBackupKey
+          ? backupOverrideProviderPayByKey[providerPayBackupKey] ?? null
+          : null
         return (
-          <ProviderPayTab
-            clinicId={clinicId!}
-            clinicPayroll={clinic?.payroll ?? 1}
-            providerId={providerId ?? undefined}
-            providers={providers.filter((p): p is Provider => p.level === 2)}
-            canEdit={canEdit}
-            isInSplitScreen={!!splitScreen}
-            selectedMonth={selectedMonthProviderPay}
-            onPreviousMonth={handlePreviousMonthProviderPay}
-            onNextMonth={handleNextMonthProviderPay}
-            formatMonthYear={formatMonthYear}
-            statusColors={statusColors}
-            isLockProviderPay={isLockProviderPay}
-            onLockColumn={canLockColumns ? (columnName: string) => {
-              const existingComment = (isLockProviderPay?.[`${columnName}_comment` as keyof IsLockProviderPay] as string | null) ?? ''
-              setSelectedLockColumn({ columnName, providerId: null, isProviderPayColumn: true })
-              setLockComment(existingComment)
-              setShowLockDialog(true)
-            } : undefined}
-            isColumnLocked={isProviderPayColumnLocked}
-          />
+          <>
+            {userProfile?.role === 'super_admin' && clinicId && (
+              <div className="mb-4">
+                <BackupVersionsBar
+                  backupType="provider_pay"
+                  entityId={clinicId}
+                  viewingVersion={selectedBackupVersionProviderPay}
+                  getDownloadFilename={(v, displayNum) => `Pay_Version ${displayNum}_${v.created_at.slice(0, 10)}.csv`}
+                  getDownloadBlob={async (version) => {
+                    const { byKey } = await fetchBackupCsvAsProviderPay(supabase, version.file_path)
+                    const table = providerPayBackupKey ? (byKey[providerPayBackupKey] ?? []) : []
+                    const escapeCsv = (val: string) => {
+                      const s = String(val ?? '')
+                      if (s.includes('"') || s.includes(',') || s.includes('\n')) return '"' + s.replace(/"/g, '""') + '"'
+                      return s
+                    }
+                    const header = 'Description,Amount,Notes'
+                    const dataRows = table.slice(1).map((r) => [escapeCsv(r[0]), escapeCsv(r[1]), escapeCsv(r[2])].join(','))
+                    const csv = header + '\n' + dataRows.join('\n')
+                    return new Blob([csv], { type: 'text/csv' })
+                  }}
+                  onSelectVersion={async (version) => {
+                    const requestedId = version.id
+                    lastRequestedBackupIdProviderPayRef.current = requestedId
+                    const { byKey } = await fetchBackupCsvAsProviderPay(supabase, version.file_path)
+                    if (lastRequestedBackupIdProviderPayRef.current !== requestedId) return
+                    setBackupOverrideProviderPayByKey(byKey)
+                    setSelectedBackupVersionProviderPay(version)
+                    setBackupViewKeyProviderPay((k) => k + 1)
+                  }}
+                  onBackToCurrent={() => {
+                    setBackupOverrideProviderPayByKey(null)
+                    setSelectedBackupVersionProviderPay(null)
+                  }}
+                />
+              </div>
+            )}
+            <ProviderPayTab
+              clinicId={clinicId!}
+              clinicPayroll={clinic?.payroll ?? 1}
+              providerId={providerId ?? undefined}
+              providers={providers.filter((p): p is Provider => p.level === 2)}
+              canEdit={canEdit && !backupOverrideProviderPayByKey}
+              isInSplitScreen={!!splitScreen}
+              selectedMonth={selectedMonthProviderPay}
+              onPreviousMonth={handlePreviousMonthProviderPay}
+              onNextMonth={handleNextMonthProviderPay}
+              formatMonthYear={formatMonthYear}
+              statusColors={statusColors}
+              isLockProviderPay={isLockProviderPay}
+              onLockColumn={canLockColumns ? (columnName: string) => {
+                const existingComment = (isLockProviderPay?.[`${columnName}_comment` as keyof IsLockProviderPay] as string | null) ?? ''
+                setSelectedLockColumn({ columnName, providerId: null, isProviderPayColumn: true })
+                setLockComment(existingComment)
+                setShowLockDialog(true)
+              } : undefined}
+              isColumnLocked={isProviderPayColumnLocked}
+              overrideTableData={overrideTableData}
+              isViewingBackup={!!selectedBackupVersionProviderPay}
+              backupVersionKey={backupViewKeyProviderPay}
+            />
+          </>
         )
+      }
       case 'providers': {
         const providerSheetRowsWithOverride =
           providerId && backupOverrideRows
@@ -2554,12 +2685,18 @@ export default function ClinicDetail() {
             {userProfile?.role === 'super_admin' && currentSheetForBackup?.id && (
               <div className="mb-4">
                 <BackupVersionsBar
-                  sheetId={currentSheetForBackup.id}
+                  backupType="providers"
+                  entityId={currentSheetForBackup.id}
                   viewingVersion={selectedBackupVersion}
+                  getDownloadFilename={(v, displayNum) => `Billing_Version ${displayNum}_${v.created_at.slice(0, 10)}.csv`}
                   onSelectVersion={async (version) => {
+                    const requestedId = version.id
+                    lastRequestedBackupIdRef.current = requestedId
                     const rows = await fetchBackupCsvAsSheetRows(supabase, version.file_path)
+                    if (lastRequestedBackupIdRef.current !== requestedId) return
                     setBackupOverrideRows(padSheetRowsTo200(rows))
                     setSelectedBackupVersion(version)
+                    setBackupViewKey((k) => k + 1)
                   }}
                   onBackToCurrent={() => {
                     setBackupOverrideRows(null)
@@ -2611,6 +2748,7 @@ export default function ClinicDetail() {
               officeStaffView={isOfficeStaff}
               showVisitTypeColumn={providerId ? (currentProvider?.show_visit_type_column ?? false) : providers.some(p => p.show_visit_type_column)}
               isViewingBackup={!!selectedBackupVersion}
+              backupVersionKey={backupViewKey}
             />
           </>
         )
