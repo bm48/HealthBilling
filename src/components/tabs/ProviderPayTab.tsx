@@ -128,7 +128,7 @@ export default function ProviderPayTab({
   const [tableData, setTableData] = useState<string[][]>(() => INITIAL_TABLE_DATA.map(row => [...row]))
   const [providerPayDataVersion, setProviderPayDataVersion] = useState(0)
   const [sideNotes, setSideNotes] = useState('')
-  const [selectedPayroll] = useState<1 | 2>(1)
+  const [selectedPayroll, setSelectedPayroll] = useState<1 | 2>(1)
 
   type CachedPay = { payDate: string; payPeriodFrom: string; payPeriodTo: string; sideNotes: string; tableData: string[][] }
   const [providerPayCache, setProviderPayCache] = useState<Record<string, CachedPay>>({})
@@ -144,6 +144,19 @@ export default function ProviderPayTab({
   const [loading, setLoading] = useState(false)
   const hasLoadedOnceRef = useRef(false)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const savePayloadRef = useRef<{
+    clinicId: string
+    effectiveProviderId: string
+    year: number
+    month: number
+    payDate: string
+    payPeriod: string
+    payPeriodFrom: string
+    payPeriodTo: string
+    tableData: string[][]
+    sideNotes: string
+    payrollForSave: number
+  } | null>(null)
   const lockData = isLockProviderPay || null
 
   const year = selectedMonth.getFullYear()
@@ -260,21 +273,78 @@ export default function ProviderPayTab({
     [isViewingBackup, overrideTableData, tableData]
   )
 
-  // Debounced save when payDate, payPeriod, tableData, or sideNotes change (only when effectiveProviderId is set and not loading)
+  // Debounced save when payDate, payPeriod, tableData, or sideNotes change (only when effectiveProviderId is set and not loading).
+  // Update cache on success so fetch effect re-runs don't overwrite state with stale cache. Flush on unmount and beforeunload.
+  const runSave = useCallback((p: NonNullable<typeof savePayloadRef.current>) => {
+    const cacheKey = `${p.year}-${p.month}-${p.effectiveProviderId}-${p.payrollForSave}`
+    saveProviderPay(p.clinicId, p.effectiveProviderId, p.year, p.month, p.payDate, p.payPeriod, p.tableData, p.sideNotes, p.payrollForSave)
+      .then(() => {
+        setProviderPayCache((prev) => ({
+          ...prev,
+          [cacheKey]: {
+            payDate: p.payDate,
+            payPeriodFrom: p.payPeriodFrom,
+            payPeriodTo: p.payPeriodTo,
+            sideNotes: p.sideNotes,
+            tableData: p.tableData.map((r) => [...r]),
+          },
+        }))
+      })
+      .catch((err) => console.error('[ProviderPayTab] saveProviderPay error:', err))
+  }, [])
+
   useEffect(() => {
     if (!clinicId || !effectiveProviderId || !canEdit || loading) return
+    const payrollForSave = clinicPayroll === 2 ? selectedPayroll : 1
+    savePayloadRef.current = {
+      clinicId,
+      effectiveProviderId,
+      year,
+      month,
+      payDate,
+      payPeriod,
+      payPeriodFrom,
+      payPeriodTo,
+      tableData: tableData.map((r) => [...r]),
+      sideNotes,
+      payrollForSave,
+    }
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     saveTimeoutRef.current = setTimeout(() => {
       saveTimeoutRef.current = null
-      const payrollForSave = clinicPayroll === 2 ? selectedPayroll : 1
-      saveProviderPay(clinicId, effectiveProviderId, year, month, payDate, payPeriod, tableData, sideNotes, payrollForSave).catch((err) =>
-        console.error('[ProviderPayTab] saveProviderPay error:', err)
-      )
-    }, 800)
+      const p = savePayloadRef.current
+      if (p) {
+        savePayloadRef.current = null
+        runSave(p)
+      }
+    }, 300)
     return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+        saveTimeoutRef.current = null
+        const p = savePayloadRef.current
+        if (p) {
+          savePayloadRef.current = null
+          runSave(p)
+        }
+      }
     }
-  }, [clinicId, effectiveProviderId, year, month, canEdit, loading, payDate, payPeriod, tableData, sideNotes, clinicPayroll, selectedPayroll])
+  }, [clinicId, effectiveProviderId, year, month, canEdit, loading, payDate, payPeriod, payPeriodFrom, payPeriodTo, tableData, sideNotes, clinicPayroll, selectedPayroll, runSave])
+
+  // Flush pending save when user refreshes or closes tab so data persists
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      const p = savePayloadRef.current
+      if (saveTimeoutRef.current && p) {
+        clearTimeout(saveTimeoutRef.current)
+        saveTimeoutRef.current = null
+        savePayloadRef.current = null
+        saveProviderPay(p.clinicId, p.effectiveProviderId, p.year, p.month, p.payDate, p.payPeriod, p.tableData, p.sideNotes, p.payrollForSave)
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
 
   const getMonthColor = useCallback(
     (month: string): { color: string; textColor: string } | null => {
@@ -459,7 +529,7 @@ export default function ProviderPayTab({
           : { maxWidth: '45vw', width: '100%' }
       }
     >
-      {/* {clinicPayroll === 2 && (
+      {clinicPayroll === 2 && (
         <div className="flex items-center gap-3 mb-3">
           <label className="text-white font-medium">Payroll:</label>
           <select
@@ -471,7 +541,7 @@ export default function ProviderPayTab({
             <option value={2}>Payroll 2</option>
           </select>
         </div>
-      )} */}
+      )}
       <div className="flex items-center gap-2 justify-between">
         {/* Month selector - same style as other tabs */}
         {(() => {

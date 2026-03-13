@@ -2650,7 +2650,7 @@ export default function ClinicDetail() {
               clinicId={clinicId!}
               clinicPayroll={clinic?.payroll ?? 1}
               providerId={providerId ?? undefined}
-              providers={providers.filter((p): p is Provider => p.level === 2)}
+              providers={providers}
               canEdit={canEdit && !backupOverrideProviderPayByKey}
               isInSplitScreen={!!splitScreen}
               selectedMonth={selectedMonthProviderPay}
