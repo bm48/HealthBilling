@@ -36,6 +36,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
   const fetchIdRef = useRef(0)
   /** Full list (all months) for save and month switching - like Patients has one list, we keep "all" in ref */
   const fullListRef = useRef<AccountsReceivable[]>([])
+  const wasViewingBackupRef = useRef(false)
   /** Displayed list (current month, 200 rows) - same as Patients: state = what we show, grid row index = array index */
   const [displayedAR, setDisplayedAR] = useState<AccountsReceivable[]>([])
   const displayedARRef = useRef<AccountsReceivable[]>([])
@@ -234,21 +235,26 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
     }
   }, [clinicId, clinicPayroll, selectedPayroll, createEmptyAR, buildDisplayedFromFull])
 
+  // Like Providers tab: when viewing backup only switch what we display (via displayAR useMemo); do NOT overwrite fullListRef or displayedAR so "Back to current" shows current data immediately.
   useEffect(() => {
     if (!clinicId) return
+    if (isViewingBackup) wasViewingBackupRef.current = true
     if (isViewingBackup && overrideFullAR) {
-      fullListRef.current = overrideFullAR
-      setDisplayedAR(buildDisplayedFromFull())
       setLoading(false)
       return
     }
-    if (clinicPayroll === 2) {
+    const returningFromBackup = wasViewingBackupRef.current
+    if (returningFromBackup) wasViewingBackupRef.current = false
+    if (clinicPayroll === 2 && !returningFromBackup) {
       fullListRef.current = []
       setDisplayedAR([])
       setLoading(true)
     }
     fetchStatusColors()
-    fetchAccountsReceivable()
+    fetchAccountsReceivable().then(() => {
+      setDisplayedAR(buildDisplayedFromFull())
+      setStructureVersion((v) => v + 1)
+    })
   }, [clinicId, clinicPayroll, selectedPayroll, fetchStatusColors, fetchAccountsReceivable, isViewingBackup, overrideFullAR, buildDisplayedFromFull])
 
   /** Sync displayed ref from state - same as PatientsTab */

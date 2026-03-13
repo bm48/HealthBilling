@@ -181,7 +181,9 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
       setLoading(false)
       return
     }
-    fetchPatients()
+    fetchPatients().then(() => {
+      setStructureVersion((v) => v + 1)
+    })
   }, [clinicId, fetchPatients, isViewingBackup, overridePatients])
 
   const savePatients = useCallback(async (patientsToSave: Patient[]) => {
