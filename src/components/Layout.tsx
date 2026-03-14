@@ -381,7 +381,7 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-4 space-y-1 overflow-y-auto scrollbar-hide">
+          <nav className="flex-1 px-4 space-y-1 overflow-y-auto scrollbar-hide" style={{marginTop: '2rem'}}>
             {userProfile?.role === 'provider' ? (
               <>
                 <Link
