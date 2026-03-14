@@ -96,7 +96,7 @@ export default function Login() {
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-pink-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
       </div>
 
-      <div className="relative z-10 max-w-md w-full space-y-8">
+      <div className="relative z-10 max-w-xl w-full space-y-8">
         
         <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20 shadow-2xl">
           <div className="text-center mb-8 relative">
@@ -115,9 +115,9 @@ export default function Login() {
             <img
               src="/Matrix%20logo.png"
               alt="AMBC Logo"
-              width={150}
-              height={150}
-              className="mx-auto mb-4 max-h-48 w-auto object-contain"
+              width={240}
+              height={240}
+              className="mx-auto mb-0 max-h-80 w-auto object-cover"
             />
 
             {/* <h2 className="text-3xl font-extrabold text-white mb-2 pt-4 -mt-20">

@@ -99,6 +99,8 @@ export interface ProviderPayTabProps {
   isViewingBackup?: boolean
   /** When viewing backup, a value that changes when the user selects a different version, so the grid refreshes. */
   backupVersionKey?: number
+  /** Called when the user selects a provider (e.g. for backup download filename). */
+  onSelectedProviderIdChange?: (providerId: string) => void
 }
 
 export default function ProviderPayTab({
@@ -119,6 +121,7 @@ export default function ProviderPayTab({
   overrideTableData = null,
   isViewingBackup = false,
   backupVersionKey = 0,
+  onSelectedProviderIdChange,
 }: ProviderPayTabProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [tableHeight, setTableHeight] = useState(600)
@@ -176,6 +179,11 @@ export default function ProviderPayTab({
       setSelectedProviderId(providers[0].id)
     }
   }, [providerIdProp, providers, selectedProviderId])
+
+  // Notify parent of current provider selection (for backup download filename)
+  useEffect(() => {
+    if (effectiveProviderId) onSelectedProviderIdChange?.(effectiveProviderId)
+  }, [effectiveProviderId, onSelectedProviderIdChange])
 
   // Fetch from DB when clinicId, effectiveProviderId, and selectedMonth are set. Use cache for instant display when switching month/provider.
   useEffect(() => {
@@ -590,7 +598,11 @@ export default function ProviderPayTab({
             <select
               id="provider-pay-provider-select"
               value={selectedProviderId}
-              onChange={(e) => setSelectedProviderId(e.target.value)}
+              onChange={(e) => {
+                const id = e.target.value
+                setSelectedProviderId(id)
+                onSelectedProviderIdChange?.(id)
+              }}
               className="cursor-pointer rounded-lg border border-slate-600 bg-slate-800 text-slate-100 px-3 py-2 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {providers.map((p) => (

@@ -139,6 +139,8 @@ export default function ClinicDetail() {
   const [selectedBackupVersionProviderPay, setSelectedBackupVersionProviderPay] = useState<BackupVersionMeta | null>(null)
   const [backupViewKeyProviderPay, setBackupViewKeyProviderPay] = useState(0)
   const lastRequestedBackupIdProviderPayRef = useRef<string | null>(null)
+  /** Provider Pay tab dropdown selection (so backup download filename uses the selected provider name). */
+  const providerPaySelectedIdRef = useRef<string | null>(null)
 
   // Clear backup view when switching provider or month (providers only)
   useEffect(() => {
@@ -2489,7 +2491,15 @@ export default function ClinicDetail() {
                   backupType="patients"
                   entityId={clinicId}
                   viewingVersion={selectedBackupVersionPatients}
-                  getDownloadFilename={(v, displayNum) => `Patients_Version ${displayNum}_${v.created_at.slice(0, 10)}.csv`}
+                  getDownloadFilename={(v) => {
+                    const clinicName = clinic
+                      ? `${(clinic.name ?? 'Clinic').trim()}`.replace(/\s+/g, ' ').replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Clinic'
+                      : 'Clinic'
+                    const d = new Date(v.created_at)
+                    const monthLabel = `${d.toLocaleDateString('en-US', { month: 'long' })}`
+                    const backupDate = v.created_at.slice(0, 10)
+                    return `${clinicName}_${monthLabel}_Patients_${backupDate}.csv`
+                  }}
                   onSelectVersion={async (version) => {
                     const requestedId = version.id
                     lastRequestedBackupIdPatientsRef.current = requestedId
@@ -2560,7 +2570,15 @@ export default function ClinicDetail() {
                   backupType="ar"
                   entityId={clinicId}
                   viewingVersion={selectedBackupVersionAR}
-                  getDownloadFilename={(v, displayNum) => `AR_Version ${displayNum}_${v.created_at.slice(0, 10)}.csv`}
+                  getDownloadFilename={(v) => {
+                    const clinicName = clinic
+                      ? `${(clinic.name ?? 'Clinic').trim()}`.replace(/\s+/g, ' ').replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Clinic'
+                      : 'Clinic'
+                    const d = new Date(v.created_at)
+                    const monthLabel = `${d.toLocaleDateString('en-US', { month: 'long' })}`
+                    const backupDate = v.created_at.slice(0, 10)
+                    return `${clinicName}_${monthLabel}_AR_${backupDate}.csv`
+                  }}
                   onSelectVersion={async (version) => {
                     const requestedId = version.id
                     lastRequestedBackupIdARRef.current = requestedId
@@ -2616,7 +2634,18 @@ export default function ClinicDetail() {
                   backupType="provider_pay"
                   entityId={clinicId}
                   viewingVersion={selectedBackupVersionProviderPay}
-                  getDownloadFilename={(v, displayNum) => `Pay_Version ${displayNum}_${v.created_at.slice(0, 10)}.csv`}
+                  getDownloadFilename={(v) => {
+                    const providerIdForName = providerPaySelectedIdRef.current ?? effectiveProviderPay
+                    const payProvider = providerIdForName ? providers.find((p) => p.id === providerIdForName) : null
+                    const providerName = payProvider
+                      ? `${(payProvider.first_name ?? '').trim()} ${(payProvider.last_name ?? '').trim()}`.replace(/\s+/g, ' ').replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Provider'
+                      : 'Provider'
+                    const monthLabel = clinic?.payroll === 2
+                      ? `${selectedMonthProviderPay.toLocaleDateString('en-US', { month: 'long' })}_${selectedPayrollProviderPay === 1 ? '1st' : '2nd'}Half`
+                      : `${selectedMonthProviderPay.toLocaleDateString('en-US', { month: 'long' })}`
+                    const backupDate = v.created_at.slice(0, 10)
+                    return `${providerName}_${monthLabel}_Pay_${backupDate}.csv`
+                  }}
                   getDownloadBlob={async (version) => {
                     const { byKey } = await fetchBackupCsvAsProviderPay(supabase, version.file_path)
                     const table = providerPayBackupKey ? (byKey[providerPayBackupKey] ?? []) : []
@@ -2669,6 +2698,7 @@ export default function ClinicDetail() {
               overrideTableData={overrideTableData}
               isViewingBackup={!!selectedBackupVersionProviderPay}
               backupVersionKey={backupViewKeyProviderPay}
+              onSelectedProviderIdChange={(id) => { providerPaySelectedIdRef.current = id }}
             />
           </>
         )
@@ -2688,7 +2718,16 @@ export default function ClinicDetail() {
                   backupType="providers"
                   entityId={currentSheetForBackup.id}
                   viewingVersion={selectedBackupVersion}
-                  getDownloadFilename={(v, displayNum) => `Billing_Version ${displayNum}_${v.created_at.slice(0, 10)}.csv`}
+                  getDownloadFilename={(v) => {
+                    const providerName = currentProvider
+                      ? `${(currentProvider.first_name ?? '').trim()} ${(currentProvider.last_name ?? '').trim()}`.replace(/\s+/g, ' ').replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Provider'
+                      : 'Provider'
+                    const monthLabel = clinic?.payroll === 2
+                      ? `${selectedMonth.toLocaleDateString('en-US', { month: 'long' })}_${selectedPayroll === 1 ? '1st' : '2nd'}Half`
+                      : `${selectedMonth.toLocaleDateString('en-US', { month: 'long' })}`
+                    const backupDate = v.created_at.slice(0, 10)
+                    return `${providerName}_${monthLabel}_Billing_${backupDate}.csv`
+                  }}
                   onSelectVersion={async (version) => {
                     const requestedId = version.id
                     lastRequestedBackupIdRef.current = requestedId
