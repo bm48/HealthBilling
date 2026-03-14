@@ -359,7 +359,7 @@ export default function Layout({ children }: LayoutProps) {
     <div className="min-h-screen">
       {/* Sidebar */}
       <div className={`fixed inset-y-0 left-0 z-30 bg-slate-900/90 backdrop-blur-md shadow-2xl border-r border-white/10 transition-all duration-300 ${
-        sidebarCollapsed ? 'w-20' : 'w-80'
+        sidebarCollapsed ? 'w-20' : 'w-96'
       }`}>
         <div className="flex flex-col h-full">
           {/* Logo/Header */}
@@ -1302,7 +1302,7 @@ export default function Layout({ children }: LayoutProps) {
       </div>
 
       {/* Main Content */}
-      <div className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? 'ml-20' : 'ml-80'}`}>
+      <div className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? 'ml-20' : 'ml-96'}`}>
         <main className="p-8 text-white min-h-full">
           {children}
         </main>

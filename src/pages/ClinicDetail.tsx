@@ -2496,9 +2496,13 @@ export default function ClinicDetail() {
                       ? `${(clinic.name ?? 'Clinic').trim()}`.replace(/\s+/g, ' ').replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Clinic'
                       : 'Clinic'
                     const d = new Date(v.created_at)
-                    const monthLabel = `${d.toLocaleDateString('en-US', { month: 'long' })}`
-                    const backupDate = v.created_at.slice(0, 10)
-                    return `${clinicName}_${monthLabel}_Patients_${backupDate}.csv`
+                    const Y = d.getFullYear()
+                    const M = String(d.getMonth() + 1).padStart(2, '0')
+                    const D = String(d.getDate()).padStart(2, '0')
+                    const h = String(d.getHours()).padStart(2, '0')
+                    const m = String(d.getMinutes()).padStart(2, '0')
+                    const dateTime = `${Y}-${M}-${D} ${h}.${m}`
+                    return `${clinicName}_Patients_${dateTime}.csv`
                   }}
                   onSelectVersion={async (version) => {
                     const requestedId = version.id
@@ -2575,9 +2579,13 @@ export default function ClinicDetail() {
                       ? `${(clinic.name ?? 'Clinic').trim()}`.replace(/\s+/g, ' ').replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Clinic'
                       : 'Clinic'
                     const d = new Date(v.created_at)
-                    const monthLabel = `${d.toLocaleDateString('en-US', { month: 'long' })}`
-                    const backupDate = v.created_at.slice(0, 10)
-                    return `${clinicName}_${monthLabel}_AR_${backupDate}.csv`
+                    const Y = d.getFullYear()
+                    const M = String(d.getMonth() + 1).padStart(2, '0')
+                    const D = String(d.getDate()).padStart(2, '0')
+                    const h = String(d.getHours()).padStart(2, '0')
+                    const m = String(d.getMinutes()).padStart(2, '0')
+                    const dateTime = `${Y}-${M}-${D} ${h}.${m}`
+                    return `${clinicName}_AR_${dateTime}.csv`
                   }}
                   onSelectVersion={async (version) => {
                     const requestedId = version.id
@@ -2640,11 +2648,14 @@ export default function ClinicDetail() {
                     const providerName = payProvider
                       ? `${(payProvider.first_name ?? '').trim()} ${(payProvider.last_name ?? '').trim()}`.replace(/\s+/g, ' ').replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Provider'
                       : 'Provider'
-                    const monthLabel = clinic?.payroll === 2
-                      ? `${selectedMonthProviderPay.toLocaleDateString('en-US', { month: 'long' })}_${selectedPayrollProviderPay === 1 ? '1st' : '2nd'}Half`
-                      : `${selectedMonthProviderPay.toLocaleDateString('en-US', { month: 'long' })}`
-                    const backupDate = v.created_at.slice(0, 10)
-                    return `${providerName}_${monthLabel}_Pay_${backupDate}.csv`
+                    const d = new Date(v.created_at)
+                    const Y = d.getFullYear()
+                    const M = String(d.getMonth() + 1).padStart(2, '0')
+                    const D = String(d.getDate()).padStart(2, '0')
+                    const h = String(d.getHours()).padStart(2, '0')
+                    const m = String(d.getMinutes()).padStart(2, '0')
+                    const dateTime = `${Y}-${M}-${D} ${h}.${m}`
+                    return `${providerName}_Pay_${dateTime}.csv`
                   }}
                   getDownloadBlob={async (version) => {
                     const { byKey } = await fetchBackupCsvAsProviderPay(supabase, version.file_path)
@@ -2722,11 +2733,14 @@ export default function ClinicDetail() {
                     const providerName = currentProvider
                       ? `${(currentProvider.first_name ?? '').trim()} ${(currentProvider.last_name ?? '').trim()}`.replace(/\s+/g, ' ').replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'Provider'
                       : 'Provider'
-                    const monthLabel = clinic?.payroll === 2
-                      ? `${selectedMonth.toLocaleDateString('en-US', { month: 'long' })}_${selectedPayroll === 1 ? '1st' : '2nd'}Half`
-                      : `${selectedMonth.toLocaleDateString('en-US', { month: 'long' })}`
-                    const backupDate = v.created_at.slice(0, 10)
-                    return `${providerName}_${monthLabel}_Billing_${backupDate}.csv`
+                    const d = new Date(v.created_at)
+                    const Y = d.getFullYear()
+                    const M = String(d.getMonth() + 1).padStart(2, '0')
+                    const D = String(d.getDate()).padStart(2, '0')
+                    const h = String(d.getHours()).padStart(2, '0')
+                    const m = String(d.getMinutes()).padStart(2, '0')
+                    const dateTime = `${Y}-${M}-${D} ${h}.${m}`
+                    return `${providerName}_Billing_${dateTime}.csv`
                   }}
                   onSelectVersion={async (version) => {
                     const requestedId = version.id
