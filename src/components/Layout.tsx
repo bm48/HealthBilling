@@ -358,22 +358,22 @@ export default function Layout({ children }: LayoutProps) {
   return (
     <div className="min-h-screen">
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 bg-slate-900/90 backdrop-blur-md shadow-2xl border-r border-white/10 transition-all duration-300 ${
+      <div className={`fixed inset-y-0 left-0 z-30 bg-slate-900/90 backdrop-blur-md shadow-2xl border-r border-white/10 transition-all duration-300 ${
         sidebarCollapsed ? 'w-20' : 'w-80'
       }`}>
         <div className="flex flex-col h-full">
           {/* Logo/Header */}
-          <div className={`flex items-center pt-2 gap-2 h-[110px] ${sidebarCollapsed ? 'justify-center px-4' : 'justify-between'}`}>
+          <div className={`flex items-center mb-4 pt-10 gap-2 h-[110px] ${sidebarCollapsed ? 'justify-center px-0' : 'justify-between'}`}>
             {!sidebarCollapsed && (
               <img
                 src="/Matrix logo.png"
                 alt="Logo"
-                className="w-full h-full object-contain"
+                className="w-full max-h-33 object-contain"
               />
             )}
             <button
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="text-white/70 hover:text-white hover:bg-white/10 p-2 rounded-lg transition-colors shrink-0"
+              className={`text-white/70 hover:text-white hover:bg-white/10 p-2 rounded-lg transition-colors shrink-0 ${sidebarCollapsed ? '' : '-ml-12 mt-14'}`}
               title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
               {sidebarCollapsed ? <Menu size={20} /> : <ArrowLeft size={20} />}
@@ -1302,8 +1302,8 @@ export default function Layout({ children }: LayoutProps) {
       </div>
 
       {/* Main Content */}
-      <div className={`transition-all duration-300 ${sidebarCollapsed ? 'pl-20' : 'pl-80'}`}>
-        <main className="p-8 text-white">
+      <div className={`min-h-screen transition-all duration-300 ${sidebarCollapsed ? 'ml-20' : 'ml-80'}`}>
+        <main className="p-8 text-white min-h-full">
           {children}
         </main>
       </div>
