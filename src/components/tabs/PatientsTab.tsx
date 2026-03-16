@@ -213,17 +213,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     })
 
     if (patientsToProcess.length === 0) {
-      // Flush path with nothing to save: maybe debounce already saved the new patient; still notify if we have one
-      if (flushTriggered && (onPatientCreated || onPatientsCreated) && lastNewPatientIdFromDebounceRef.current) {
-        const id = lastNewPatientIdFromDebounceRef.current
-        lastNewPatientIdFromDebounceRef.current = null
-        const row = patientsToSave.find(p => p.id === id)
-        if (row) {
-          if (onPatientsCreated) onPatientsCreated([row])
-          else onPatientCreated?.(row)
-        }
-      } else {
-      }
+      saveTriggeredByRowLeaveRef.current = false
+      lastNewPatientIdFromDebounceRef.current = null
       return
     }
 
@@ -371,9 +362,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         })
       })
 
-      // Notify parent only when save was triggered by leaving the row (flush), so we have full row data.
-      // Send when: (1) we just saved a row that had oldId new-/empty-, or (2) we just updated a row that was created by debounce (real id now; lastNewPatientIdFromDebounceRef points to it).
-      if ((onPatientCreated || onPatientsCreated) && saveTriggeredByRowLeaveRef.current) {
+      // Notify parent whenever we saved newly created patients (new-/empty- or lastNewId), so provider sheets get exactly one batch per save. No gate on row-leave: debounce and row-leave both send once per save that created patients.
+      if (onPatientCreated || onPatientsCreated) {
         saveTriggeredByRowLeaveRef.current = false
         const toSend: Array<Patient> = []
         const lastNewId = lastNewPatientIdFromDebounceRef.current

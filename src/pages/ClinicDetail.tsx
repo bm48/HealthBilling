@@ -90,6 +90,8 @@ export default function ClinicDetail() {
   const lastUndoRef = useRef<(() => void) | null>(null)
   /** Flush Patient Info save (with row-leave flag) before switching tab; registered by PatientsTab */
   const patientsTabFlushRef = useRef<(() => Promise<void>) | null>(null)
+  /** Patient ids we already added to provider sheets this month; avoids duplicates when flush re-runs save and calls onPatientsCreated again */
+  const addedToProviderSheetsRef = useRef<{ monthKey: string; ids: Set<string> }>({ monthKey: '', ids: new Set() })
 
   // Month filter for provider tab (and pay-period half when clinic has payroll=2)
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
@@ -166,6 +168,8 @@ export default function ClinicDetail() {
   // When URL is /clinic/:clinicId/providers (or /providers/:id), we match the providers route so "tab" is undefined; treat as providers tab and do not redirect.
   const isProvidersRoute = clinicId && location.pathname.startsWith(`/clinic/${clinicId}/providers`)
   useEffect(() => {
+    // Don't sync tab from URL while flushing before tab leave (loading), so flush-triggered re-renders don't overwrite activeTab back to 'patients' before navigate() updates the URL
+    if (loading) return
     if (providerId) {
       setActiveTab('providers')
     } else if (isProvidersRoute) {
@@ -189,7 +193,7 @@ export default function ClinicDetail() {
         navigate(`/clinic/${clinicId}/todo`, { replace: true })
       }
     }
-  }, [tab, clinicId, navigate, providerId, isProvidersRoute, userProfile?.role, isBillingStaff, isOfficialStaff])
+  }, [tab, clinicId, navigate, providerId, isProvidersRoute, userProfile?.role, isBillingStaff, isOfficialStaff, loading])
 
   // Remember provider when viewing a provider's sheet so Billing tab can return to it (persist in sessionStorage so it survives switching to another tab, which mounts a different route/instance)
   const lastProviderStorageKey = clinicId ? `clinic_${clinicId}_lastProviderId` : null
@@ -1693,6 +1697,7 @@ export default function ClinicDetail() {
         setProviderSheetsByMonth(prev => ({ ...prev, [monthKey]: sheetsMap }))
         setProviderSheetRowsByMonth(prev => ({ ...prev, [monthKey]: rowsMap }))
         lastProviderSheetContextRef.current = { clinicId, providerId: null, monthKey }
+        return { sheetsMap, rowsMap }
       }
     } catch (error) {
       console.error('Error fetching provider sheets:', error)
@@ -2302,8 +2307,25 @@ export default function ClinicDetail() {
   const handlePatientsCreated = useCallback(async (patients: Patient[]) => {
     if (patients.length === 0) return
 
+    // Skip re-adding patients we already sent (e.g. flush runs save again and calls onPatientsCreated with same patients)
+    const ref = addedToProviderSheetsRef.current
+    if (ref.monthKey !== selectedMonthKey) {
+      ref.ids = new Set()
+      ref.monthKey = selectedMonthKey
+    }
+    const toAdd = patients.filter(p => {
+      const id = p.id ?? (p.patient_id != null && String(p.patient_id).trim() !== '' ? String(p.patient_id) : null)
+      if (!id || ref.ids.has(id)) return false
+      ref.ids.add(id)
+      return true
+    })
+    if (toAdd.length === 0) return
+
+    let fetchedRowsMap: Record<string, SheetRow[]> | null = null
+    let providerIds = Object.keys(providerSheets)
+    let sheetsToUse: Record<string, ProviderSheet> = providerSheets
     if (clinicId && selectedMonthKey) {
-      const result = await addPatientsToProviderSheets({ clinicId, selectedMonthKey, patients })
+      const result = await addPatientsToProviderSheets({ clinicId, selectedMonthKey, patients: toAdd })
       if (result.success) {
         lastProviderSheetsFetchMonthKeyRef.current = selectedMonthKey
         await fetchProviderSheets(selectedMonthKey, true)
@@ -2311,14 +2333,16 @@ export default function ClinicDetail() {
         return
       }
       console.error('[PatientInfo→Providers] Edge Function failed:', result.error)
-      // Fall through to client-side add so app still works if the function is not deployed or fails
+      // Refetch so we see any rows the edge function may have added before failing; then fallback won't duplicate
+      const fresh = await fetchProviderSheets(selectedMonthKey, true)
+      if (fresh) {
+        fetchedRowsMap = fresh.rowsMap
+        sheetsToUse = fresh.sheetsMap
+        providerIds = Object.keys(fresh.sheetsMap)
+      }
     }
-
-    let providerIds = Object.keys(providerSheets)
-    let sheetsToUse: Record<string, ProviderSheet> = providerSheets
     const month = selectedMonth.getMonth() + 1
     const year = selectedMonth.getFullYear()
-    let fetchedRowsMap: Record<string, SheetRow[]> | null = null
 
     // If Providers tab hasn't been opened yet, fetch sheets and rows for this clinic/month first
     if (providerIds.length === 0 && clinicId) {
@@ -2468,12 +2492,15 @@ export default function ClinicDetail() {
 
     // Compute next state so we can update UI and then await all DB saves before returning.
     // That way when we switch to Providers tab, the flush stays in loading until data is ready.
-    const base = providerSheetRowsByMonth[selectedMonthKey] ?? fetchedRowsMap ?? {}
+    const base = fetchedRowsMap ?? providerSheetRowsByMonth[selectedMonthKey] ?? {}
     const nextForMonth: Record<string, SheetRow[]> = { ...base }
 
-    for (const patient of patients) {
+    const patientPid = (p: Patient) => (p.patient_id != null && String(p.patient_id).trim() !== '') ? String(p.patient_id).trim() : null
+    for (const patient of toAdd) {
+      const pid = patientPid(patient)
       providerIds.forEach(providerId => {
         const rows = nextForMonth[providerId] || []
+        if (pid && rows.some(r => r.patient_id === pid)) return
         const firstEmptyIdx = rows.findIndex(r => r.id.startsWith('empty-'))
         const newRow = createRowFromPatient(patient, providerId)
         const updated =
@@ -2508,6 +2535,9 @@ export default function ClinicDetail() {
       }
     })
     await Promise.all(savePromises)
+    lastProviderSheetsFetchMonthKeyRef.current = selectedMonthKey
+    await fetchProviderSheets(selectedMonthKey, true)
+    setProviderRowsVersion(v => v + 1)
   }, [providerSheets, providerSheetRowsByMonth, selectedMonth, selectedMonthKey, selectedPayroll, clinic?.payroll, saveProviderSheetRows, clinicId, fetchProviderSheets])
 
   const handlePatientCreated = useCallback((patient: Patient) => {
@@ -2549,6 +2579,7 @@ export default function ClinicDetail() {
               ? `/clinic/${clinicId}/providers/${lastProviderId}`
               : `/clinic/${clinicId}/${tab}`
           navigate(path, { replace: true })
+          setLoading(false)
         }).catch(err => {
           console.error('[ClinicDetail] Flush before tab leave failed:', err)
           setLoading(false)
