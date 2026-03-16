@@ -64,6 +64,8 @@ export default function ClinicDetail() {
   const billingTodoExportRef = useRef<{ exportToCSV: () => void } | null>(null)
   /** Remember last selected provider so clicking Billing tab returns to that provider's sheet */
   const lastSelectedProviderIdRef = useRef<string | null>(null)
+  /** Id of the row last updated in handleUpdateProviderSheetRow (used to set patient_id after creating a new patient) */
+  const providerSheetUpdatedRowIdRef = useRef<string | null>(null)
   const [fullName, setFullName] = useState<string>('')
 
   useEffect(() => {
@@ -1724,8 +1726,7 @@ export default function ClinicDetail() {
     const rowsToProcess = rowsToSave.filter(r => {
       if (r.id.startsWith('empty-')) {
         // Check if this empty row has any data
-        const hasData = r.patient_id || r.patient_first_name || r.last_initial || 
-                       r.patient_insurance || r.patient_copay !== null || r.patient_coinsurance !== null ||
+        const hasData = r.patient_id ||
                        r.appointment_date || r.cpt_code || r.appointment_status || r.claim_status ||
                        r.submit_date || r.insurance_payment || r.payment_date || r.insurance_adjustment ||
                        r.collected_from_patient || r.patient_pay_status || r.ar_date || r.total !== null || r.notes
@@ -1924,11 +1925,17 @@ export default function ClinicDetail() {
     return () => window.removeEventListener('pagehide', onPageHide)
   }, [])
 
+  const PATIENT_FIELDS = ['patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance'] as const
+
   const handleUpdateProviderSheetRow = useCallback((providerId: string, rowId: string, field: string, value: any) => {
+    const current = providerSheetRowsByMonth[selectedMonthKey] ?? {}
+    const rows = current[providerId] || []
+    const rowBeforeEdit = rows.find(r => r.id === rowId) ?? null
+
     setProviderSheetRowsByMonth(prev => {
-      const current = prev[selectedMonthKey] ?? {}
-      const rows = current[providerId] || []
-      const updatedRows = rows.map(row => {
+      const currentPrev = prev[selectedMonthKey] ?? {}
+      const rowsPrev = currentPrev[providerId] || []
+      const updatedRows = rowsPrev.map(row => {
         if (row.id === rowId) {
           // If updating an empty row, convert it to a new- prefixed row
           if (row.id.startsWith('empty-')) {
@@ -1939,6 +1946,16 @@ export default function ClinicDetail() {
               [field]: value,
               updated_at: new Date().toISOString()
             }
+            if (field === 'patient_id' && (value == null || value === '')) {
+              updated.patient_id = null
+              updated.patient_first_name = null
+              updated.patient_last_name = null
+              updated.last_initial = null
+              updated.patient_insurance = null
+              updated.patient_copay = null
+              updated.patient_coinsurance = null
+            }
+            providerSheetUpdatedRowIdRef.current = updated.id
             if (field === 'billing_code') {
               const code = billingCodes.find(c => c.code === value)
               updated.billing_code_color = code?.color || null
@@ -1973,6 +1990,17 @@ export default function ClinicDetail() {
             return updated
           }
           const updated = { ...row, [field]: value, updated_at: new Date().toISOString() }
+          providerSheetUpdatedRowIdRef.current = updated.id
+          // When clearing patient_id, clear all patient-related columns on this row (others stay)
+          if (field === 'patient_id' && (value == null || value === '')) {
+            updated.patient_id = null
+            updated.patient_first_name = null
+            updated.patient_last_name = null
+            updated.last_initial = null
+            updated.patient_insurance = null
+            updated.patient_copay = null
+            updated.patient_coinsurance = null
+          }
           if (field === 'billing_code') {
             const code = billingCodes.find(c => c.code === value)
             updated.billing_code_color = code?.color || null
@@ -2008,7 +2036,7 @@ export default function ClinicDetail() {
         }
         return row
       })
-      let nextMonthRows: Record<string, SheetRow[]> = { ...current, [providerId]: updatedRows }
+      let nextMonthRows: Record<string, SheetRow[]> = { ...currentPrev, [providerId]: updatedRows }
       // Ensure we maintain 200 rows total per provider
       const nonEmptyRows = updatedRows.filter(r => !r.id.startsWith('empty-'))
       const emptyRowsNeeded = Math.max(0, 200 - nonEmptyRows.length)
@@ -2060,11 +2088,77 @@ export default function ClinicDetail() {
         const newEmptyRows = Array.from({ length: emptyRowsNeeded - existingEmptyCount }, (_, i) => 
           createEmptyRow(existingEmptyCount + i)
         )
-        nextMonthRows = { ...current, [providerId]: [...updatedRows, ...newEmptyRows] }
+        nextMonthRows = { ...currentPrev, [providerId]: [...updatedRows, ...newEmptyRows] }
       }
       return { ...prev, [selectedMonthKey]: nextMonthRows } as Record<string, Record<string, SheetRow[]>>
     })
-  }, [billingCodes, statusColors, selectedMonthKey])
+
+    // Persist patient-field edits to the patients table (Option A): update existing or create new patient
+    if (PATIENT_FIELDS.includes(field as typeof PATIENT_FIELDS[number]) && clinicId && rowBeforeEdit) {
+      const mapFieldToPatientsColumn = (): Record<string, string | number | null> => {
+        const v = value != null && value !== '' ? value : null
+        const str = (x: string | number | null | undefined) => (x != null && x !== '' ? String(x) : null)
+        switch (field) {
+          case 'patient_first_name': return { first_name: v != null ? String(v) : '' }
+          case 'last_initial': return { last_name: v != null ? String(v) : '' }
+          case 'patient_insurance': return { insurance: v != null ? String(v) : null }
+          case 'patient_copay': return { copay: str(v) }
+          case 'patient_coinsurance': return { coinsurance: str(v) }
+          default: return {}
+        }
+      }
+      const payload = mapFieldToPatientsColumn()
+      if (Object.keys(payload).length === 0) return
+
+      const runPatientPersist = async () => {
+        const pid = rowBeforeEdit.patient_id != null && String(rowBeforeEdit.patient_id).trim() !== '' ? String(rowBeforeEdit.patient_id).trim() : null
+        if (pid) {
+          const { error } = await supabase.from('patients').update(payload).eq('clinic_id', clinicId).eq('patient_id', pid)
+          if (error) {
+            console.error('Error updating patient from provider sheet:', error)
+            return
+          }
+          await fetchPatients()
+        } else {
+          const newPatientId = `P${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+          const first_name = field === 'patient_first_name' ? (value != null && value !== '' ? String(value) : '') : (rowBeforeEdit.patient_first_name ?? '')
+          const last_name = field === 'last_initial' ? (value != null && value !== '' ? String(value) : '') : (rowBeforeEdit.last_initial ?? '')
+          const insurance = field === 'patient_insurance' ? (value != null && value !== '' ? String(value) : null) : (rowBeforeEdit.patient_insurance ?? null)
+          const copay = field === 'patient_copay' ? (value != null && value !== '' ? String(value) : null) : (rowBeforeEdit.patient_copay != null ? String(rowBeforeEdit.patient_copay) : null)
+          const coinsurance = field === 'patient_coinsurance' ? (value != null && value !== '' ? String(value) : null) : (rowBeforeEdit.patient_coinsurance != null ? String(rowBeforeEdit.patient_coinsurance) : null)
+          const { error } = await supabase.from('patients').insert({
+            clinic_id: clinicId,
+            patient_id: newPatientId,
+            first_name: first_name || '',
+            last_name: last_name || '',
+            insurance,
+            copay,
+            coinsurance,
+          })
+          if (error) {
+            console.error('Error creating patient from provider sheet:', error)
+            return
+          }
+          await fetchPatients()
+          const rowIdToUpdate = providerSheetUpdatedRowIdRef.current
+          if (rowIdToUpdate) {
+            setProviderSheetRowsByMonth(prev => {
+              const cur = prev[selectedMonthKey] ?? {}
+              const list = cur[providerId] || []
+              return {
+                ...prev,
+                [selectedMonthKey]: {
+                  ...cur,
+                  [providerId]: list.map(r => (r.id === rowIdToUpdate ? { ...r, patient_id: newPatientId } : r)),
+                },
+              }
+            })
+          }
+        }
+      }
+      runPatientPersist()
+    }
+  }, [billingCodes, statusColors, selectedMonthKey, providerSheetRowsByMonth, clinicId, fetchPatients])
 
 
   const handleDeleteProviderSheetRow = useCallback(async (providerId: string, rowId: string) => {
@@ -2364,7 +2458,7 @@ export default function ClinicDetail() {
     const rowsToProcessFilter = (rows: SheetRow[]) =>
       rows.filter(r => {
         if (r.id.startsWith('empty-')) {
-          const hasData = r.patient_id || r.patient_first_name || r.last_initial || r.patient_insurance || r.patient_copay !== null || r.patient_coinsurance !== null || r.appointment_date || r.cpt_code || r.appointment_status || r.notes
+          const hasData = r.patient_id || r.appointment_date || r.cpt_code || r.appointment_status || r.notes
           return hasData
         }
         return true

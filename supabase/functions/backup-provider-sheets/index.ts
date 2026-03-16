@@ -105,10 +105,10 @@ Deno.serve(async (req) => {
   // Ensure bucket exists (idempotent)
   await supabase.storage.createBucket(BUCKET, { public: false, fileSizeLimit: 52428800 }).catch(() => {})
 
-  // Fetch all provider_sheets (optionally limit to recent months to keep run time bounded)
+  // Fetch all provider_sheets with clinic_id for resolving patient data (Option A: rows only have patient_id)
   const { data: sheets, error: sheetsError } = await supabase
     .from('provider_sheets')
-    .select('id')
+    .select('id, clinic_id')
   if (sheetsError) {
     console.error('backup-provider-sheets: FAILED to fetch sheets', sheetsError.message)
     return new Response(JSON.stringify({ error: sheetsError.message }), {
@@ -117,12 +117,16 @@ Deno.serve(async (req) => {
     })
   }
 
-  const sheetIds = (sheets || []).map((s: { id: string }) => s.id)
+  const sheetsList = (sheets || []) as { id: string; clinic_id: string }[]
+  const sheetIdToClinicId = new Map(sheetsList.map((s) => [s.id, s.clinic_id]))
+  const sheetIds = sheetsList.map((s) => s.id)
   console.log('backup-provider-sheets: sheets to backup:', sheetIds.length)
   let backedUp = 0
   let errors: string[] = []
 
   for (const sheetId of sheetIds) {
+    const clinicId = sheetIdToClinicId.get(sheetId) ?? null
+
     const { data: rows, error: rowsError } = await supabase
       .from('provider_sheet_rows')
       .select('*')
@@ -136,7 +140,39 @@ Deno.serve(async (req) => {
       continue
     }
 
-    const rowMaps = (rows || []).map((r: Record<string, unknown>) => ({ ...r }))
+    const rowsList = (rows || []) as Record<string, unknown>[]
+    const patientIds = [...new Set(rowsList.map((r) => r.patient_id).filter((pid): pid is string => pid != null && String(pid).trim() !== ''))]
+    let patientsMap = new Map<string, { first_name: string | null; last_name: string | null; insurance: string | null; copay: string | null; coinsurance: string | null }>()
+    if (clinicId && patientIds.length > 0) {
+      const { data: patients } = await supabase
+        .from('patients')
+        .select('patient_id, first_name, last_name, insurance, copay, coinsurance')
+        .eq('clinic_id', clinicId)
+        .in('patient_id', patientIds)
+      for (const p of (patients || []) as { patient_id: string; first_name: string | null; last_name: string | null; insurance: string | null; copay: string | null; coinsurance: string | null }[]) {
+        patientsMap.set(p.patient_id, {
+          first_name: p.first_name ?? null,
+          last_name: p.last_name ?? null,
+          insurance: p.insurance ?? null,
+          copay: p.copay != null ? String(p.copay) : null,
+          coinsurance: p.coinsurance != null ? String(p.coinsurance) : null,
+        })
+      }
+    }
+
+    const rowMaps = rowsList.map((r: Record<string, unknown>) => {
+      const spread = { ...r }
+      const pid = r.patient_id != null && String(r.patient_id).trim() !== '' ? String(r.patient_id) : null
+      const patient = pid ? patientsMap.get(pid) : null
+      return {
+        ...spread,
+        patient_first_name: patient?.first_name ?? null,
+        last_initial: patient?.last_name ? patient.last_name.charAt(0) : null,
+        patient_insurance: patient?.insurance ?? null,
+        patient_copay: patient?.copay ?? null,
+        patient_coinsurance: patient?.coinsurance ?? null,
+      }
+    })
 
     // Next version for this sheet
     const { data: maxVersion } = await supabase

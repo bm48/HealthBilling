@@ -40,19 +40,12 @@ function parseMonthKey(selectedMonthKey: string): { year: number; month: number;
 
 function patientToRowPayload(patient: PatientPayload, sheetId: string, sortOrder: number): Record<string, unknown> {
   const now = new Date().toISOString()
-  const lastInitial = patient.last_name ? patient.last_name.charAt(0) : null
   return {
     sheet_id: sheetId,
     sort_order: sortOrder,
     created_at: now,
     updated_at: now,
     patient_id: patient.patient_id ?? null,
-    patient_first_name: patient.first_name ?? null,
-    patient_last_name: patient.last_name ?? null,
-    last_initial: lastInitial,
-    patient_insurance: patient.insurance ?? null,
-    patient_copay: patient.copay != null ? String(patient.copay) : null,
-    patient_coinsurance: patient.coinsurance != null ? String(patient.coinsurance) : null,
     appointment_date: null,
     appointment_time: null,
     visit_type: null,

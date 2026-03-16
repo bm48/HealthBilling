@@ -1123,9 +1123,12 @@ export default function ProvidersTab({
     const updatedRows = [...baseRows]
     let idCounter = 0
     let hadPatientIdMerge = false
+    let hadPatientIdClear = false
     let hadDateColumnEdit = false
     let hadTotalAutoUpdate = false
     const deleteRowIds: string[] = []
+    /** Track (rowIndex, field) for each cell changed in this batch so we always notify parent (including when user clears a cell and stored value was already null) */
+    const changedCells = new Set<string>()
 
     // Track 0-value highlight updates for Ins Pay / Collected from PT (and "00" in Collected from PT → yellow)
     const YELLOW_HIGHLIGHT = '#eab308'
@@ -1133,6 +1136,7 @@ export default function ProvidersTab({
 
     changes.forEach(([row, col, , newValue]) => {
       const field = fields[col as number]
+      if (field) changedCells.add(`${row}:${field}`)
       // Ensure we have enough rows
       while (updatedRows.length <= row) {
         const createEmptyRow = (index: number): SheetRow => ({
@@ -1192,15 +1196,25 @@ export default function ProvidersTab({
           // Extract patient_id from dropdown value (format: "patient_id - first_name last_name") or raw input
           const raw = String(newValue ?? '').trim()
           const patientIdOrNull = raw ? (raw.split(' - ')[0]?.trim() || raw) : null
-          // When user clears patient ID, delete the row
+          // When user clears patient ID: clear only patient-related fields; keep all other columns (appointment_date, cpt_code, etc.)
           if (patientIdOrNull == null || patientIdOrNull === '') {
-            deleteRowIds.push(sheetRow.id)
+            hadPatientIdClear = true
+            updatedRows[row] = {
+              ...sheetRow,
+              id: newId,
+              patient_id: null,
+              patient_first_name: null,
+              patient_last_name: null,
+              last_initial: null,
+              patient_insurance: null,
+              patient_copay: null,
+              patient_coinsurance: null,
+              updated_at: new Date().toISOString(),
+            } as SheetRow
             return
           }
-          // Look up patient from patient database (case-insensitive, trimmed) and fill row
-          const patient = patientIdOrNull
-            ? patients.find(p => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase())
-            : null
+          // Look up patient from patient database (case-insensitive, trimmed) and fill patient fields only
+          const patient = patients.find(p => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase())
           const merged: Partial<SheetRow> = {
             ...sheetRow,
             id: newId,
@@ -1385,7 +1399,7 @@ export default function ProvidersTab({
       })()
     }
     
-    // Apply all changes to parent state
+    // Apply all changes to parent state (for cells in changedCells always notify parent so clears are persisted to patients table)
     updatedRows.forEach((row, index) => {
       const originalRow = activeProviderRows[index]
       if (originalRow) {
@@ -1397,7 +1411,10 @@ export default function ProvidersTab({
         ]
         
         fieldsToCheck.forEach(field => {
-          if (row[field] !== originalRow[field]) {
+          const cellKey = `${index}:${field}`
+          const valueChanged = row[field] !== originalRow[field]
+          const wasExplicitlyEdited = changedCells.has(cellKey)
+          if (valueChanged || wasExplicitlyEdited) {
             if (field === 'patient_id') {
               onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as string | null)
             } else if (field === 'patient_copay' || field === 'patient_coinsurance') {
@@ -1456,9 +1473,9 @@ export default function ProvidersTab({
       }
     }, 250)
 
-    // When patient_id was merged, a date column was edited, total was auto-calculated, or a row was deleted,
+    // When patient_id was merged or cleared, a date column was edited, total was auto-calculated, or a row was deleted,
     // bump so HandsontableWrapper pushes the ref data to the grid (wrapper only updates on dataVersion/length change).
-    if (hadPatientIdMerge || hadDateColumnEdit || hadTotalAutoUpdate || uniqueDeleteIds.length > 0) {
+    if (hadPatientIdMerge || hadPatientIdClear || hadDateColumnEdit || hadTotalAutoUpdate || uniqueDeleteIds.length > 0) {
       setStructureVersion((v) => v + 1)
     }
   }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, onDeleteRow, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, showVisitTypeColumn, patients, getTableDataFromRows, clinicId, userHighlightColor, userProfile?.id])
