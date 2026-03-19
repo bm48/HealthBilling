@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
+import { enrichSheetRowsFromPatients } from '@/lib/enrichProviderSheetRowsFromPatients'
 import {
   loadPatientsAssignmentMap,
   validatePatientIdsForProviderSheet,
@@ -230,7 +231,9 @@ export default function ProviderSheetPage() {
 
       setCurrentSheet(sheet)
 
-      const sheetRows = await fetchSheetRows(supabase, sheet.id)
+      let sheetRows = await fetchSheetRows(supabase, sheet.id)
+      const { data: clinicPatientsForRows } = await supabase.from('patients').select('*').eq('clinic_id', clinicId)
+      sheetRows = enrichSheetRowsFromPatients(sheetRows, (clinicPatientsForRows || []) as Patient[])
       const createEmptyRow = (index: number): SheetRow => ({
         id: `empty-${providerId}-${index}`,
         patient_id: null,

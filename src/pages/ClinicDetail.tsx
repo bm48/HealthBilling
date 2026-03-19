@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
+import { enrichSheetRowsFromPatients } from '@/lib/enrichProviderSheetRowsFromPatients'
 import {
   loadPatientsAssignmentMap,
   validatePatientIdsForProviderSheet,
@@ -1631,16 +1632,19 @@ export default function ClinicDetail() {
         rowId: string
       }> = []
 
-      let sheetRowsForProvider: SheetRow[] = []
+      let sheetRows: SheetRow[] = []
       if (sheet) {
-        sheetRowsForProvider = await fetchSheetRows(supabase, sheet.id)
+        sheetRows = await fetchSheetRows(supabase, sheet.id)
         try {
           const patientMap = await loadPatientsAssignmentMap(supabase, clinicId)
-          await claimUnassignedPatientsForProvider(supabase, clinicId, providerId, sheetRowsForProvider, patientMap)
+          await claimUnassignedPatientsForProvider(supabase, clinicId, providerId, sheetRows, patientMap)
         } catch (claimErr) {
           console.error('[ClinicDetail] claim on provider sheet fetch failed', claimErr)
         }
-        sheetRowsForProvider.forEach((row: SheetRow) => {
+        const { data: clinicPatients } = await supabase.from('patients').select('*').eq('clinic_id', clinicId)
+        sheetRows = enrichSheetRowsFromPatients(sheetRows, (clinicPatients || []) as Patient[])
+
+        sheetRows.forEach((row: SheetRow) => {
           rows.push({
             id: row.id,
             cpt_code: row.billing_code || '',
@@ -1699,7 +1703,6 @@ export default function ClinicDetail() {
         updated_at: new Date().toISOString(),
       })
 
-      const sheetRows = sheet ? await fetchSheetRows(supabase, sheet.id) : []
       const emptyRowsNeeded = Math.max(0, 200 - sheetRows.length)
       const emptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => 
         createEmptyProviderSheetRow(i)
@@ -1857,6 +1860,9 @@ export default function ClinicDetail() {
         console.error('[ClinicDetail] loadPatientsAssignmentMap failed during provider sheets fetch', e)
       }
 
+      const { data: clinicPatientsForEnrich } = await supabase.from('patients').select('*').eq('clinic_id', clinicId)
+      const clinicPatientsList = (clinicPatientsForEnrich || []) as Patient[]
+
       // Fetch or create provider sheets for all providers
       const sheetsMap: Record<string, ProviderSheet> = {}
       const rowsMap: Record<string, SheetRow[]> = {}
@@ -1926,7 +1932,7 @@ export default function ClinicDetail() {
         }
 
         sheetsMap[providerId] = sheet
-        const sheetRows = await fetchSheetRows(supabase, sheet.id)
+        let sheetRows = await fetchSheetRows(supabase, sheet.id)
         if (patientMap) {
           try {
             await claimUnassignedPatientsForProvider(supabase, clinicId, providerId, sheetRows, patientMap)
@@ -1934,7 +1940,8 @@ export default function ClinicDetail() {
             console.error('[ClinicDetail] claim on provider sheets fetch failed', claimErr)
           }
         }
-        
+        sheetRows = enrichSheetRowsFromPatients(sheetRows, clinicPatientsList)
+
         // Add empty rows to reach 200 total rows per provider
         const createEmptyProviderSheetRow = (index: number): SheetRow => ({
           id: `empty-${providerId}-${index}`,
