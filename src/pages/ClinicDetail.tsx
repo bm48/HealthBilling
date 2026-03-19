@@ -7,6 +7,7 @@ import { enrichSheetRowsFromPatients } from '@/lib/enrichProviderSheetRowsFromPa
 import {
   loadPatientsAssignmentMap,
   validatePatientIdsForProviderSheet,
+  alertPatientIdWrongProviderDeduped,
   claimUnassignedPatientsForProvider,
 } from '@/lib/providerSheetPatientAssignment'
 import { fetchBackupCsvAsSheetRows, padSheetRowsTo200 } from '@/lib/providerSheetBackups'
@@ -2043,7 +2044,7 @@ export default function ClinicDetail() {
 
     const validation = validatePatientIdsForProviderSheet(rowsToProcess, providerId, patientMap)
     if (!validation.ok) {
-      alert(validation.message)
+      alertPatientIdWrongProviderDeduped(validation.conflictingPatientId)
       return
     }
 

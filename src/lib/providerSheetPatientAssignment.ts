@@ -3,6 +3,23 @@ import type { SheetRow } from '@/types'
 
 export type PatientAssignmentRecord = { id: string; patient_id: string; provider_id: string | null }
 
+/** Prevents double alerts when the grid rejects an ID and the debounced save validates the same ID moments later. */
+const WRONG_PROVIDER_ALERT_DEDUPE_MS = 4000
+let wrongProviderAlertLastKey = ''
+let wrongProviderAlertLastAt = 0
+
+export function alertPatientIdWrongProviderDeduped(patientIdDisplay: string): void {
+  const key = String(patientIdDisplay ?? '').trim().toLowerCase()
+  if (!key) return
+  const t = Date.now()
+  if (key === wrongProviderAlertLastKey && t - wrongProviderAlertLastAt < WRONG_PROVIDER_ALERT_DEDUPE_MS) return
+  wrongProviderAlertLastKey = key
+  wrongProviderAlertLastAt = t
+  alert(
+    `Patient ID "${patientIdDisplay}" is already assigned to another provider in this clinic. They cannot be added to this provider's sheet.`
+  )
+}
+
 export async function loadPatientsAssignmentMap(
   supabase: SupabaseClient,
   clinicId: string
@@ -31,7 +48,7 @@ export function validatePatientIdsForProviderSheet(
   rows: SheetRow[],
   sheetProviderId: string,
   patientMap: Map<string, PatientAssignmentRecord>
-): { ok: true } | { ok: false; message: string } {
+): { ok: true } | { ok: false; conflictingPatientId: string } {
   const checked = new Set<string>()
   for (const row of rows) {
     const pid =
@@ -45,7 +62,7 @@ export function validatePatientIdsForProviderSheet(
     if (rec?.provider_id && rec.provider_id !== sheetProviderId) {
       return {
         ok: false,
-        message: `Patient ID "${rec.patient_id}" is already assigned to another provider in this clinic. Remove it from this sheet or use a different ID.`,
+        conflictingPatientId: rec.patient_id,
       }
     }
   }

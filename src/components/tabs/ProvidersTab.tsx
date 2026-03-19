@@ -9,6 +9,51 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { toDisplayValue, toDisplayDate, parseDateOfServiceInput } from '@/lib/utils'
 import { computeBillingMetrics } from '@/lib/billingMetrics'
+import { alertPatientIdWrongProviderDeduped } from '@/lib/providerSheetPatientAssignment'
+
+/** Only defer patient_id to DB validation for paste / fill / multi-cell — not per-keystroke cell edits. */
+function shouldBatchDeferPatientId(source: string, nonNullChangeCount: number): boolean {
+  if (nonNullChangeCount > 1) return true
+  const s = String(source)
+  if (s === 'CopyPaste') return true
+  if (s.includes('Autofill')) return true
+  if (s === 'fill') return true
+  return false
+}
+
+function buildSheetRowWithPatientIdMerge(baseRow: SheetRow, patientId: string, db: Patient | null): SheetRow {
+  const newId = baseRow.id.startsWith('empty-') ? `new-${Date.now()}-${Math.random()}` : baseRow.id
+  const merged: SheetRow = {
+    ...baseRow,
+    id: newId,
+    patient_id: patientId,
+    updated_at: new Date().toISOString(),
+  }
+  if (db) {
+    merged.patient_first_name = db.first_name || null
+    merged.last_initial = db.last_name ? db.last_name.charAt(0) : null
+    merged.patient_insurance = db.insurance || null
+    merged.patient_copay = db.copay ?? null
+    merged.patient_coinsurance = db.coinsurance ?? null
+  }
+  return merged
+}
+
+/** Clear patient ID + related columns after invalid “other provider” validation; `newId` is the row id (promote empty- → new- when needed). */
+function sheetRowAfterInvalidOtherProviderPatient(baseRow: SheetRow, newId: string): SheetRow {
+  return {
+    ...baseRow,
+    id: newId,
+    patient_id: null,
+    patient_first_name: null,
+    patient_last_name: null,
+    last_initial: null,
+    patient_insurance: null,
+    patient_copay: null,
+    patient_coinsurance: null,
+    updated_at: new Date().toISOString(),
+  }
+}
 
 interface ProvidersTabProps {
   /** Required for loading/saving cell highlights and comments; from URL on provider side when they click a clinic */
@@ -176,13 +221,40 @@ export default function ProvidersTab({
   const selectedMonthKeyForPendingRef = useRef(selectedMonthKey)
   selectedMonthKeyForPendingRef.current = selectedMonthKey
 
+  /** Patient rows to merge after `patientIdDbValidated` setDataAtCell (from DB lookup). */
+  const pendingPatientMergeByRowRef = useRef<Map<number, Patient | null>>(new Map())
+  /** Snapshot before single-cell Patient ID edit; used to revert row if DB says ID belongs to another provider. */
+  const pendingInvalidPatientRowRef = useRef<Map<number, SheetRow>>(new Map())
+  /** Latest non-empty patient_id per row while typing (debounced validation). */
+  const patientIdEditLatestPidRef = useRef<Map<number, string>>(new Map())
+  const patientIdEditDebounceRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+  const patientIdDeferredQueueRef = useRef<Array<{ row: number; col: number | string; newVal: string }>>([])
+  const patientIdFlushScheduledRef = useRef(false)
+  const activeProviderRef = useRef(activeProvider)
+  const clinicIdForValidationRef = useRef(clinicId)
+  const isViewingBackupRef = useRef(isViewingBackup)
+  activeProviderRef.current = activeProvider
+  clinicIdForValidationRef.current = clinicId
+  isViewingBackupRef.current = isViewingBackup
+
   const localRowsProviderKeyRef = useRef<string | null>(null)
+
+  /** Column `data` for Patient ID is always 0 in this grid. */
+  const isPatientIdSheetColumnProp = (prop: string | number): boolean =>
+    prop === 0 || prop === '0' || Number(prop) === 0
 
   // Clear refs when provider/month changes, when parent refetched, or when viewing backup (so backup rows from props are used)
   useEffect(() => {
     latestTableDataRef.current = null
     latestProviderRowsRef.current = null
     localRowsProviderKeyRef.current = null
+    patientIdDeferredQueueRef.current = []
+    patientIdFlushScheduledRef.current = false
+    pendingPatientMergeByRowRef.current.clear()
+    pendingInvalidPatientRowRef.current.clear()
+    patientIdEditLatestPidRef.current.clear()
+    for (const t of patientIdEditDebounceRef.current.values()) clearTimeout(t)
+    patientIdEditDebounceRef.current.clear()
   }, [activeProvider?.id, selectedMonth.getTime(), providerRowsVersion, isViewingBackup])
 
   // Keep ref in sync for provider/month/backup so change handler and flush-on-unmount have correct key
@@ -1083,35 +1155,101 @@ export default function ProvidersTab({
     return (showCondenseButton && isCondensed) ? fullProviderColumns.slice(0, showVisitTypeColumn ? 10 : 9) : fullProviderColumns
   }, [activeProvider, clinicPayroll, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, showVisitTypeColumn, restrictEditToSchedulingColumns])
 
-  // Before Handsontable applies edits: block invalid patient_id (other provider) so UI never shows the value.
+  // Before Handsontable applies edits: non-empty patient_id values are deferred — we revert the cell in this hook,
+  // then validate against the patients table in DB and only then setDataAtCell(..., 'patientIdDbValidated').
+  // This prevents any patient demographics from appearing when the ID belongs to another provider.
   // When Visit Type column is present, fill/drag can copy boolean into Appt/Note Status (col 8). Replace with source cell value so fill works.
-  const beforeChangeCorrectProviderRows = useCallback((
-    changes: Handsontable.CellChange[] | null,
-    _source: Handsontable.ChangeSource,
-    hotInstance?: Handsontable | null
-  ): void | false => {
-    if (!changes?.length || !activeProvider) return
-    const PATIENT_ID_COL = 0
-    for (const ch of changes) {
-      if (!ch) continue
-      const col = ch[1]
-      if (col !== PATIENT_ID_COL) continue
-      const newValue = ch[3]
-      const raw = String(newValue ?? '').trim()
-      const patientIdOrNull = raw ? (raw.split(' - ')[0]?.trim() || raw) : null
-      if (!patientIdOrNull) continue
-      const patient = patients.find(
-        (p) => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase()
-      )
-      if (patient?.provider_id && patient.provider_id !== activeProvider.id) {
-        alert(
-          `Patient ID "${patient.patient_id}" is already assigned to another provider in this clinic. They cannot be added to this provider's sheet.`
-        )
-        return false
-      }
-    }
+  const beforeChangeCorrectProviderRows = useCallback(
+    (
+      changes: Handsontable.CellChange[] | null,
+      source: Handsontable.ChangeSource,
+      hotInstance?: Handsontable | null
+    ): void | false => {
+      if (!changes?.length) return
 
-    if (!showVisitTypeColumn) return
+      const src = String(source)
+      const deferPatientIds =
+        src !== 'loadData' &&
+        src !== 'updateData' &&
+        clinicIdForValidationRef.current &&
+        activeProviderRef.current &&
+        !isViewingBackup
+
+      const changeCount = changes.filter((c) => c != null).length
+      if (deferPatientIds && shouldBatchDeferPatientId(src, changeCount)) {
+        for (const ch of changes) {
+          if (!ch) continue
+          const colProp = ch[1] as string | number
+          if (!isPatientIdSheetColumnProp(colProp)) continue
+          const newValue = ch[3]
+          const raw = String(newValue ?? '').trim()
+          const patientIdOrNull = raw ? (raw.split(' - ')[0]?.trim() || raw) : null
+          if (!patientIdOrNull) continue
+          const oldVal = ch[2]
+          ;(ch as unknown[])[3] = oldVal
+          patientIdDeferredQueueRef.current.push({
+            row: ch[0] as number,
+            col: colProp,
+            newVal: patientIdOrNull,
+          })
+        }
+
+        if (patientIdDeferredQueueRef.current.length > 0 && hotInstance && !hotInstance.isDestroyed) {
+          const hot = hotInstance
+          if (!patientIdFlushScheduledRef.current) {
+            patientIdFlushScheduledRef.current = true
+            queueMicrotask(() => {
+              patientIdFlushScheduledRef.current = false
+              const batch = patientIdDeferredQueueRef.current.splice(0)
+              const ap = activeProviderRef.current
+              const cid = clinicIdForValidationRef.current
+              if (!hot.isDestroyed && ap && cid && batch.length > 0) {
+                void (async () => {
+                  const { data, error } = await supabase.from('patients').select('*').eq('clinic_id', cid)
+                  if (error) {
+                    console.error('[ProvidersTab] patient ID validation (DB) failed', error)
+                    return
+                  }
+                  const byKey = new Map<string, Patient>()
+                  for (const p of data || []) {
+                    const k = String(p.patient_id ?? '').trim().toLowerCase()
+                    if (k) byKey.set(k, p as Patient)
+                  }
+                  const alerted = new Set<string>()
+                  const byRow = new Map<number, { col: string | number; newVal: string }>()
+                  for (const item of batch) {
+                    byRow.set(item.row, { col: item.col, newVal: item.newVal })
+                  }
+                  for (const [row, { col, newVal }] of byRow) {
+                    const key = newVal.trim().toLowerCase()
+                    const rec = byKey.get(key)
+                    if (rec?.provider_id && rec.provider_id !== ap.id) {
+                      if (!alerted.has(key)) {
+                        alerted.add(key)
+                        alertPatientIdWrongProviderDeduped(rec.patient_id)
+                      }
+                      try {
+                        hot.setDataAtCell(row, col as number, '', 'clearInvalidOtherProviderPatientId')
+                      } catch (e) {
+                        console.error('[ProvidersTab] clear invalid patient ID cell failed', e)
+                      }
+                      continue
+                    }
+                    pendingPatientMergeByRowRef.current.set(row, rec ?? null)
+                    try {
+                      hot.setDataAtCell(row, col as number, newVal, 'patientIdDbValidated')
+                    } catch (e) {
+                      console.error('[ProvidersTab] setDataAtCell after patient ID validation failed', e)
+                    }
+                  }
+                })()
+              }
+            })
+          }
+        }
+      }
+
+      if (!showVisitTypeColumn) return
     const APPT_NOTE_STATUS_COL = 8
     const badChanges = changes.filter(
       (ch) => ch[1] === APPT_NOTE_STATUS_COL && (ch[3] === true || ch[3] === false)
@@ -1131,11 +1269,11 @@ export default function ProvidersTab({
     badChanges.forEach((change) => {
       ;(change as unknown[])[3] = valueToApply
     })
-  }, [showVisitTypeColumn, activeProvider, patients])
+  }, [showVisitTypeColumn, isViewingBackup])
 
   const handleProviderRowsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData' || !activeProvider) return
-    
+
     // Column index -> SheetRow field (visit_type inserted at 9 when showVisitTypeColumn)
     const fieldsFullBase: Array<keyof SheetRow> = [
       'patient_id', 'patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance',
@@ -1251,6 +1389,12 @@ export default function ProvidersTab({
           // When user clears patient ID: clear only patient-related fields; keep all other columns (appointment_date, cpt_code, etc.)
           if (patientIdOrNull == null || patientIdOrNull === '') {
             hadPatientIdClear = true
+            if (String(source) === 'clearInvalidOtherProviderPatientId') hadRejectedPatientId = true
+            const t = patientIdEditDebounceRef.current.get(row)
+            if (t) clearTimeout(t)
+            patientIdEditDebounceRef.current.delete(row)
+            patientIdEditLatestPidRef.current.delete(row)
+            pendingInvalidPatientRowRef.current.delete(row)
             updatedRows[row] = {
               ...sheetRow,
               id: newId,
@@ -1265,34 +1409,126 @@ export default function ProvidersTab({
             } as SheetRow
             return
           }
-          // Look up patient from patient database (case-insensitive, trimmed) and fill patient fields only
-          const patient = patients.find(p => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase())
-          if (patient?.provider_id && patient.provider_id !== activeProvider.id) {
-            alert(
-              `Patient ID "${patient.patient_id}" is already assigned to another provider in this clinic. They cannot be added to this provider's sheet.`
-            )
-            // Hard-revert this row in local table state so forbidden ID never appears in UI.
-            updatedRows[row] = { ...sheetRow }
-            hadRejectedPatientId = true
-            changedCells.delete(`${row}:${field}`)
-            setStructureVersion((v) => v + 1)
+          // Non-empty IDs must be validated against DB first (beforeChange defers + setDataAtCell(..., 'patientIdDbValidated')).
+          if (String(source) === 'patientIdDbValidated') {
+            const dbPatient = pendingPatientMergeByRowRef.current.get(row)
+            pendingPatientMergeByRowRef.current.delete(row)
+            if (dbPatient?.provider_id && dbPatient.provider_id !== activeProvider.id) {
+              hadRejectedPatientId = true
+              hadPatientIdClear = true
+              updatedRows[row] = sheetRowAfterInvalidOtherProviderPatient(sheetRow, newId)
+              return
+            }
+            if (dbPatient) hadPatientIdMerge = true
+            updatedRows[row] = buildSheetRowWithPatientIdMerge(sheetRow, patientIdOrNull, dbPatient ?? null)
             return
           }
-          const merged: Partial<SheetRow> = {
+          if (String(source) === 'revertInvalidPatientId') {
+            pendingInvalidPatientRowRef.current.delete(row)
+            hadRejectedPatientId = true
+            hadPatientIdClear = true
+            updatedRows[row] = sheetRowAfterInvalidOtherProviderPatient(sheetRow, newId)
+            return
+          }
+          // Internal refresh: optional merge from in-memory patients list only (no new user typing). (loadData is skipped at top of handler.)
+          if (String(source) === 'updateSettings') {
+            const patient = patients.find(
+              (p) => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase()
+            )
+            if (patient?.provider_id && patient.provider_id !== activeProvider.id) {
+              hadRejectedPatientId = true
+              hadPatientIdClear = true
+              updatedRows[row] = sheetRowAfterInvalidOtherProviderPatient(sheetRow, newId)
+              return
+            }
+            const merged: Partial<SheetRow> = {
+              ...sheetRow,
+              id: newId,
+              patient_id: patientIdOrNull,
+              updated_at: new Date().toISOString(),
+            }
+            if (patient) {
+              hadPatientIdMerge = true
+              merged.patient_first_name = patient.first_name || null
+              merged.last_initial = patient.last_name ? patient.last_name.charAt(0) : null
+              merged.patient_insurance = patient.insurance || null
+              merged.patient_copay = patient.copay ?? null
+              merged.patient_coinsurance = patient.coinsurance ?? null
+            }
+            updatedRows[row] = merged as SheetRow
+            return
+          }
+          // Normal typing / single-cell edit: keep patient_id in the row; debounce async DB validation (batch paste uses beforeChange defer).
+          patientIdEditLatestPidRef.current.set(row, patientIdOrNull)
+          if (!pendingInvalidPatientRowRef.current.has(row)) {
+            pendingInvalidPatientRowRef.current.set(row, JSON.parse(JSON.stringify(sheetRow)) as SheetRow)
+          }
+          updatedRows[row] = {
             ...sheetRow,
             id: newId,
             patient_id: patientIdOrNull,
             updated_at: new Date().toISOString(),
           }
-          if (patient) {
-            hadPatientIdMerge = true
-            merged.patient_first_name = patient.first_name || null
-            merged.last_initial = patient.last_name ? patient.last_name.charAt(0) : null
-            merged.patient_insurance = patient.insurance || null
-            merged.patient_copay = patient.copay ?? null
-            merged.patient_coinsurance = patient.coinsurance ?? null
-          }
-          updatedRows[row] = merged as SheetRow
+          const apIdForDebounce = activeProvider.id
+          const prevDeb = patientIdEditDebounceRef.current.get(row)
+          if (prevDeb) clearTimeout(prevDeb)
+          patientIdEditDebounceRef.current.set(
+            row,
+            setTimeout(() => {
+              patientIdEditDebounceRef.current.delete(row)
+              void (async () => {
+                const ap = activeProviderRef.current
+                const clinic = clinicIdForValidationRef.current
+                if (!ap || !clinic || ap.id !== apIdForDebounce || isViewingBackupRef.current) return
+                const pidRaw = patientIdEditLatestPidRef.current.get(row)?.trim()
+                if (!pidRaw) return
+                const key = pidRaw.toLowerCase()
+
+                const { data, error } = await supabase.from('patients').select('*').eq('clinic_id', clinic)
+                if (error) {
+                  console.error('[ProvidersTab] patient ID validation (edit) failed', error)
+                  return
+                }
+                const rec =
+                  (data || []).find((p) => String(p.patient_id ?? '').trim().toLowerCase() === key) ?? null
+
+                const cur = latestProviderRowsRef.current?.providerId === ap.id ? [...latestProviderRowsRef.current.rows] : null
+                if (!cur || row >= cur.length) return
+                const baseRow = cur[row]
+                if (!baseRow || String(baseRow.patient_id ?? '').trim().toLowerCase() !== key) return
+
+                if (rec?.provider_id && rec.provider_id !== ap.id) {
+                  pendingInvalidPatientRowRef.current.delete(row)
+                  patientIdEditLatestPidRef.current.delete(row)
+                  const br = baseRow
+                  const needsNewId = br.id.startsWith('empty-')
+                  const rowNewId = needsNewId ? `new-${Date.now()}-${Math.random()}` : br.id
+                  cur[row] = sheetRowAfterInvalidOtherProviderPatient(br, rowNewId)
+                  latestProviderRowsRef.current = { providerId: ap.id, rows: cur }
+                  latestTableDataRef.current = getTableDataFromRows(cur)
+                  pendingProviderSheetSaveRef.current = { providerId: ap.id, rows: cur }
+                  onSaveProviderSheetRowsDirectRef.current(ap.id, cur).catch((e) =>
+                    console.error('[ProvidersTab] save after invalid patient id (edit)', e)
+                  )
+                  setStructureVersion((v) => v + 1)
+                  alertPatientIdWrongProviderDeduped(rec.patient_id)
+                  return
+                }
+
+                const merged = buildSheetRowWithPatientIdMerge(baseRow, pidRaw, rec)
+                cur[row] = merged
+                latestProviderRowsRef.current = { providerId: ap.id, rows: cur }
+                latestTableDataRef.current = getTableDataFromRows(cur)
+                pendingProviderSheetSaveRef.current = { providerId: ap.id, rows: cur }
+                pendingInvalidPatientRowRef.current.delete(row)
+                onSaveProviderSheetRowsDirectRef.current(ap.id, cur).catch((e) =>
+                  console.error('[ProvidersTab] save after patient id merge (edit)', e)
+                )
+                setStructureVersion((v) => v + 1)
+              })()
+            }, 350)
+          )
+          return
         } else if (field === 'patient_copay' || field === 'patient_coinsurance') {
           const strValue = (newValue === '' || newValue === null || newValue === 'null' || newValue === undefined) ? null : String(newValue)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: strValue, updated_at: new Date().toISOString() } as SheetRow
