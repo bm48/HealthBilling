@@ -261,23 +261,14 @@ export default function ProvidersTab({
   // When isProviderView and providerLevel 2, show full columns; when providerLevel 1, show only up to Appt/Note Status
   // When officeStaffView, show ID through Appt/Note Status (0-8) and Collected from PT through PT Payment AR Ref Date (14-16)
   const getTableDataFromRows = useCallback((rows: SheetRow[]) => {
-    const findPatientForRow = (row: SheetRow) => {
-      const raw = row.patient_id != null && String(row.patient_id).trim() !== '' ? String(row.patient_id).trim() : ''
-      if (!raw) return undefined
-      const key = raw.toLowerCase()
-      return patients.find((p) => String(p.patient_id ?? '').trim().toLowerCase() === key)
-    }
     return rows.map(row => {
-      const patient = findPatientForRow(row)
       const patientDisplay = toDisplayValue(row.patient_id)
-      // Unknown ID: show blank patient columns (row may still have stale denormalized data). Known ID: show patients table as source of truth for these columns.
-      const firstNameDisplay = patient ? toDisplayValue(patient.first_name) : toDisplayValue(row.patient_first_name)
-      const lastInitialDisplay = patient
-        ? (patient.last_name ? toDisplayValue(patient.last_name.charAt(0)) : '')
-        : toDisplayValue(row.last_initial)
-      const insuranceDisplay = patient ? toDisplayValue(patient.insurance) : toDisplayValue(row.patient_insurance)
-      const copayDisplay = patient ? toDisplayValue(patient.copay) : toDisplayValue(row.patient_copay)
-      const coinsuranceDisplay = patient ? toDisplayValue(patient.coinsurance) : toDisplayValue(row.patient_coinsurance)
+      // Providers tab should always reflect provider_sheet_rows values for patient-related columns.
+      const firstNameDisplay = toDisplayValue(row.patient_first_name)
+      const lastInitialDisplay = toDisplayValue(row.last_initial)
+      const insuranceDisplay = toDisplayValue(row.patient_insurance)
+      const copayDisplay = toDisplayValue(row.patient_copay)
+      const coinsuranceDisplay = toDisplayValue(row.patient_coinsurance)
       const visitTypeVal = () => row.visit_type === 'Telehealth'
       const insertVisitType = (arr: (string | number)[]) => showVisitTypeColumn ? [...arr.slice(0, 9), visitTypeVal(), ...arr.slice(9)] : arr
       if (officeStaffView) {
@@ -360,7 +351,7 @@ export default function ProvidersTab({
       if (showCondenseButton && isCondensed) return withVisitType.slice(0, showVisitTypeColumn ? 10 : 9)
       return withVisitType
     })
-  }, [patients, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, showVisitTypeColumn])
+  }, [isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, showVisitTypeColumn])
 
   // Convert rows to Handsontable data format; prefer latest from change handler, then props, to avoid losing typed data when parent re-renders after load (like PatientsTab).
   // When viewing backup, always use backup rows from props. When not viewing backup and ref is null, use props (activeProviderRows) so "Back to current" shows current data immediately instead of stale local state.
@@ -1092,13 +1083,35 @@ export default function ProvidersTab({
     return (showCondenseButton && isCondensed) ? fullProviderColumns.slice(0, showVisitTypeColumn ? 10 : 9) : fullProviderColumns
   }, [activeProvider, clinicPayroll, billingCodes, statusColors, getCPTColor, getStatusColor, getMonthColor, patients, canEdit, lockData, getReadOnly, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, showVisitTypeColumn, restrictEditToSchedulingColumns])
 
+  // Before Handsontable applies edits: block invalid patient_id (other provider) so UI never shows the value.
   // When Visit Type column is present, fill/drag can copy boolean into Appt/Note Status (col 8). Replace with source cell value so fill works.
   const beforeChangeCorrectProviderRows = useCallback((
     changes: Handsontable.CellChange[] | null,
     _source: Handsontable.ChangeSource,
     hotInstance?: Handsontable | null
-  ) => {
-    if (!showVisitTypeColumn || !changes) return
+  ): void | false => {
+    if (!changes?.length || !activeProvider) return
+    const PATIENT_ID_COL = 0
+    for (const ch of changes) {
+      if (!ch) continue
+      const col = ch[1]
+      if (col !== PATIENT_ID_COL) continue
+      const newValue = ch[3]
+      const raw = String(newValue ?? '').trim()
+      const patientIdOrNull = raw ? (raw.split(' - ')[0]?.trim() || raw) : null
+      if (!patientIdOrNull) continue
+      const patient = patients.find(
+        (p) => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase()
+      )
+      if (patient?.provider_id && patient.provider_id !== activeProvider.id) {
+        alert(
+          `Patient ID "${patient.patient_id}" is already assigned to another provider in this clinic. They cannot be added to this provider's sheet.`
+        )
+        return false
+      }
+    }
+
+    if (!showVisitTypeColumn) return
     const APPT_NOTE_STATUS_COL = 8
     const badChanges = changes.filter(
       (ch) => ch[1] === APPT_NOTE_STATUS_COL && (ch[3] === true || ch[3] === false)
@@ -1118,7 +1131,7 @@ export default function ProvidersTab({
     badChanges.forEach((change) => {
       ;(change as unknown[])[3] = valueToApply
     })
-  }, [showVisitTypeColumn])
+  }, [showVisitTypeColumn, activeProvider, patients])
 
   const handleProviderRowsHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
     if (!changes || source === 'loadData' || !activeProvider) return
@@ -1157,10 +1170,12 @@ export default function ProvidersTab({
     const baseRows = (latestProviderRowsRef.current?.providerId === activeProvider.id)
       ? latestProviderRowsRef.current.rows
       : activeProviderRows
+
     const updatedRows = [...baseRows]
     let idCounter = 0
     let hadPatientIdMerge = false
     let hadPatientIdClear = false
+    let hadRejectedPatientId = false
     let hadDateColumnEdit = false
     let hadTotalAutoUpdate = false
     const deleteRowIds: string[] = []
@@ -1256,6 +1271,9 @@ export default function ProvidersTab({
             alert(
               `Patient ID "${patient.patient_id}" is already assigned to another provider in this clinic. They cannot be added to this provider's sheet.`
             )
+            // Hard-revert this row in local table state so forbidden ID never appears in UI.
+            updatedRows[row] = { ...sheetRow }
+            hadRejectedPatientId = true
             changedCells.delete(`${row}:${field}`)
             setStructureVersion((v) => v + 1)
             return
@@ -1400,6 +1418,10 @@ export default function ProvidersTab({
     // Store latest table data and rows so next render and flush-on-unmount have current data (like PatientsTab setPatients)
     latestTableDataRef.current = getTableDataFromRows(updatedRows)
     latestProviderRowsRef.current = { providerId: activeProvider.id, rows: updatedRows }
+    if (hadRejectedPatientId) {
+      // Ensure grid redraw uses reverted data immediately (without waiting for any save path).
+      latestTableDataRef.current = null
+    }
 
     // Auto add/remove highlight when Ins Pay or Collected from PT is set to 0 / "00" or changed
     if (zeroHighlightUpdates.length > 0 && clinicId) {

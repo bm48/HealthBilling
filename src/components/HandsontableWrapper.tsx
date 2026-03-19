@@ -163,8 +163,12 @@ interface HandsontableWrapperProps {
   stretchH?: 'all' | 'last' | 'none'
   licenseKey?: string
   afterChange?: (changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => void
-  /** Called before changes are applied; can mutate the changes array in place (e.g. to fix fill copying wrong column). Receives hot instance as 3rd arg when available. */
-  beforeChangeCorrect?: (changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource, hotInstance?: Handsontable | null) => void
+  /** Called before changes are applied; can mutate the changes array in place (e.g. to fix fill copying wrong column). Receives hot instance as 3rd arg when available. Return false to cancel the entire batch (Handsontable beforeChange). */
+  beforeChangeCorrect?: (
+    changes: Handsontable.CellChange[] | null,
+    source: Handsontable.ChangeSource,
+    hotInstance?: Handsontable | null
+  ) => void | false
   afterSelection?: (r: number, c: number, r2: number, c2: number) => void
   /** Called when the user deselects the grid (e.g. clicks outside the table). Use to trigger save on "leave table". */
   afterDeselect?: () => void
@@ -543,7 +547,8 @@ export default function HandsontableWrapper({
       if (beforeChangeCorrect && changes) {
         const hot = hotTableRef.current?.hotInstance ?? null
         const valid = changes.filter((c): c is NonNullable<typeof c> => c != null)
-        beforeChangeCorrect(valid, source, hot)
+        const result = beforeChangeCorrect(valid, source, hot)
+        if (result === false) return false
       }
     },
     

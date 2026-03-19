@@ -1289,7 +1289,7 @@ export default function ClinicDetail() {
 
       const { data: existingPatients, error: fetchError } = await supabase
         .from('patients')
-        .select('id, patient_id, first_name, insurance, copay, coinsurance')
+        .select('id, patient_id, first_name, last_name, insurance, copay, coinsurance')
         .eq('clinic_id', clinicId)
         .in('patient_id', patientIds)
       if (fetchError) {
@@ -1301,6 +1301,7 @@ export default function ClinicDetail() {
         id: string
         patient_id: string
         first_name: string | null
+        last_name: string | null
         insurance: string | null
         copay: string | number | null
         coinsurance: string | number | null
@@ -1312,6 +1313,7 @@ export default function ClinicDetail() {
           id: string
           patient_id: string
           first_name: string | null
+          last_name: string | null
           insurance: string | null
           copay: string | number | null
           coinsurance: string | number | null
@@ -1335,12 +1337,22 @@ export default function ClinicDetail() {
         copay?: string | number | null
         coinsurance?: string | number | null
       }>()
+      const isEmpty = (v: unknown): boolean => v == null || String(v).trim() === ''
 
       for (const row of rows) {
         const rowPatientId = row.patient_id != null ? String(row.patient_id).trim() : ''
         if (!rowPatientId) continue
         const existing = patientByIdKey.get(rowPatientId.toLowerCase())
         if (!existing) continue
+        // Only allow Providers-tab patient-field writes when non-ID patient fields are still empty.
+        // If any patient field already has data, keep patients table as source of truth and skip overwrite.
+        const canSeedFromProviderSheet =
+          isEmpty(existing.first_name) &&
+          isEmpty(existing.last_name) &&
+          isEmpty(existing.insurance) &&
+          isEmpty(existing.copay) &&
+          isEmpty(existing.coinsurance)
+        if (!canSeedFromProviderSheet) continue
 
         const nextFirstName = normalizeStr(row.patient_first_name)
         const nextInsurance = normalizeStr(row.patient_insurance)
