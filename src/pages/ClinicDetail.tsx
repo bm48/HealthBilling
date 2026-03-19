@@ -2,8 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
-import { addPatientsToProviderSheets } from '@/lib/addPatientsToProviderSheets'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
+import {
+  loadPatientsAssignmentMap,
+  validatePatientIdsForProviderSheet,
+  claimUnassignedPatientsForProvider,
+} from '@/lib/providerSheetPatientAssignment'
 import { fetchBackupCsvAsSheetRows, padSheetRowsTo200 } from '@/lib/providerSheetBackups'
 import BackupVersionsBar, { type BackupVersionMeta } from '@/components/BackupVersionsBar'
 import {
@@ -90,8 +94,6 @@ export default function ClinicDetail() {
   const lastUndoRef = useRef<(() => void) | null>(null)
   /** Flush Patient Info save (with row-leave flag) before switching tab; registered by PatientsTab */
   const patientsTabFlushRef = useRef<(() => Promise<void>) | null>(null)
-  /** Patient ids we already added to provider sheets this month; avoids duplicates when flush re-runs save and calls onPatientsCreated again */
-  const addedToProviderSheetsRef = useRef<{ monthKey: string; ids: Set<string> }>({ monthKey: '', ids: new Set() })
 
   // Month filter for provider tab (and pay-period half when clinic has payroll=2)
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
@@ -246,6 +248,11 @@ export default function ClinicDetail() {
   const prevMonthKeyRef = useRef<string | null>(null)
   /** Tracks (clinicId, providerId, monthKey) so we only skip fetch when cache is for this clinic (fixes same content across clinics). */
   const lastProviderSheetContextRef = useRef<{ clinicId: string; providerId: string | null; monthKey: string } | null>(null)
+  /** Latest provider sheet rows (ref only) — do not put providerSheetRowsByMonth in the fetch effect deps or every edit retriggers fetch/races. */
+  const providerSheetRowsByMonthRef = useRef(providerSheetRowsByMonth)
+  useEffect(() => {
+    providerSheetRowsByMonthRef.current = providerSheetRowsByMonth
+  }, [providerSheetRowsByMonth])
   /** Month key for the provider-sheets fetch in progress; we only set loading false when this fetch completes so we don't reveal content from an outdated fetch. */
   const lastProviderSheetsFetchMonthKeyRef = useRef<string | null>(null)
   /** (providerId, monthKey) for the single-provider sheet fetch; only set loading false when that fetch completes. */
@@ -257,7 +264,7 @@ export default function ClinicDetail() {
     const monthChanged = prevMonthKeyRef.current !== null && prevMonthKeyRef.current !== monthKey
     prevMonthKeyRef.current = monthKey
 
-    const cacheForMonth = providerSheetRowsByMonth[monthKey]
+    const cacheForMonth = providerSheetRowsByMonthRef.current[monthKey]
     const hasCached = cacheForMonth != null && Object.keys(cacheForMonth).length > 0
     const ref = lastProviderSheetContextRef.current
     const contextMatches = ref && ref.clinicId === clinicId && ref.monthKey === monthKey && ref.providerId === (providerId ?? null)
@@ -305,7 +312,7 @@ export default function ClinicDetail() {
         }
       })()
     }
-  }, [selectedMonthKey, activeTab, clinicId, providerId, providerSheetRowsByMonth])
+  }, [selectedMonthKey, activeTab, clinicId, providerId])
 
   const fetchClinic = async () => {
     try {
@@ -1061,7 +1068,6 @@ export default function ClinicDetail() {
           .from('column_locks')
           .insert({
             clinic_id: clinicId,
-            provider_id: providerId,
             column_name: columnName,
             is_locked: isLocked,
             comment: comment || null,
@@ -1233,7 +1239,8 @@ export default function ClinicDetail() {
   }
 
   // Simplified fetchPatients - only needed for Providers tab patient dropdown
-  const fetchPatients = async () => {
+  const fetchPatients = useCallback(async () => {
+    if (!clinicId) return
     try {
       const { data, error } = await supabase
         .from('patients')
@@ -1242,11 +1249,30 @@ export default function ClinicDetail() {
         .order('last_name', { ascending: true })
 
       if (error) throw error
-      setPatients(data || [])
+      const fetchedPatients = data || []
+      setPatients(fetchedPatients)
+
+      // If provider rows already contain IDs that were previously unknown, claim them now
+      // after Patient Info creates those IDs so patients.provider_id is set automatically.
+      const rowsByProvider = providerSheetRowsByMonthRef.current[selectedMonthKey] ?? {}
+      const providerIds = Object.keys(rowsByProvider)
+      if (providerIds.length > 0) {
+        const patientMap = await loadPatientsAssignmentMap(supabase, clinicId)
+        for (const pid of providerIds) {
+          const rows = rowsByProvider[pid] || []
+          await claimUnassignedPatientsForProvider(supabase, clinicId, pid, rows, patientMap)
+        }
+        const syncedPatients = fetchedPatients.map((p) => {
+          const key = String(p.patient_id ?? '').trim().toLowerCase()
+          const rec = key ? patientMap.get(key) : undefined
+          return rec ? { ...p, provider_id: rec.provider_id } : p
+        })
+        setPatients(syncedPatients as Patient[])
+      }
     } catch (error) {
       console.error('Error fetching patients:', error)
     }
-  }
+  }, [clinicId, selectedMonthKey])
 
   // Removed unused functions: savePatients, handleUpdatePatient, handleAddPatientRow, handleDeletePatient
   // These are now handled by PatientsTab component
@@ -1337,7 +1363,6 @@ export default function ClinicDetail() {
           .from('provider_sheets')
           .insert({
             clinic_id: clinicId,
-            provider_id: providerId,
             month,
             year,
             payroll,
@@ -1616,7 +1641,6 @@ export default function ClinicDetail() {
             .from('provider_sheets')
             .insert({
               clinic_id: clinicId,
-              provider_id: providerId,
               month,
               year,
               payroll,
@@ -1716,6 +1740,35 @@ export default function ClinicDetail() {
     const sheet = providerSheets[providerId]
     if (!sheet) return
 
+    // Filter out only truly empty rows (empty- rows with no data)
+    const rowsToProcess = rowsToSave.filter(r => {
+      if (r.id.startsWith('empty-')) {
+        const hasData = r.patient_id ||
+                       r.patient_first_name || r.last_initial || r.patient_insurance ||
+                       r.patient_copay != null || r.patient_coinsurance != null ||
+                       r.appointment_date || r.cpt_code || r.appointment_status || r.claim_status ||
+                       r.submit_date || r.insurance_payment || r.payment_date || r.insurance_adjustment ||
+                       r.collected_from_patient || r.patient_pay_status || r.ar_date || r.total !== null || r.notes
+        return hasData
+      }
+      return true
+    })
+
+    let patientMap: Awaited<ReturnType<typeof loadPatientsAssignmentMap>>
+    try {
+      patientMap = await loadPatientsAssignmentMap(supabase, clinicId)
+    } catch (e) {
+      console.error('[ClinicDetail] loadPatientsAssignmentMap failed', e)
+      alert('Could not verify patient assignments. Please try again.')
+      return
+    }
+
+    const validation = validatePatientIdsForProviderSheet(rowsToProcess, providerId, patientMap)
+    if (!validation.ok) {
+      alert(validation.message)
+      return
+    }
+
     // Serialize: only one save per provider at a time so an older save cannot overwrite a newer one in the DB
     if (saveProviderSheetInProgressRef.current.has(providerId)) {
       pendingProviderSheetSaveRef.current[providerId] = rowsToSave
@@ -1726,22 +1779,14 @@ export default function ClinicDetail() {
     // Optimistic update: apply full rows to state immediately so the row (e.g. patient fill) appears right away
     setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: rowsToSave } }))
 
-    // Filter out only truly empty rows (empty- rows with no data)
-    // Allow empty- rows that have data to be saved
-    const rowsToProcess = rowsToSave.filter(r => {
-      if (r.id.startsWith('empty-')) {
-        // Check if this empty row has any data
-        const hasData = r.patient_id ||
-                       r.appointment_date || r.cpt_code || r.appointment_status || r.claim_status ||
-                       r.submit_date || r.insurance_payment || r.payment_date || r.insurance_adjustment ||
-                       r.collected_from_patient || r.patient_pay_status || r.ar_date || r.total !== null || r.notes
-        return hasData
-      }
-      return true // Include all non-empty rows
-    })
-
     try {
       const savedRows = await saveSheetRows(supabase, sheet.id, rowsToProcess)
+      try {
+        await claimUnassignedPatientsForProvider(supabase, clinicId, providerId, rowsToProcess, patientMap)
+      } catch (claimErr) {
+        console.error('[ClinicDetail] claimUnassignedPatientsForProvider', claimErr)
+      }
+      await fetchPatients()
       try {
         const pendingKey = `provider_sheet_pending_${clinicId}_${providerId}_${selectedMonthKey}`
         localStorage.removeItem(pendingKey)
@@ -1834,7 +1879,7 @@ export default function ClinicDetail() {
         saveProviderSheetRows(providerId, pending)
       }
     }
-  }, [clinicId, userProfile, providerSheets, selectedMonthKey])
+  }, [clinicId, userProfile, providerSheets, selectedMonthKey, fetchPatients])
 
   // Restore provider sheet rows from localStorage after refresh (browser aborts in-flight save; data was backed up on unload)
   const PENDING_ROWS_KEY_PREFIX = 'provider_sheet_pending_'
@@ -1843,7 +1888,7 @@ export default function ClinicDetail() {
   useEffect(() => {
     if (!clinicId || !selectedMonthKey || !providerSheets || Object.keys(providerSheets).length === 0) return
     const now = Date.now()
-    const providerIds = Object.keys(providerSheetRows)
+    const providerIds = Object.keys(providerSheets)
     providerIds.forEach((providerId) => {
       const key = `${PENDING_ROWS_KEY_PREFIX}${clinicId}_${providerId}_${selectedMonthKey}`
       if (restoredPendingKeysRef.current.has(key)) return
@@ -1868,7 +1913,8 @@ export default function ClinicDetail() {
         try { localStorage.removeItem(key) } catch (__) {}
       }
     })
-  }, [clinicId, selectedMonthKey, providerSheets, providerSheetRows, saveProviderSheetRows])
+  // Do not depend on providerSheetRows — it changes every edit/save and would re-run restore (duplicate DB writes / races).
+  }, [clinicId, selectedMonthKey, providerSheets, saveProviderSheetRows])
 
   // On page unload (refresh/close), send pending provider sheet rows via keepalive fetch so the save can complete even after the page is gone
   useEffect(() => {
@@ -1930,13 +1976,7 @@ export default function ClinicDetail() {
     return () => window.removeEventListener('pagehide', onPageHide)
   }, [])
 
-  const PATIENT_FIELDS = ['patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance'] as const
-
   const handleUpdateProviderSheetRow = useCallback((providerId: string, rowId: string, field: string, value: any) => {
-    const current = providerSheetRowsByMonth[selectedMonthKey] ?? {}
-    const rows = current[providerId] || []
-    const rowBeforeEdit = rows.find(r => r.id === rowId) ?? null
-
     setProviderSheetRowsByMonth(prev => {
       const currentPrev = prev[selectedMonthKey] ?? {}
       const rowsPrev = currentPrev[providerId] || []
@@ -2097,73 +2137,7 @@ export default function ClinicDetail() {
       }
       return { ...prev, [selectedMonthKey]: nextMonthRows } as Record<string, Record<string, SheetRow[]>>
     })
-
-    // Persist patient-field edits to the patients table (Option A): update existing or create new patient
-    if (PATIENT_FIELDS.includes(field as typeof PATIENT_FIELDS[number]) && clinicId && rowBeforeEdit) {
-      const mapFieldToPatientsColumn = (): Record<string, string | number | null> => {
-        const v = value != null && value !== '' ? value : null
-        const str = (x: string | number | null | undefined) => (x != null && x !== '' ? String(x) : null)
-        switch (field) {
-          case 'patient_first_name': return { first_name: v != null ? String(v) : '' }
-          case 'last_initial': return { last_name: v != null ? String(v) : '' }
-          case 'patient_insurance': return { insurance: v != null ? String(v) : null }
-          case 'patient_copay': return { copay: str(v) }
-          case 'patient_coinsurance': return { coinsurance: str(v) }
-          default: return {}
-        }
-      }
-      const payload = mapFieldToPatientsColumn()
-      if (Object.keys(payload).length === 0) return
-
-      const runPatientPersist = async () => {
-        const pid = rowBeforeEdit.patient_id != null && String(rowBeforeEdit.patient_id).trim() !== '' ? String(rowBeforeEdit.patient_id).trim() : null
-        if (pid) {
-          const { error } = await supabase.from('patients').update(payload).eq('clinic_id', clinicId).eq('patient_id', pid)
-          if (error) {
-            console.error('Error updating patient from provider sheet:', error)
-            return
-          }
-          await fetchPatients()
-        } else {
-          const newPatientId = `P${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-          const first_name = field === 'patient_first_name' ? (value != null && value !== '' ? String(value) : '') : (rowBeforeEdit.patient_first_name ?? '')
-          const last_name = field === 'last_initial' ? (value != null && value !== '' ? String(value) : '') : (rowBeforeEdit.last_initial ?? '')
-          const insurance = field === 'patient_insurance' ? (value != null && value !== '' ? String(value) : null) : (rowBeforeEdit.patient_insurance ?? null)
-          const copay = field === 'patient_copay' ? (value != null && value !== '' ? String(value) : null) : (rowBeforeEdit.patient_copay != null ? String(rowBeforeEdit.patient_copay) : null)
-          const coinsurance = field === 'patient_coinsurance' ? (value != null && value !== '' ? String(value) : null) : (rowBeforeEdit.patient_coinsurance != null ? String(rowBeforeEdit.patient_coinsurance) : null)
-          const { error } = await supabase.from('patients').insert({
-            clinic_id: clinicId,
-            patient_id: newPatientId,
-            first_name: first_name || '',
-            last_name: last_name || '',
-            insurance,
-            copay,
-            coinsurance,
-          })
-          if (error) {
-            console.error('Error creating patient from provider sheet:', error)
-            return
-          }
-          await fetchPatients()
-          const rowIdToUpdate = providerSheetUpdatedRowIdRef.current
-          if (rowIdToUpdate) {
-            setProviderSheetRowsByMonth(prev => {
-              const cur = prev[selectedMonthKey] ?? {}
-              const list = cur[providerId] || []
-              return {
-                ...prev,
-                [selectedMonthKey]: {
-                  ...cur,
-                  [providerId]: list.map(r => (r.id === rowIdToUpdate ? { ...r, patient_id: newPatientId } : r)),
-                },
-              }
-            })
-          }
-        }
-      }
-      runPatientPersist()
-    }
-  }, [billingCodes, statusColors, selectedMonthKey, providerSheetRowsByMonth, clinicId, fetchPatients])
+  }, [billingCodes, statusColors, selectedMonthKey, providerSheetRowsByMonth])
 
 
   const handleDeleteProviderSheetRow = useCallback(async (providerId: string, rowId: string) => {
@@ -2302,248 +2276,6 @@ export default function ClinicDetail() {
     await saveProviderSheetRows(providerId, rowsToSave)
   }, [saveProviderSheetRows])
 
-  // When new patients are created in Patient Info tab, add one row per patient to every provider sheet for the current month.
-  // Option B: call Edge Function first; on success refetch provider sheets. On failure fall back to client-side add.
-  const handlePatientsCreated = useCallback(async (patients: Patient[]) => {
-    if (patients.length === 0) return
-
-    // Skip re-adding patients we already sent (e.g. flush runs save again and calls onPatientsCreated with same patients)
-    const ref = addedToProviderSheetsRef.current
-    if (ref.monthKey !== selectedMonthKey) {
-      ref.ids = new Set()
-      ref.monthKey = selectedMonthKey
-    }
-    const toAdd = patients.filter(p => {
-      const id = p.id ?? (p.patient_id != null && String(p.patient_id).trim() !== '' ? String(p.patient_id) : null)
-      if (!id || ref.ids.has(id)) return false
-      ref.ids.add(id)
-      return true
-    })
-    if (toAdd.length === 0) return
-
-    let fetchedRowsMap: Record<string, SheetRow[]> | null = null
-    let providerIds = Object.keys(providerSheets)
-    let sheetsToUse: Record<string, ProviderSheet> = providerSheets
-    if (clinicId && selectedMonthKey) {
-      const result = await addPatientsToProviderSheets({ clinicId, selectedMonthKey, patients: toAdd })
-      if (result.success) {
-        lastProviderSheetsFetchMonthKeyRef.current = selectedMonthKey
-        await fetchProviderSheets(selectedMonthKey, true)
-        setProviderRowsVersion(v => v + 1)
-        return
-      }
-      console.error('[PatientInfo→Providers] Edge Function failed:', result.error)
-      // Refetch so we see any rows the edge function may have added before failing; then fallback won't duplicate
-      const fresh = await fetchProviderSheets(selectedMonthKey, true)
-      if (fresh) {
-        fetchedRowsMap = fresh.rowsMap
-        sheetsToUse = fresh.sheetsMap
-        providerIds = Object.keys(fresh.sheetsMap)
-      }
-    }
-    const month = selectedMonth.getMonth() + 1
-    const year = selectedMonth.getFullYear()
-
-    // If Providers tab hasn't been opened yet, fetch sheets and rows for this clinic/month first
-    if (providerIds.length === 0 && clinicId) {
-      const { data: providersData } = await supabase
-        .from('providers')
-        .select('id')
-        .eq('active', true)
-        .contains('clinic_ids', [clinicId])
-      const ids = (providersData || []).map((p: { id: string }) => p.id)
-      if (ids.length === 0) return
-
-      const payroll = (clinic?.payroll === 2 ? selectedPayroll : (clinic?.payroll ?? 1)) as 1 | 2
-      const sheetsMap: Record<string, ProviderSheet> = {}
-      const rowsMap: Record<string, SheetRow[]> = {}
-      for (const providerId of ids) {
-        const { data: existingSheet, error: fetchError } = await supabase
-          .from('provider_sheets')
-          .select('*')
-          .eq('clinic_id', clinicId)
-          .eq('provider_id', providerId)
-          .eq('month', month)
-          .eq('year', year)
-          .eq('payroll', payroll)
-          .maybeSingle()
-        let sheet: ProviderSheet | null = existingSheet && !fetchError ? existingSheet as ProviderSheet : null
-        if (!sheet) {
-          const { data: newSheet, error: createError } = await supabase
-            .from('provider_sheets')
-            .insert({ clinic_id: clinicId, provider_id: providerId, month, year, payroll, locked: false, locked_columns: [] })
-            .select()
-            .maybeSingle()
-          if (!createError && newSheet) sheet = newSheet as ProviderSheet
-        }
-        if (sheet) {
-          sheetsMap[providerId] = sheet
-          const sheetRows = await fetchSheetRows(supabase, sheet.id)
-          const createEmpty = (i: number): SheetRow => ({
-            id: `empty-${providerId}-${i}`,
-            patient_id: null,
-            patient_first_name: null,
-            patient_last_name: null,
-            last_initial: null,
-            patient_insurance: null,
-            patient_copay: null,
-            patient_coinsurance: null,
-            appointment_date: null,
-            appointment_time: null,
-            visit_type: null,
-            notes: null,
-            billing_code: null,
-            billing_code_color: null,
-            appointment_status: null,
-            appointment_status_color: null,
-            claim_status: null,
-            claim_status_color: null,
-            submit_date: null,
-            insurance_payment: null,
-            insurance_adjustment: null,
-            invoice_amount: null,
-            collected_from_patient: null,
-            patient_pay_status: null,
-            patient_pay_status_color: null,
-            payment_date: null,
-            payment_date_color: null,
-            ar_type: null,
-            ar_amount: null,
-            ar_date: null,
-            ar_date_color: null,
-            ar_notes: null,
-            provider_payment_amount: null,
-            provider_payment_date: null,
-            provider_payment_notes: null,
-            highlight_color: null,
-            total: null,
-            cpt_code: null,
-            cpt_code_color: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          const emptyNeeded = Math.max(0, 200 - sheetRows.length)
-          rowsMap[providerId] = [...sheetRows, ...Array.from({ length: emptyNeeded }, (_, i) => createEmpty(i))]
-        }
-      }
-      providerIds = Object.keys(sheetsMap)
-      if (providerIds.length === 0) return
-      sheetsToUse = sheetsMap
-      fetchedRowsMap = rowsMap
-      setProviderSheetsByMonth(prev => ({ ...prev, [selectedMonthKey]: sheetsMap }))
-    }
-
-    if (providerIds.length === 0) return
-
-    const createRowFromPatient = (patient: Patient, providerId: string): SheetRow => ({
-      id: `new-patient-${Date.now()}-${providerId}-${Math.random()}`,
-      patient_id: (patient.patient_id != null && patient.patient_id !== '') ? patient.patient_id : null,
-      patient_first_name: (patient.first_name != null && patient.first_name !== '') ? patient.first_name : null,
-      patient_last_name: (patient.last_name != null && patient.last_name !== '') ? patient.last_name : null,
-      last_initial: patient.last_name ? patient.last_name.charAt(0) : null,
-      patient_insurance: (patient.insurance != null && patient.insurance !== '') ? patient.insurance : null,
-      patient_copay: patient.copay != null ? String(patient.copay) : null,
-      patient_coinsurance: patient.coinsurance != null ? String(patient.coinsurance) : null,
-      appointment_date: null,
-      appointment_time: null,
-      visit_type: null,
-      notes: null,
-      billing_code: null,
-      billing_code_color: null,
-      appointment_status: null,
-      appointment_status_color: null,
-      claim_status: null,
-      claim_status_color: null,
-      submit_date: null,
-      insurance_payment: null,
-      insurance_adjustment: null,
-      invoice_amount: null,
-      collected_from_patient: null,
-      patient_pay_status: null,
-      patient_pay_status_color: null,
-      payment_date: null,
-      payment_date_color: null,
-      ar_type: null,
-      ar_amount: null,
-      ar_date: null,
-      ar_date_color: null,
-      ar_notes: null,
-      provider_payment_amount: null,
-      provider_payment_date: null,
-      provider_payment_notes: null,
-      highlight_color: null,
-      total: null,
-      cpt_code: null,
-      cpt_code_color: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as SheetRow)
-
-    const rowsToProcessFilter = (rows: SheetRow[]) =>
-      rows.filter(r => {
-        if (r.id.startsWith('empty-')) {
-          const hasData = r.patient_id || r.appointment_date || r.cpt_code || r.appointment_status || r.notes
-          return hasData
-        }
-        return true
-      })
-
-    const useSaveProvider = Object.keys(providerSheets).length > 0
-
-    // Compute next state so we can update UI and then await all DB saves before returning.
-    // That way when we switch to Providers tab, the flush stays in loading until data is ready.
-    const base = fetchedRowsMap ?? providerSheetRowsByMonth[selectedMonthKey] ?? {}
-    const nextForMonth: Record<string, SheetRow[]> = { ...base }
-
-    const patientPid = (p: Patient) => (p.patient_id != null && String(p.patient_id).trim() !== '') ? String(p.patient_id).trim() : null
-    for (const patient of toAdd) {
-      const pid = patientPid(patient)
-      providerIds.forEach(providerId => {
-        const rows = nextForMonth[providerId] || []
-        if (pid && rows.some(r => r.patient_id === pid)) return
-        const firstEmptyIdx = rows.findIndex(r => r.id.startsWith('empty-'))
-        const newRow = createRowFromPatient(patient, providerId)
-        const updated =
-          firstEmptyIdx >= 0
-            ? [...rows.slice(0, firstEmptyIdx), newRow, ...rows.slice(firstEmptyIdx + 1)]
-            : [...rows, newRow]
-        nextForMonth[providerId] = updated
-      })
-    }
-
-    setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: nextForMonth }))
-    setProviderRowsVersion(v => v + 1)
-
-    const savePromises: Promise<void>[] = []
-    providerIds.forEach(providerId => {
-      const updatedRows = nextForMonth[providerId]
-      const sheet = sheetsToUse[providerId]
-      if (sheet) {
-        if (useSaveProvider) {
-          savePromises.push(
-            saveProviderSheetRows(providerId, updatedRows).then(() => {}).catch(err => {
-              console.error('[PatientInfo→Providers] Failed to add new patients to provider sheet:', err)
-            })
-          )
-        } else {
-          savePromises.push(
-            saveSheetRows(supabase, sheet.id, rowsToProcessFilter(updatedRows)).then(() => {}).catch(err => {
-              console.error('[PatientInfo→Providers] Failed to add new patients to provider sheet:', err)
-            })
-          )
-        }
-      }
-    })
-    await Promise.all(savePromises)
-    lastProviderSheetsFetchMonthKeyRef.current = selectedMonthKey
-    await fetchProviderSheets(selectedMonthKey, true)
-    setProviderRowsVersion(v => v + 1)
-  }, [providerSheets, providerSheetRowsByMonth, selectedMonth, selectedMonthKey, selectedPayroll, clinic?.payroll, saveProviderSheetRows, clinicId, fetchProviderSheets])
-
-  const handlePatientCreated = useCallback((patient: Patient) => {
-    handlePatientsCreated([patient])
-  }, [handlePatientsCreated])
-
   const handleReorderProviderRows = useCallback((providerId: string, movedRows: number[], finalIndex: number) => {
     const rows = providerSheetRows[providerId] || []
     const arr = [...rows]
@@ -2660,8 +2392,6 @@ export default function ClinicDetail() {
               setShowLockDialog(true)
             } : undefined}
             isColumnLocked={isPatientColumnLocked}
-            onPatientCreated={handlePatientCreated}
-            onPatientsCreated={handlePatientsCreated}
             onRegisterFlushBeforeTabLeave={(flush) => { patientsTabFlushRef.current = flush }}
             overridePatients={backupOverridePatients}
             isViewingBackup={!!selectedBackupVersionPatients}

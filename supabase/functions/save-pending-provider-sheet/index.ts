@@ -45,7 +45,11 @@ function parseMonthKey(selectedMonthKey: string): { year: number; month: number;
   return { year, month, payroll }
 }
 
-function rowToDbPayload(row: Record<string, unknown>, sheetId: string, sortOrder: number): Record<string, unknown> {
+function rowToDbPayload(
+  row: Record<string, unknown>,
+  sheetId: string,
+  sortOrder: number
+): Record<string, unknown> {
   const get = (k: string) => (row[k] === undefined || row[k] === 'null' ? null : row[k])
   const num = (k: string) => {
     const v = row[k]
@@ -57,6 +61,12 @@ function rowToDbPayload(row: Record<string, unknown>, sheetId: string, sortOrder
     sheet_id: sheetId,
     sort_order: sortOrder,
     patient_id: get('patient_id'),
+    patient_first_name: get('patient_first_name'),
+    patient_last_name: get('patient_last_name'),
+    last_initial: get('last_initial'),
+    patient_insurance: get('patient_insurance'),
+    patient_copay: get('patient_copay'),
+    patient_coinsurance: get('patient_coinsurance'),
     appointment_date: get('appointment_date'),
     appointment_time: get('appointment_time'),
     visit_type: get('visit_type'),
@@ -96,6 +106,11 @@ function rowHasData(row: Record<string, unknown>): boolean {
   if (!id.startsWith('empty-')) return true
   return !!(
     row.patient_id ||
+    row.patient_first_name ||
+    row.last_initial ||
+    row.patient_insurance ||
+    row.patient_copay ||
+    row.patient_coinsurance ||
     row.appointment_date ||
     row.cpt_code ||
     row.appointment_status ||

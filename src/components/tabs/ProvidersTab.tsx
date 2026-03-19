@@ -120,6 +120,8 @@ export default function ProvidersTab({
   const [commentModalLoading, setCommentModalLoading] = useState(false)
   const [isCondensed, setIsCondensed] = useState(false)
   const [arSumFromDb, setArSumFromDb] = useState<number | null>(null)
+  /** Bumped to force Handsontable to resync from props (e.g. reject invalid patient_id for this provider). */
+  const [structureVersion, setStructureVersion] = useState(0)
   const commentTextareaRef = useRef<HTMLTextAreaElement>(null)
   const commentModalContainerRef = useRef<HTMLDivElement>(null)
   const hotInstanceRef = useRef<Handsontable | null>(null)
@@ -134,6 +136,27 @@ export default function ProvidersTab({
   const activeProvider = providersToShow.length > 0 ? providersToShow[0] : null
   const activeProviderRows = activeProvider ? filterRowsByMonth(providerSheetRows[activeProvider.id] || []) : []
 
+  /** Bumps Handsontable dataVersion when Patient Info (or elsewhere) updates patients so rows with matching ID show filled fields — without auto-adding provider rows. */
+  const patientsDisplayRevision = useMemo(() => {
+    let h = 0
+    const s = patients
+      .map((p) =>
+        [
+          p.patient_id ?? '',
+          p.provider_id ?? '',
+          p.first_name ?? '',
+          p.last_name ?? '',
+          p.insurance ?? '',
+          p.copay ?? '',
+          p.coinsurance ?? '',
+          p.updated_at ?? '',
+        ].join('\t')
+      )
+      .join('\n')
+    for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0
+    return h
+  }, [patients])
+
   const handleProviderRowMove = useCallback((movedRows: number[], finalIndex: number) => {
     if (!activeProvider || !onReorderProviderRows) return
     onReorderProviderRows(activeProvider.id, movedRows, finalIndex)
@@ -145,6 +168,13 @@ export default function ProvidersTab({
   const latestProviderRowsRef = useRef<{ providerId: string; rows: SheetRow[] } | null>(null)
   const saveProviderSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingProviderSheetSaveRef = useRef<{ providerId: string; rows: SheetRow[] } | null>(null)
+  /** Always latest — flush-on-unmount must not depend on callback identity (parent save fn changes when providerSheets updates). */
+  const onSaveProviderSheetRowsDirectRef = useRef(onSaveProviderSheetRowsDirect)
+  onSaveProviderSheetRowsDirectRef.current = onSaveProviderSheetRowsDirect
+  const clinicIdForPendingRef = useRef(clinicId)
+  clinicIdForPendingRef.current = clinicId
+  const selectedMonthKeyForPendingRef = useRef(selectedMonthKey)
+  selectedMonthKeyForPendingRef.current = selectedMonthKey
 
   const localRowsProviderKeyRef = useRef<string | null>(null)
 
@@ -231,16 +261,23 @@ export default function ProvidersTab({
   // When isProviderView and providerLevel 2, show full columns; when providerLevel 1, show only up to Appt/Note Status
   // When officeStaffView, show ID through Appt/Note Status (0-8) and Collected from PT through PT Payment AR Ref Date (14-16)
   const getTableDataFromRows = useCallback((rows: SheetRow[]) => {
-    const hasVal = (v: unknown) => v != null && v !== '' && v !== 'null'
+    const findPatientForRow = (row: SheetRow) => {
+      const raw = row.patient_id != null && String(row.patient_id).trim() !== '' ? String(row.patient_id).trim() : ''
+      if (!raw) return undefined
+      const key = raw.toLowerCase()
+      return patients.find((p) => String(p.patient_id ?? '').trim().toLowerCase() === key)
+    }
     return rows.map(row => {
-      const patient = patients.find(p => p.patient_id === row.patient_id)
-      const patientDisplay = patient ? toDisplayValue(patient.patient_id) : toDisplayValue(row.patient_id)
-      // When row has patient_id but empty patient-info columns, show from patients list (retrieve by ID)
-      const firstNameDisplay = hasVal(row.patient_first_name) ? toDisplayValue(row.patient_first_name) : (patient ? toDisplayValue(patient.first_name) : '')
-      const lastInitialDisplay = hasVal(row.last_initial) ? toDisplayValue(row.last_initial) : (patient?.last_name ? toDisplayValue(patient.last_name.charAt(0)) : '')
-      const insuranceDisplay = hasVal(row.patient_insurance) ? toDisplayValue(row.patient_insurance) : (patient ? toDisplayValue(patient.insurance) : '')
-      const copayDisplay = hasVal(row.patient_copay) ? toDisplayValue(row.patient_copay) : (patient != null ? toDisplayValue(patient.copay) : '')
-      const coinsuranceDisplay = hasVal(row.patient_coinsurance) ? toDisplayValue(row.patient_coinsurance) : (patient != null ? toDisplayValue(patient.coinsurance) : '')
+      const patient = findPatientForRow(row)
+      const patientDisplay = toDisplayValue(row.patient_id)
+      // Unknown ID: show blank patient columns (row may still have stale denormalized data). Known ID: show patients table as source of truth for these columns.
+      const firstNameDisplay = patient ? toDisplayValue(patient.first_name) : toDisplayValue(row.patient_first_name)
+      const lastInitialDisplay = patient
+        ? (patient.last_name ? toDisplayValue(patient.last_name.charAt(0)) : '')
+        : toDisplayValue(row.last_initial)
+      const insuranceDisplay = patient ? toDisplayValue(patient.insurance) : toDisplayValue(row.patient_insurance)
+      const copayDisplay = patient ? toDisplayValue(patient.copay) : toDisplayValue(row.patient_copay)
+      const coinsuranceDisplay = patient ? toDisplayValue(patient.coinsurance) : toDisplayValue(row.patient_coinsurance)
       const visitTypeVal = () => row.visit_type === 'Telehealth'
       const insertVisitType = (arr: (string | number)[]) => showVisitTypeColumn ? [...arr.slice(0, 9), visitTypeVal(), ...arr.slice(9)] : arr
       if (officeStaffView) {
@@ -1215,6 +1252,14 @@ export default function ProvidersTab({
           }
           // Look up patient from patient database (case-insensitive, trimmed) and fill patient fields only
           const patient = patients.find(p => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase())
+          if (patient?.provider_id && patient.provider_id !== activeProvider.id) {
+            alert(
+              `Patient ID "${patient.patient_id}" is already assigned to another provider in this clinic. They cannot be added to this provider's sheet.`
+            )
+            changedCells.delete(`${row}:${field}`)
+            setStructureVersion((v) => v + 1)
+            return
+          }
           const merged: Partial<SheetRow> = {
             ...sheetRow,
             id: newId,
@@ -1486,6 +1531,8 @@ export default function ProvidersTab({
   const PENDING_ROWS_KEY_PREFIX = 'provider_sheet_pending_'
   const PENDING_ROWS_MAX_SIZE = 1024 * 1024 // 1MB
 
+  // Flush only when ProvidersTab actually unmounts (e.g. user switches tab). Do NOT list onSave/clinicId/monthKey as deps —
+  // parent recreates save callback when providerSheets changes, which would run this cleanup while still on the tab and duplicate saves / corrupt ids.
   useEffect(() => {
     return () => {
       if (saveProviderSheetTimeoutRef.current) {
@@ -1502,17 +1549,19 @@ export default function ProvidersTab({
         pendingProviderSheetSaveRef.current = null
         latestProviderRowsRef.current = null
 
-        if (clinicId && selectedMonthKey) {
+        const cid = clinicIdForPendingRef.current
+        const mk = selectedMonthKeyForPendingRef.current
+        if (cid && mk) {
           try {
             const payload = JSON.stringify({
               rows: rowsToSave,
               savedAt: Date.now(),
-              clinicId,
+              clinicId: cid,
               providerId: providerIdToSave,
-              selectedMonthKey,
+              selectedMonthKey: mk,
             })
             if (payload.length <= PENDING_ROWS_MAX_SIZE) {
-              const key = `${PENDING_ROWS_KEY_PREFIX}${clinicId}_${providerIdToSave}_${selectedMonthKey}`
+              const key = `${PENDING_ROWS_KEY_PREFIX}${cid}_${providerIdToSave}_${mk}`
               localStorage.setItem(key, payload)
             }
           } catch (e) {
@@ -1520,12 +1569,13 @@ export default function ProvidersTab({
           }
         }
 
-        onSaveProviderSheetRowsDirect(providerIdToSave, rowsToSave).catch(err => {
+        onSaveProviderSheetRowsDirectRef.current(providerIdToSave, rowsToSave).catch(err => {
           console.error('[ProvidersTab unmount] Error flushing save:', err)
         })
       }
     }
-  }, [onSaveProviderSheetRowsDirect, clinicId, selectedMonthKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: unmount-only flush; refs hold latest callback/ids
+  }, [])
 
   const handleDeleteProviderSheetRow = useCallback((providerId: string, rowId: string) => {
     if (onDeleteRow) onDeleteRow(providerId, rowId)
@@ -1533,7 +1583,6 @@ export default function ProvidersTab({
 
   const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
   const tableContextMenuRef = useRef<HTMLDivElement>(null)
-  const [structureVersion, setStructureVersion] = useState(0)
 
   useEffect(() => {
     if (!tableContextMenu) return
@@ -1715,7 +1764,7 @@ export default function ProvidersTab({
           <HandsontableWrapper
             key={`providers-${activeProvider?.id ?? ''}`}
             data={getProviderRowsHandsontableData()}
-            dataVersion={(providerRowsVersion ?? 0) + structureVersion + selectedMonth.getTime() + (isViewingBackup ? 1000000 + backupVersionKey : 0)}
+            dataVersion={(providerRowsVersion ?? 0) + structureVersion + selectedMonth.getTime() + patientsDisplayRevision + (isViewingBackup ? 1000000 + backupVersionKey : 0)}
             columns={providerColumnsWithLocks}
             colHeaders={columnTitles}
             rowHeaders={true}

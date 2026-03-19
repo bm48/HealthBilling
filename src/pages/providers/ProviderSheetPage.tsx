@@ -2,6 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
+import {
+  loadPatientsAssignmentMap,
+  validatePatientIdsForProviderSheet,
+  claimUnassignedPatientsForProvider,
+} from '@/lib/providerSheetPatientAssignment'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   Clinic,
@@ -103,6 +108,35 @@ export default function ProviderSheetPage() {
     }
   }, [provider, urlClinicId, navigate])
 
+  const refetchPatients = useCallback(async () => {
+    if (!clinicId) return
+    const { data, error: err } = await supabase
+      .from('patients')
+      .select('*')
+      .eq('clinic_id', clinicId)
+      .order('patient_id')
+    if (err) return
+
+    const fetchedPatients = data || []
+    setPatients(fetchedPatients)
+
+    // Handle case: ID exists on provider sheet first, then gets created in Patient Info.
+    // Once patient row exists, claim provider_id from this provider's loaded sheet rows.
+    if (provider?.id) {
+      const rows = providerSheetRowsRef.current[provider.id] || []
+      if (rows.length > 0) {
+        const patientMap = await loadPatientsAssignmentMap(supabase, clinicId)
+        await claimUnassignedPatientsForProvider(supabase, clinicId, provider.id, rows, patientMap)
+        const syncedPatients = fetchedPatients.map((p) => {
+          const key = String(p.patient_id ?? '').trim().toLowerCase()
+          const rec = key ? patientMap.get(key) : undefined
+          return rec ? { ...p, provider_id: rec.provider_id } : p
+        })
+        setPatients(syncedPatients as Patient[])
+      }
+    }
+  }, [clinicId, provider?.id])
+
   // Fetch clinic, patients, billing codes, status colors, and sheet when provider is set
   useEffect(() => {
     if (!provider || !clinicId) return
@@ -110,15 +144,6 @@ export default function ProviderSheetPage() {
     const fetchClinic = async () => {
       const { data } = await supabase.from('clinics').select('*').eq('id', clinicId).maybeSingle()
       setClinic(data || null)
-    }
-
-    const fetchPatients = async () => {
-      const { data, error: err } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('clinic_id', clinicId)
-        .order('patient_id')
-      if (!err) setPatients(data || [])
     }
 
     const fetchBillingCodes = async () => {
@@ -137,10 +162,10 @@ export default function ProviderSheetPage() {
     }
 
     fetchClinic()
-    fetchPatients()
+    void refetchPatients()
     fetchBillingCodes()
     fetchStatusColors()
-  }, [provider, clinicId])
+  }, [provider, clinicId, refetchPatients])
 
   // Fetch provider sheet for selected month
   const fetchProviderSheetData = useCallback(async () => {
@@ -173,7 +198,6 @@ export default function ProviderSheetPage() {
           .from('provider_sheets')
           .insert({
             clinic_id: clinicId,
-            provider_id: providerId,
             month,
             year,
             payroll,
@@ -278,7 +302,12 @@ export default function ProviderSheetPage() {
           if (row.id !== rowId) return row
           if (row.id.startsWith('empty-')) {
             const newId = `new-${Date.now()}-${Math.random()}`
-            const updated: SheetRow = { ...row, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
+            const updated: SheetRow = {
+              ...row,
+              id: newId,
+              [field]: value,
+              updated_at: new Date().toISOString(),
+            } as SheetRow
             if (field === 'cpt_code' && value) {
               const code = billingCodes.find(c => c.code === value)
               ;(updated as any).cpt_code_color = code?.color ?? null
@@ -288,7 +317,11 @@ export default function ProviderSheetPage() {
             }
             return updated
           }
-          const updated = { ...row, [field]: value, updated_at: new Date().toISOString() } as SheetRow
+          const updated = {
+            ...row,
+            [field]: value,
+            updated_at: new Date().toISOString(),
+          } as SheetRow
           if (field === 'cpt_code' && value) {
             const code = billingCodes.find(c => c.code === value)
             ;(updated as any).cpt_code_color = code?.color ?? null
@@ -306,19 +339,65 @@ export default function ProviderSheetPage() {
 
   const saveProviderSheetRows = useCallback(
     async (providerId: string, rowsToSave: SheetRow[]) => {
-      if (!currentSheet || !provider || provider.id !== providerId) return
+      if (!currentSheet || !provider || provider.id !== providerId || !clinicId) return
       const month = selectedMonth.getMonth() + 1
       const year = selectedMonth.getFullYear()
       if (currentSheet.month !== month || currentSheet.year !== year) return
 
+      const rowsToProcess = rowsToSave.filter(r => {
+        if (r.id.startsWith('empty-')) {
+          const hasData =
+            r.patient_id ||
+            r.patient_first_name ||
+            r.last_initial ||
+            r.patient_insurance ||
+            r.patient_copay != null ||
+            r.patient_coinsurance != null ||
+            r.appointment_date ||
+            r.cpt_code ||
+            r.appointment_status ||
+            r.claim_status ||
+            r.submit_date ||
+            r.insurance_payment ||
+            r.payment_date ||
+            r.insurance_adjustment ||
+            r.collected_from_patient ||
+            r.patient_pay_status ||
+            r.ar_date ||
+            r.total !== null ||
+            r.notes
+          return hasData
+        }
+        return true
+      })
+
+      let patientMap: Awaited<ReturnType<typeof loadPatientsAssignmentMap>>
       try {
-        const rowsToProcess = rowsToSave.filter(r => !r.id.startsWith('empty-'))
+        patientMap = await loadPatientsAssignmentMap(supabase, clinicId)
+      } catch (e) {
+        console.error('[ProviderSheetPage] loadPatientsAssignmentMap', e)
+        alert('Could not verify patient assignments. Please try again.')
+        return
+      }
+      const validation = validatePatientIdsForProviderSheet(rowsToProcess, providerId, patientMap)
+      if (!validation.ok) {
+        alert(validation.message)
+        return
+      }
+
+      try {
         await saveSheetRows(supabase, currentSheet.id, rowsToProcess)
+        try {
+          await claimUnassignedPatientsForProvider(supabase, clinicId, providerId, rowsToProcess, patientMap)
+        } catch (claimErr) {
+          console.error('[ProviderSheetPage] claimUnassignedPatientsForProvider', claimErr)
+        }
+        await refetchPatients()
       } catch (e) {
         console.error('Error saving provider sheet:', e)
       }
     },
-    [currentSheet, provider, selectedMonth]
+    [currentSheet, provider, selectedMonth, clinicId, refetchPatients]
   )
 
   const saveProviderSheetRowsDirect = useCallback(

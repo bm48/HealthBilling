@@ -18,11 +18,11 @@ interface PatientsTabProps {
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockPatients) => boolean
   isInSplitScreen?: boolean
-  /** Called after a new patient is successfully saved; used to add the patient to all provider sheets in the clinic */
+  /** Optional: called after a new patient is successfully saved */
   onPatientCreated?: (patient: Patient) => void
-  /** When provided, called with the full batch of new patients (recommended to avoid race when multiple rows are added); otherwise onPatientCreated is called per patient */
+  /** Optional: called with the full batch of new patients after save (e.g. for parent-side sync) */
   onPatientsCreated?: (patients: Patient[]) => void
-  /** Register a flush function to call before switching away from this tab (so save + onPatientCreated run with full row data) */
+  /** Register a flush function to call before switching away from this tab (so pending save completes with full row data) */
   onRegisterFlushBeforeTabLeave?: (flush: () => Promise<void>) => void
   /** When viewing a backup version, parent passes the patient list from backup. */
   overridePatients?: Patient[] | null
@@ -226,7 +226,11 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     try {
       // Store saved patients with their database responses to update in place
       const savedPatientsMap = new Map<string, Patient>() // Map old ID -> new Patient data
-      
+      // Rows whose patient_id was auto-generated this save (user had not entered Patient ID yet). Don't send to provider sheets until user enters a real ID.
+      const patientIdGeneratedThisSave = new Set<string>()
+      // Patients we updated by id (e.g. user later filled Patient ID after right-to-left entry). Send to provider sheets so a row appears.
+      const updatedPatientsToSend: Patient[] = []
+
       // Process each patient
       for (let i = 0; i < patientsToProcess.length; i++) {
         const patient = patientsToProcess[i]
@@ -235,6 +239,7 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         // Generate patient_id if missing; reuse same temp id for this row so multiple cell edits upsert one record
         let finalPatientId = patient.patient_id || ''
         if (!finalPatientId) {
+          patientIdGeneratedThisSave.add(oldId)
           const existing = pendingPatientIdByRowIdRef.current.get(oldId)
           if (existing) {
             finalPatientId = existing
@@ -281,6 +286,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
               coinsurance: savedPatient.coinsurance != null ? savedPatient.coinsurance : null,
             })
             if (oldId !== savedPatient.id) lastSavedSnapshotRef.current.delete(oldId)
+            // If parent passes onPatientsCreated, it can react to updates (e.g. sync to provider sheets); otherwise unused.
+            if (savedPatient.patient_id != null && String(savedPatient.patient_id).trim() !== '') updatedPatientsToSend.push(savedPatient)
             continue // Update successful, move to next patient
           }
           // If update failed (e.g., patient not found), fall through to upsert
@@ -370,6 +377,8 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
         lastNewPatientIdFromDebounceRef.current = null
 
         savedPatientsMap.forEach((savedPatient, oldId) => {
+          // Don't send to provider sheets when patient_id was auto-generated (e.g. user entered data right-to-left and hadn't filled Patient ID yet). Avoids "unknown id" row in Providers tab.
+          if (patientIdGeneratedThisSave.has(oldId)) return
           if (oldId.startsWith('new-') || oldId.startsWith('empty-')) {
             const rowData = patientsToSave.find(p => p.id === oldId)
             const merged = rowData
@@ -410,11 +419,12 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
             toSend.push(merged)
           }
         })
-        if (toSend.length > 0) {
+        const allToSend = [...toSend, ...updatedPatientsToSend]
+        if (allToSend.length > 0) {
           if (onPatientsCreated) {
-            await Promise.resolve(onPatientsCreated(toSend))
+            await Promise.resolve(onPatientsCreated(allToSend))
           } else {
-            toSend.forEach(patientToSend => onPatientCreated!(patientToSend))
+            allToSend.forEach(patientToSend => onPatientCreated!(patientToSend))
           }
         }
       } else if (saveTriggeredByRowLeaveRef.current) {

@@ -38,14 +38,29 @@ function parseMonthKey(selectedMonthKey: string): { year: number; month: number;
   return { year, month, payroll }
 }
 
-function patientToRowPayload(patient: PatientPayload, sheetId: string, sortOrder: number): Record<string, unknown> {
+function patientToRowPayload(
+  patient: PatientPayload,
+  sheetId: string,
+  sortOrder: number
+): Record<string, unknown> {
   const now = new Date().toISOString()
+  const firstName = patient.first_name != null && patient.first_name !== '' ? patient.first_name : null
+  const lastName = patient.last_name != null && patient.last_name !== '' ? patient.last_name : null
+  const li = lastName && lastName.length > 0 ? lastName.charAt(0) : null
+  const copayStr = patient.copay != null && patient.copay !== '' ? String(patient.copay) : null
+  const coinsStr = patient.coinsurance != null && patient.coinsurance !== '' ? String(patient.coinsurance) : null
   return {
     sheet_id: sheetId,
     sort_order: sortOrder,
     created_at: now,
     updated_at: now,
     patient_id: patient.patient_id ?? null,
+    patient_first_name: firstName,
+    patient_last_name: lastName,
+    last_initial: li,
+    patient_insurance: patient.insurance != null && patient.insurance !== '' ? patient.insurance : null,
+    patient_copay: copayStr,
+    patient_coinsurance: coinsStr,
     appointment_date: null,
     appointment_time: null,
     visit_type: null,
