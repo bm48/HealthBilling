@@ -1274,6 +1274,201 @@ export default function ClinicDetail() {
     }
   }, [clinicId, selectedMonthKey])
 
+  const syncPatientsFromProviderRows = useCallback(
+    async (rows: SheetRow[]) => {
+      if (!clinicId || !rows.length) return
+
+      const patientIds = Array.from(
+        new Set(
+          rows
+            .map((r) => (r.patient_id != null ? String(r.patient_id).trim() : ''))
+            .filter((pid) => pid !== '')
+        )
+      )
+      if (patientIds.length === 0) return
+
+      const { data: existingPatients, error: fetchError } = await supabase
+        .from('patients')
+        .select('id, patient_id, first_name, insurance, copay, coinsurance')
+        .eq('clinic_id', clinicId)
+        .in('patient_id', patientIds)
+      if (fetchError) {
+        console.error('[ClinicDetail] syncPatientsFromProviderRows fetch failed', fetchError)
+        return
+      }
+
+      const patientByIdKey = new Map<string, {
+        id: string
+        patient_id: string
+        first_name: string | null
+        insurance: string | null
+        copay: string | number | null
+        coinsurance: string | number | null
+      }>()
+      for (const p of existingPatients || []) {
+        const key = String(p.patient_id ?? '').trim().toLowerCase()
+        if (!key) continue
+        patientByIdKey.set(key, p as {
+          id: string
+          patient_id: string
+          first_name: string | null
+          insurance: string | null
+          copay: string | number | null
+          coinsurance: string | number | null
+        })
+      }
+
+      const normalizeStr = (v: unknown): string | null => {
+        if (v == null) return null
+        const s = String(v).trim()
+        return s === '' ? null : s
+      }
+      const normalizeNumLike = (v: unknown): string | number | null => {
+        if (v == null) return null
+        const s = String(v).trim()
+        return s === '' ? null : s
+      }
+
+      const updatesByPatientDbId = new Map<string, {
+        first_name?: string | null
+        insurance?: string | null
+        copay?: string | number | null
+        coinsurance?: string | number | null
+      }>()
+
+      for (const row of rows) {
+        const rowPatientId = row.patient_id != null ? String(row.patient_id).trim() : ''
+        if (!rowPatientId) continue
+        const existing = patientByIdKey.get(rowPatientId.toLowerCase())
+        if (!existing) continue
+
+        const nextFirstName = normalizeStr(row.patient_first_name)
+        const nextInsurance = normalizeStr(row.patient_insurance)
+        const nextCopay = normalizeNumLike(row.patient_copay)
+        const nextCoinsurance = normalizeNumLike(row.patient_coinsurance)
+
+        const base = updatesByPatientDbId.get(existing.id) || {}
+        if ((existing.first_name ?? null) !== nextFirstName) base.first_name = nextFirstName
+        if ((existing.insurance ?? null) !== nextInsurance) base.insurance = nextInsurance
+        if ((existing.copay ?? null) !== nextCopay) base.copay = nextCopay
+        if ((existing.coinsurance ?? null) !== nextCoinsurance) base.coinsurance = nextCoinsurance
+        updatesByPatientDbId.set(existing.id, base)
+      }
+
+      for (const [patientDbId, payload] of updatesByPatientDbId) {
+        if (Object.keys(payload).length === 0) continue
+        const { error } = await supabase
+          .from('patients')
+          .update({ ...payload, updated_at: new Date().toISOString() })
+          .eq('id', patientDbId)
+          .eq('clinic_id', clinicId)
+        if (error) {
+          console.error('[ClinicDetail] syncPatientsFromProviderRows update failed', { patientDbId, error })
+        }
+      }
+    },
+    [clinicId]
+  )
+
+  const handlePatientsCreated = useCallback(
+    async (createdPatients: Patient[]) => {
+      if (!clinicId || !Array.isArray(createdPatients) || createdPatients.length === 0) return
+
+      const rowsByProvider = providerSheetRowsByMonthRef.current[selectedMonthKey] ?? {}
+
+      const providerByPatientId = new Map<string, string>()
+      const conflicts = new Set<string>()
+
+      const collectProviderMapFromRows = (pid: string, rows: SheetRow[]) => {
+        for (const row of rows || []) {
+          const rawPatientId = row.patient_id != null ? String(row.patient_id).trim() : ''
+          if (!rawPatientId) continue
+          const key = rawPatientId.toLowerCase()
+          const existingProvider = providerByPatientId.get(key)
+          if (existingProvider && existingProvider !== pid) {
+            conflicts.add(key)
+            continue
+          }
+          providerByPatientId.set(key, pid)
+        }
+      }
+
+      for (const [pid, rows] of Object.entries(rowsByProvider)) {
+        collectProviderMapFromRows(pid, rows || [])
+      }
+
+      // Fallback: when Providers tab cache is not loaded, resolve provider map from DB sheets/rows for this selected month.
+      if (providerByPatientId.size === 0) {
+        const parts = selectedMonthKey.split('-').map(Number)
+        const year = parts[0]!
+        const month = parts[1]!
+        const payroll = (clinic?.payroll === 2 && parts[2] != null ? (parts[2] as 1 | 2) : (clinic?.payroll ?? 1)) as 1 | 2
+        const createdPatientKeys = new Set(
+          createdPatients
+            .map((p) => (p.patient_id != null ? String(p.patient_id).trim().toLowerCase() : ''))
+            .filter((k) => k !== '')
+        )
+        if (createdPatientKeys.size > 0) {
+          const { data: sheets, error: sheetsError } = await supabase
+            .from('provider_sheets')
+            .select('id, provider_id')
+            .eq('clinic_id', clinicId)
+            .eq('month', month)
+            .eq('year', year)
+            .eq('payroll', payroll)
+          if (sheetsError) {
+            console.error('[ClinicDetail] handlePatientsCreated sheets lookup failed', sheetsError)
+          } else if (sheets && sheets.length > 0) {
+            for (const s of sheets) {
+              const pid = String(s.provider_id ?? '')
+              const sheetId = String(s.id ?? '')
+              if (!pid || !sheetId) continue
+              const { data: sheetRows, error: rowsError } = await supabase
+                .from('provider_sheet_rows')
+                .select('patient_id')
+                .eq('sheet_id', sheetId)
+              if (rowsError) {
+                console.error('[ClinicDetail] handlePatientsCreated rows lookup failed', { sheetId, error: rowsError })
+                continue
+              }
+              const filteredRows = (sheetRows || []).filter((r: { patient_id: string | null }) => {
+                const key = r.patient_id != null ? String(r.patient_id).trim().toLowerCase() : ''
+                return key !== '' && createdPatientKeys.has(key)
+              }) as SheetRow[]
+              collectProviderMapFromRows(pid, filteredRows)
+            }
+          }
+        }
+      }
+
+      for (const patient of createdPatients) {
+        const rawPatientId = patient.patient_id != null ? String(patient.patient_id).trim() : ''
+        if (!rawPatientId) continue
+        const key = rawPatientId.toLowerCase()
+        if (conflicts.has(key)) continue
+        const providerIdForPatient = providerByPatientId.get(key)
+        if (!providerIdForPatient) continue
+
+        const { error } = await supabase
+          .from('patients')
+          .update({ provider_id: providerIdForPatient, updated_at: new Date().toISOString() })
+          .eq('id', patient.id)
+          .eq('clinic_id', clinicId)
+          .is('provider_id', null)
+
+        if (error) {
+          console.error('[ClinicDetail] handlePatientsCreated assign provider failed', {
+            patientId: patient.id,
+            patientExternalId: rawPatientId,
+            providerId: providerIdForPatient,
+            error,
+          })
+        }
+      }
+    },
+    [clinicId, selectedMonthKey]
+  )
+
   // Removed unused functions: savePatients, handleUpdatePatient, handleAddPatientRow, handleDeletePatient
   // These are now handled by PatientsTab component
   
@@ -1363,6 +1558,7 @@ export default function ClinicDetail() {
           .from('provider_sheets')
           .insert({
             clinic_id: clinicId,
+            provider_id: providerId,
             month,
             year,
             payroll,
@@ -1372,8 +1568,31 @@ export default function ClinicDetail() {
           .select()
           .maybeSingle()
 
-        if (createError) throw createError
+        if (createError) {
+          if (createError.code === '23505') {
+            const { data: refetchSheet, error: refetchError } = await supabase
+              .from('provider_sheets')
+              .select('*')
+              .eq('clinic_id', clinicId)
+              .eq('provider_id', providerId)
+              .eq('month', month)
+              .eq('year', year)
+              .eq('payroll', payroll)
+              .order('id', { ascending: true })
+              .limit(1)
+              .maybeSingle()
+            if (refetchError) throw refetchError
+            if (refetchSheet) {
+              sheet = refetchSheet
+            }
+          } else {
+            throw createError
+          }
+        }
         if (!newSheet) {
+          if (sheet) {
+            // sheet was set by duplicate-key refetch
+          } else {
           console.error('Failed to create provider sheet - no data returned')
           if (
             clearLoadingWhenDone &&
@@ -1383,8 +1602,9 @@ export default function ClinicDetail() {
             setLoading(false)
           }
           return
+          }
         }
-        sheet = newSheet
+        sheet = sheet ?? newSheet
       }
 
       if (!isStillCurrent()) return
@@ -1402,6 +1622,12 @@ export default function ClinicDetail() {
       let sheetRowsForProvider: SheetRow[] = []
       if (sheet) {
         sheetRowsForProvider = await fetchSheetRows(supabase, sheet.id)
+        try {
+          const patientMap = await loadPatientsAssignmentMap(supabase, clinicId)
+          await claimUnassignedPatientsForProvider(supabase, clinicId, providerId, sheetRowsForProvider, patientMap)
+        } catch (claimErr) {
+          console.error('[ClinicDetail] claim on provider sheet fetch failed', claimErr)
+        }
         sheetRowsForProvider.forEach((row: SheetRow) => {
           rows.push({
             id: row.id,
@@ -1612,6 +1838,12 @@ export default function ClinicDetail() {
       }
 
       const providerIds = providersData.map((p: { id: string }) => p.id)
+      let patientMap: Awaited<ReturnType<typeof loadPatientsAssignmentMap>> | null = null
+      try {
+        patientMap = await loadPatientsAssignmentMap(supabase, clinicId)
+      } catch (e) {
+        console.error('[ClinicDetail] loadPatientsAssignmentMap failed during provider sheets fetch', e)
+      }
 
       // Fetch or create provider sheets for all providers
       const sheetsMap: Record<string, ProviderSheet> = {}
@@ -1641,6 +1873,7 @@ export default function ClinicDetail() {
             .from('provider_sheets')
             .insert({
               clinic_id: clinicId,
+              provider_id: providerId,
               month,
               year,
               payroll,
@@ -1651,18 +1884,44 @@ export default function ClinicDetail() {
             .maybeSingle()
 
           if (createError) {
-            console.error('Error creating provider sheet:', createError)
-            continue
-          }
-          if (!newSheet) {
+            if (createError.code === '23505') {
+              const { data: refetchSheet, error: refetchError } = await supabase
+                .from('provider_sheets')
+                .select('*')
+                .eq('clinic_id', clinicId)
+                .eq('provider_id', providerId)
+                .eq('month', month)
+                .eq('year', year)
+                .eq('payroll', payroll)
+                .order('id', { ascending: true })
+                .limit(1)
+                .maybeSingle()
+              if (refetchError || !refetchSheet) {
+                console.error('Error refetching provider sheet after duplicate:', refetchError ?? createError)
+                continue
+              }
+              sheet = refetchSheet
+            } else {
+              console.error('Error creating provider sheet:', createError)
+              continue
+            }
+          } else if (!newSheet) {
             console.error('Failed to create provider sheet - no data returned')
             continue
+          } else {
+            sheet = newSheet
           }
-          sheet = newSheet
         }
 
         sheetsMap[providerId] = sheet
         const sheetRows = await fetchSheetRows(supabase, sheet.id)
+        if (patientMap) {
+          try {
+            await claimUnassignedPatientsForProvider(supabase, clinicId, providerId, sheetRows, patientMap)
+          } catch (claimErr) {
+            console.error('[ClinicDetail] claim on provider sheets fetch failed', claimErr)
+          }
+        }
         
         // Add empty rows to reach 200 total rows per provider
         const createEmptyProviderSheetRow = (index: number): SheetRow => ({
@@ -1786,6 +2045,7 @@ export default function ClinicDetail() {
       } catch (claimErr) {
         console.error('[ClinicDetail] claimUnassignedPatientsForProvider', claimErr)
       }
+      await syncPatientsFromProviderRows(rowsToProcess)
       await fetchPatients()
       try {
         const pendingKey = `provider_sheet_pending_${clinicId}_${providerId}_${selectedMonthKey}`
@@ -1879,7 +2139,7 @@ export default function ClinicDetail() {
         saveProviderSheetRows(providerId, pending)
       }
     }
-  }, [clinicId, userProfile, providerSheets, selectedMonthKey, fetchPatients])
+  }, [clinicId, userProfile, providerSheets, selectedMonthKey, fetchPatients, syncPatientsFromProviderRows])
 
   // Restore provider sheet rows from localStorage after refresh (browser aborts in-flight save; data was backed up on unload)
   const PENDING_ROWS_KEY_PREFIX = 'provider_sheet_pending_'
@@ -2380,6 +2640,7 @@ export default function ClinicDetail() {
             <PatientsTab
               clinicId={clinicId!}
               canEdit={canEdit && !backupOverridePatients}
+            onPatientsCreated={handlePatientsCreated}
             isInSplitScreen={!!splitScreen}
             isLockPatients={isLockPatients}
             onRegisterUndo={(undo) => { lastUndoRef.current = undo }}

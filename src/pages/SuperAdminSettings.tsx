@@ -493,6 +493,9 @@ export default function SuperAdminSettings() {
 
   const handleSaveAssignClinics = async (user: User, clinicIds: string[]) => {
     try {
+      const previousClinicIds = Array.isArray(user.clinic_ids) ? user.clinic_ids : []
+      const newlyAssignedClinicIds = clinicIds.filter((cid) => !previousClinicIds.includes(cid))
+
       // Always update users table – this is the source of truth for clinic access for all roles (admin, billing_staff, office_staff, provider)
       const { error: userError } = await supabase
         .from('users')
@@ -503,8 +506,10 @@ export default function SuperAdminSettings() {
 
       // For providers, also update the providers table so provider sheet/schedule and sidebar use correct clinic_ids
       if (user.role === 'provider' && user.email) {
+        let providerId: string | null = null
         const { data: existingProvider } = await supabase.from('providers').select('id').eq('email', user.email).limit(1).maybeSingle()
         if (existingProvider) {
+          providerId = existingProvider.id
           const { error: providerError } = await supabase.from('providers').update({ clinic_ids: clinicIds }).eq('email', user.email)
           if (providerError) throw providerError
         } else {
@@ -512,13 +517,58 @@ export default function SuperAdminSettings() {
           const spaceIdx = fullName.indexOf(' ')
           const first_name = spaceIdx > 0 ? fullName.slice(0, spaceIdx) : fullName
           const last_name = spaceIdx > 0 ? fullName.slice(spaceIdx + 1).trim() || '-' : '-'
-          const { error: insertErr } = await supabase.from('providers').insert({
-            email: user.email,
-            first_name,
-            last_name,
-            clinic_ids: clinicIds,
-          })
+          const { data: insertedProvider, error: insertErr } = await supabase
+            .from('providers')
+            .insert({
+              email: user.email,
+              first_name,
+              last_name,
+              clinic_ids: clinicIds,
+            })
+            .select('id')
+            .maybeSingle()
           if (insertErr) throw insertErr
+          providerId = insertedProvider?.id ?? null
+        }
+
+        // Ensure newly assigned clinics have a provider sheet for the current month.
+        if (providerId && newlyAssignedClinicIds.length > 0) {
+          const now = new Date()
+          const month = now.getMonth() + 1
+          const year = now.getFullYear()
+
+          for (const clinicId of newlyAssignedClinicIds) {
+            const clinicPayroll = (clinics.find((c) => c.id === clinicId)?.payroll ?? 1) as 1 | 2
+            const { data: existingSheet, error: findSheetError } = await supabase
+              .from('provider_sheets')
+              .select('id')
+              .eq('clinic_id', clinicId)
+              .eq('provider_id', providerId)
+              .eq('month', month)
+              .eq('year', year)
+              .eq('payroll', clinicPayroll)
+              .limit(1)
+              .maybeSingle()
+
+            if (findSheetError) {
+              throw findSheetError
+            }
+
+            if (!existingSheet) {
+              const { error: createSheetError } = await supabase.from('provider_sheets').insert({
+                clinic_id: clinicId,
+                provider_id: providerId,
+                month,
+                year,
+                payroll: clinicPayroll,
+                locked: false,
+                locked_columns: [],
+              })
+              if (createSheetError && createSheetError.code !== '23505') {
+                throw createSheetError
+              }
+            }
+          }
         }
       }
 

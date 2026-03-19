@@ -188,7 +188,7 @@ export default function BackupVersionsBar(
     <>
       <div className="flex items-center justify-end gap-2 flex-wrap mt-2 pr-4 -mb-6">
         {versions.length === 0 && !viewingVersion && (
-          <span className="text-white/50 text-sm">No backup versions yet. Backups run every 3 minutes.</span>
+          <span className="text-white/50 text-sm">No backup versions yet. Backups run every 12 hours.</span>
         )}
         {viewingVersion && (
           <div>
