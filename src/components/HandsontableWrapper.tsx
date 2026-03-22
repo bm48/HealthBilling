@@ -1,7 +1,7 @@
-import { useRef, useEffect, useMemo, useState } from 'react'
+import { useRef, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { HotTable } from '@handsontable/react'
 import Handsontable from 'handsontable'
-import { HyperFormula } from 'hyperformula'
+import { HyperFormula, NoOperationToRedoError, NoOperationToUndoError } from 'hyperformula'
 import { DateEditor, DropdownEditorOpenList } from '@/lib/handsontableCustomRenderers'
 import 'handsontable/dist/handsontable.full.css'
 
@@ -194,6 +194,14 @@ interface HandsontableWrapperProps {
   readOnly?: boolean
   /** Bump when rows are added/removed so the grid refreshes (e.g. context-menu add/delete) */
   dataVersion?: number
+  /** Forward Handsontable row structure hooks (e.g. sync React state after native context menu insert/remove). */
+  afterCreateRow?: (index: number, amount: number, source?: string) => void
+  afterRemoveRow?: (index: number, amount: number, physicalRows: number[], source?: string) => void
+  /**
+   * When true with onCellHighlight / comment menus, prepend native row + copy/cut + undo/redo items
+   * (same as default grid menu) before custom cell items.
+   */
+  contextMenuWithNativeRows?: boolean
   /** Called when rows are reordered by drag (manualRowMove). movedRows = source indexes, finalIndex = index of first moved row after drop */
   onAfterRowMove?: (movedRows: number[], finalIndex: number) => void
   /** When set to a row index (0-based), the grid will scroll to that row after the next data/version update, then clear the ref */
@@ -204,6 +212,11 @@ interface HandsontableWrapperProps {
   columnSorting?: boolean | Record<string, unknown>
   /** Optional ref to receive the Handsontable instance (e.g. to blur when opening a modal so focus stays in the modal). */
   hotInstanceRef?: React.MutableRefObject<Handsontable | null>
+  /**
+   * Called after Handsontable undo/redo completes. Use to sync React state from the grid without triggering
+   * updateSettings({ data }) in the same tick (that would clear Handsontable's redo stack).
+   */
+  onAfterUndoRedoSync?: () => void
 }
 
 export default function HandsontableWrapper({
@@ -232,11 +245,15 @@ export default function HandsontableWrapper({
   getCellTitle,
   readOnly = false,
   dataVersion = 0,
+  afterCreateRow,
+  afterRemoveRow,
+  contextMenuWithNativeRows = false,
   onAfterRowMove,
   scrollToRowAfterUpdateRef,
   afterRenderCallback,
   columnSorting: columnSortingProp = false,
   hotInstanceRef,
+  onAfterUndoRedoSync,
 }: HandsontableWrapperProps) {
   const hotTableRef = useRef<any>(null)
   const hyperformulaInstanceRef = useRef<HyperFormula | null>(null)
@@ -253,12 +270,73 @@ export default function HandsontableWrapper({
   const prevDataVersionRef = useRef(dataVersion)
   // Stable ref for settings.data so HotTable doesn't overwrite grid on every re-render (avoids stale data wiping typed input)
   const dataForSettingsRef = useRef(data)
+  /** When true, skip one updateSettings({ data }) so HOT's undo/redo stack is not cleared by React resync */
+  const suppressProgrammaticDataPushRef = useRef(false)
+  /**
+   * @handsontable/react calls updateSettings(fullSettings) on every parent re-render.
+   * - Passing `data` reapplies the dataset (bad for redo).
+   * - If `data` is omitted but `columns` is still present, Handsontable core runs datamap.createMap() +
+   *   initIndexMappers() on every update (core.js), which also breaks redo after undo triggers setState.
+   * After first paint, omit both from the settings object; push data via the effect below and columns via
+   * the processedColumns effect only when those values actually change.
+   */
+  const [omitDataAndColumnsFromReactSettings, setOmitDataAndColumnsFromReactSettings] = useState(false)
+
+  useLayoutEffect(() => {
+    const enableOmit = () => {
+      if (hotTableRef.current?.hotInstance) setOmitDataAndColumnsFromReactSettings(true)
+    }
+    enableOmit()
+    const t = setTimeout(enableOmit, 0)
+    return () => {
+      clearTimeout(t)
+      setOmitDataAndColumnsFromReactSettings(false)
+    }
+  }, [])
+
+  const runUndoRedoSyncFromParent = () => {
+    if (!onAfterUndoRedoSync) return
+    suppressProgrammaticDataPushRef.current = true
+    onAfterUndoRedoSync()
+    // If only cell values changed, data.length/dataVersion may be unchanged so the data effect never runs;
+    // clear suppress after two frames so a later real structure change is not wrongly skipped.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (suppressProgrammaticDataPushRef.current) {
+          suppressProgrammaticDataPushRef.current = false
+        }
+      })
+    })
+  }
 
   // Create HyperFormula once when enableFormula is true so initial settings include formulas with a valid sheetName (string).
   // This prevents "Expected value of type: string for config parameter: sheetName" when the Formulas plugin runs on mount/update.
+  //
+  // Handsontable's Formulas plugin hooks beforeUndo/beforeRedo and always calls engine.undo()/redo(). HyperFormula keeps a
+  // separate stack from Handsontable's UndoRedo; plain cell edits often only exist on HOT's stack, so HF.redo() throws
+  // NoOperationToRedoError and breaks redo. Swallow those no-op cases so HOT can still apply its redo/undo action.
   const hyperformulaInstance = useMemo(() => {
     if (!enableFormula) return null
-    return HyperFormula.buildEmpty({ licenseKey: 'gpl-v3' })
+    const hf = HyperFormula.buildEmpty({ licenseKey: 'gpl-v3' })
+    const origRedo = hf.redo.bind(hf)
+    const origUndo = hf.undo.bind(hf)
+    ;(hf as { redo: () => void }).redo = () => {
+      try {
+        return origRedo()
+      } catch (e) {
+        if (e instanceof NoOperationToRedoError) return
+        throw e
+      }
+    }
+    ;(hf as { undo: () => void }).undo = () => {
+      try {
+        return origUndo()
+      } catch (e) {
+        if (e instanceof NoOperationToUndoError) return
+        throw e
+      }
+    }
+    return hf
   }, [enableFormula])
   hyperformulaInstanceRef.current = hyperformulaInstance
 
@@ -283,12 +361,57 @@ export default function HandsontableWrapper({
     const lengthChanged = prevDataLengthRef.current !== dataRef.current.length
     const versionChanged = prevDataVersionRef.current !== dataVersion
     if (hotInstance && (lengthChanged || versionChanged)) {
+      if (suppressProgrammaticDataPushRef.current) {
+        suppressProgrammaticDataPushRef.current = false
+        prevDataLengthRef.current = dataRef.current.length
+        prevDataVersionRef.current = dataVersion
+        dataForSettingsRef.current = dataRef.current
+        return
+      }
+      // Replacing data via updateSettings drops column sort state; re-apply so row delete/add doesn't scramble order
+      let sortConfigsToRestore: Array<{ column: number; sortOrder: 'asc' | 'desc' }> | null = null
+      try {
+        const cs = hotInstance.getPlugin('columnSorting') as
+          | {
+              isEnabled?: () => boolean
+              isSorted?: () => boolean
+              getSortConfig?: () =>
+                | { column: number; sortOrder: 'asc' | 'desc' }
+                | Array<{ column: number; sortOrder: 'asc' | 'desc' }>
+                | undefined
+            }
+          | undefined
+        if (cs?.isEnabled?.() && cs?.isSorted?.()) {
+          const cfg = cs.getSortConfig?.()
+          if (cfg != null) {
+            sortConfigsToRestore = Array.isArray(cfg) ? cfg.map((c) => ({ ...c })) : [{ ...cfg }]
+          }
+        }
+      } catch {
+        sortConfigsToRestore = null
+      }
+
       prevDataLengthRef.current = dataRef.current.length
       prevDataVersionRef.current = dataVersion
       hotInstance.updateSettings({
         data: dataRef.current
       })
       dataForSettingsRef.current = dataRef.current
+
+      if (sortConfigsToRestore && sortConfigsToRestore.length > 0) {
+        const configs = sortConfigsToRestore
+        requestAnimationFrame(() => {
+          try {
+            const hot = hotTableRef.current?.hotInstance as Handsontable | undefined
+            if (!hot) return
+            const cs = hot.getPlugin('columnSorting') as { sort: (c: unknown) => void } | undefined
+            cs?.sort(configs.length === 1 ? configs[0] : configs)
+          } catch {
+            // ignore
+          }
+        })
+      }
+
       // Scroll to requested row (e.g. after "Add row" so the new row is visible)
       const rowToScroll = scrollToRowAfterUpdateRef?.current
       if (typeof rowToScroll === 'number' && rowToScroll >= 0 && rowToScroll < dataRef.current.length) {
@@ -411,8 +534,12 @@ export default function HandsontableWrapper({
       : (rowHeaders as boolean | string[] | undefined)
 
   const settings: Handsontable.GridSettings = {
-    data: dataForSettingsRef.current,
-    columns: processedColumns,
+    ...(omitDataAndColumnsFromReactSettings
+      ? {}
+      : {
+          data: dataForSettingsRef.current,
+          columns: processedColumns,
+        }),
     colHeaders,
     rowHeaders: processedRowHeaders,
     width,
@@ -455,34 +582,35 @@ export default function HandsontableWrapper({
     // Delete key - Clear cell content
     // (default behavior when cell is selected)
     
-    // Cell context menu: Highlight; See comment (single item) when onCellSeeComment, else Add/Remove comment when onCellAddComment
-    contextMenu:
-      onCellHighlight || onCellSeeComment || onCellAddComment
-        ? {
-            callback(key: string, selection: number[][] | undefined) {
-              const hot = hotTableRef.current?.hotInstance as any
-              let row: number
-              let col: number
-              const range = selection?.[0]
-              if (range && range.length >= 2) {
-                row = range[0]
-                col = range[1]
-              } else if (hot?.getSelectedLast?.()) {
-                const sel = hot.getSelectedLast()
-                row = sel[0]
-                col = sel[1]
-              } else {
-                return
-              }
-              if (key === 'highlight' && onCellHighlight) onCellHighlight(row, col)
-              if (key === 'see_comment' && onCellSeeComment) onCellSeeComment(row, col)
-              if (key === 'add_comment') {
-                const hasComment = getCellHasComment?.(row, col)
-                if (hasComment && onCellRemoveComment) onCellRemoveComment(row, col)
-                else if (!hasComment && onCellAddComment) onCellAddComment(row, col)
-              }
-            },
-            items: {
+    // Cell context menu: optional native row ops + Highlight / See comment / Add comment
+    contextMenu: (() => {
+      const cellMenuCustom = Boolean(onCellHighlight || onCellSeeComment || onCellAddComment)
+      const cellMenuCallback = (key: string, selection: number[][] | undefined) => {
+        const hot = hotTableRef.current?.hotInstance as any
+        let row: number
+        let col: number
+        const range = selection?.[0]
+        if (range && range.length >= 2) {
+          row = range[0]
+          col = range[1]
+        } else if (hot?.getSelectedLast?.()) {
+          const sel = hot.getSelectedLast()
+          row = sel[0]
+          col = sel[1]
+        } else {
+          return
+        }
+        if (key === 'highlight' && onCellHighlight) onCellHighlight(row, col)
+        if (key === 'see_comment' && onCellSeeComment) onCellSeeComment(row, col)
+        if (key === 'add_comment') {
+          const hasComment = getCellHasComment?.(row, col)
+          if (hasComment && onCellRemoveComment) onCellRemoveComment(row, col)
+          else if (!hasComment && onCellAddComment) onCellAddComment(row, col)
+        }
+      }
+      const cellOnlyItems = {
+        ...(onCellHighlight
+          ? {
               highlight: {
                 name: function (this: any) {
                   const sel = this.getSelectedLast?.()
@@ -490,42 +618,70 @@ export default function HandsontableWrapper({
                   return getCellIsHighlighted(sel[0], sel[1]) ? 'Remove highlight' : 'Highlight'
                 },
               },
-              ...(onCellSeeComment
-                ? {
-                    sep: '---------',
-                    see_comment: { name: 'See comment' },
-                  }
-                : onCellAddComment
-                  ? {
-                      sep: '---------',
-                      add_comment: {
-                        name: function (this: any) {
-                          const sel = this.getSelectedLast?.()
-                          if (!sel || !getCellHasComment) return 'Add comment'
-                          return getCellHasComment(sel[0], sel[1]) ? 'Remove comment' : 'Add comment'
-                        },
-                      },
-                    }
-                  : {}),
-            },
-          }
-        : onContextMenu
-          ? undefined
-          : ([
-              'row_above',
-              'row_below',
-              'remove_row',
-              '---------',
-              'col_left',
-              'col_right',
-              'remove_col',
-              '---------',
-              'copy',
-              'cut',
-              '---------',
-              'undo',
-              'redo',
-            ] as any),
+            }
+          : {}),
+        ...(onCellSeeComment
+          ? {
+              sep_cell: '---------',
+              see_comment: { name: 'See comment' },
+            }
+          : onCellAddComment
+            ? {
+                sep_cell: '---------',
+                add_comment: {
+                  name: function (this: any) {
+                    const sel = this.getSelectedLast?.()
+                    if (!sel || !getCellHasComment) return 'Add comment'
+                    return getCellHasComment(sel[0], sel[1]) ? 'Remove comment' : 'Add comment'
+                  },
+                },
+              }
+            : {}),
+      }
+      const nativeRowAndEditItems = {
+        row_above: {},
+        row_below: {},
+        remove_row: {},
+        sep_nr0: '---------',
+        copy: {},
+        cut: {},
+        sep_nr1: '---------',
+        undo: {},
+        redo: {},
+        sep_nr2: '---------',
+      }
+      if (cellMenuCustom && contextMenuWithNativeRows) {
+        return {
+          callback: cellMenuCallback,
+          items: {
+            ...nativeRowAndEditItems,
+            ...cellOnlyItems,
+          },
+        }
+      }
+      if (cellMenuCustom) {
+        return {
+          callback: cellMenuCallback,
+          items: cellOnlyItems,
+        }
+      }
+      if (onContextMenu) return undefined
+      return [
+        'row_above',
+        'row_below',
+        'remove_row',
+        '---------',
+        'col_left',
+        'col_right',
+        'remove_col',
+        '---------',
+        'copy',
+        'cut',
+        '---------',
+        'undo',
+        'redo',
+      ] as any
+    })(),
     
     // Manual column resize
     manualColumnResize: true,
@@ -721,7 +877,15 @@ export default function HandsontableWrapper({
     afterRowMove: (movedRows, finalIndex) => {
       if (onAfterRowMove) onAfterRowMove(movedRows, finalIndex)
     },
-    
+    ...(afterCreateRow ? { afterCreateRow } : {}),
+    ...(afterRemoveRow ? { afterRemoveRow } : {}),
+    ...(onAfterUndoRedoSync
+      ? {
+          afterUndo: () => runUndoRedoSyncFromParent(),
+          afterRedo: () => runUndoRedoSyncFromParent(),
+        }
+      : {}),
+
     // Custom keyboard shortcuts
     customBorders: true,
     

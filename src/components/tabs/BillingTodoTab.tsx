@@ -1,35 +1,70 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type MutableRefObject } from 'react'
-import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import { TodoItem, IsLockBillingTodo } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { createBubbleDropdownRenderer } from '@/lib/handsontableCustomRenderers'
-import { Plus, Trash2 } from 'lucide-react'
+
+function nextEmptyNumericIdSuffix(rows: { id: string }[]): number {
+  let max = -1
+  for (const r of rows) {
+    const m = /^empty-(\d+)$/.exec(r.id)
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return max + 1
+}
+
+function isHandsontableUndoRedoSource(source?: string) {
+  return source === 'UndoRedo.undo' || source === 'UndoRedo.redo'
+}
+
+function mergeBillingTodoFromGridRow(
+  todo: TodoItem,
+  row: (string | number | null | undefined)[]
+): TodoItem {
+  const statusRaw = row[1] != null && row[1] !== '' ? String(row[1]) : ''
+  return {
+    ...todo,
+    status: statusRaw,
+    issue: row[2] === '' || row[2] == null || row[2] === 'null' ? null : String(row[2]),
+    notes: row[3] === '' || row[3] == null || row[3] === 'null' ? null : String(row[3]),
+    followup_notes: row[4] === '' || row[4] == null || row[4] === 'null' ? null : String(row[4]),
+  }
+}
 
 interface BillingTodoTabProps {
   clinicId: string
   canEdit: boolean
   onDelete?: (todoId: string) => void
-  onRegisterUndo?: (undo: () => void) => void
   isLockBillingTodo?: IsLockBillingTodo | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockBillingTodo) => boolean
   isInSplitScreen?: boolean
   exportRef?: MutableRefObject<{ exportToCSV: () => void } | null>
+  /** Parent awaits this before switching away so pending edits persist (same as PatientsTab). */
+  onRegisterFlushBeforeTabLeave?: (flush: () => Promise<void>) => void
 }
 
-export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegisterUndo, isLockBillingTodo, onLockColumn, isColumnLocked, isInSplitScreen, exportRef }: BillingTodoTabProps) {
+export default function BillingTodoTab({ clinicId, canEdit, onDelete, isLockBillingTodo, onLockColumn, isColumnLocked, isInSplitScreen, exportRef, onRegisterFlushBeforeTabLeave }: BillingTodoTabProps) {
   const { userProfile } = useAuth()
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [loading, setLoading] = useState(true)
   const todosRef = useRef<TodoItem[]>([])
-  const isInitialLoadRef = useRef(true) // Track if we're still in initial load phase; skip scheduling save only, never drop edits
+  const hotRef = useRef<Handsontable | null>(null)
   const saveTodosTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const sessionIdRef = useRef<string>(`${Date.now()}`) // Stable id prefix for new rows (one id per row index, prevents multi-insert)
-  /** Stable temporary new- id per row (by current row id) so multiple cell edits on one row insert one record - same as AR/Patients */
-  const pendingNewIdByRowIdRef = useRef<Map<string, string>>(new Map())
+  const saveTodosRef = useRef<(todosToSave: TodoItem[]) => Promise<void>>(null as any)
+  const saveInProgressRef = useRef(false)
+  const savePendingRef = useRef(false)
+  const [runPendingSaveTrigger, setRunPendingSaveTrigger] = useState(0)
+  const saveCompletePromiseRef = useRef<{ promise: Promise<void>; resolve: () => void } | null>(null)
+  /** Snapshot of last saved fields per todo id — same idea as PatientsTab lastSavedSnapshotRef */
+  const lastSavedSnapshotRef = useRef<Map<string, { issue: string | null; notes: string | null; followup_notes: string | null; status: string }>>(new Map())
+  const lastEditedRowRef = useRef<number | null>(null)
+  const saveTriggeredByRowLeaveRef = useRef(false)
+  const lastSelectedRowRef = useRef<number | null>(null)
+  const pendingRowLeaveSaveRef = useRef(false)
+  const pendingRowLeaveSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0) // Bump on add/delete row so grid refreshes immediately
@@ -51,6 +86,36 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
     completed_at: null,
   }), [clinicId, userProfile])
 
+  const normalizeTodoRow = useCallback((t: TodoItem): TodoItem => ({
+    ...t,
+    issue: (t.issue && t.issue !== 'null') ? t.issue : null,
+    notes: (t.notes && t.notes !== 'null') ? t.notes : null,
+    followup_notes: (t.followup_notes && t.followup_notes !== 'null') ? t.followup_notes : null,
+  }), [])
+
+  /** True empty placeholder rows only (not rows with status/issue data on an empty- id). */
+  const isBillingTodoEmptyPlaceholder = useCallback((t: TodoItem) => {
+    return (
+      t.id.startsWith('empty-') &&
+      !t.issue &&
+      !t.notes &&
+      !t.followup_notes &&
+      (!t.status || t.status === '' || t.status === 'Open')
+    )
+  }, [])
+
+  /** Incomplete (non-Complete) data rows first, then Complete, then blank placeholders at the end. */
+  const sortBillingTodosCompleteAtBottom = useCallback(
+    (list: TodoItem[]): TodoItem[] => {
+      const dataRows = list.filter((t) => !isBillingTodoEmptyPlaceholder(t))
+      const incomplete = dataRows.filter((t) => t.status !== 'Complete')
+      const complete = dataRows.filter((t) => t.status === 'Complete')
+      const emptyRows = list.filter((t) => isBillingTodoEmptyPlaceholder(t))
+      return [...incomplete, ...complete, ...emptyRows]
+    },
+    [isBillingTodoEmptyPlaceholder]
+  )
+
   const fetchTodos = useCallback(async () => {
     try {
       const { data: todosData, error: todosError } = await supabase
@@ -58,165 +123,122 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
         .select('*')
         .eq('clinic_id', clinicId)
         .order('created_at', { ascending: false })
-        // No sorting - preserve exact order from database (typically creation order)
 
-      if (todosError) {
-        throw todosError
-      }
-      const fetchedTodos = todosData || []
+      if (todosError) throw todosError
+      const fetchedTodos = (todosData || []).map(normalizeTodoRow)
 
-      setTodos(currentTodos => {
-        // On initial load (empty state), just use all fetched todos and add empty rows
+      fetchedTodos.forEach((t) => {
+        lastSavedSnapshotRef.current.set(t.id, {
+          issue: t.issue,
+          notes: t.notes,
+          followup_notes: t.followup_notes,
+          status: (t.status === 'Open' || !t.status) ? '' : t.status,
+        })
+      })
+
+      setTodos((currentTodos) => {
         if (currentTodos.length === 0) {
-          // Cap at 200: take only first 200 from DB; normalize string "null" from DB to real null
-          let todosToUse = fetchedTodos.slice(0, 200).map(t => ({
-            ...t,
-            issue: (t.issue && t.issue !== 'null') ? t.issue : null,
-            notes: (t.notes && t.notes !== 'null') ? t.notes : null,
-            followup_notes: (t.followup_notes && t.followup_notes !== 'null') ? t.followup_notes : null,
-          }))
+          const todosToUse = sortBillingTodosCompleteAtBottom(fetchedTodos.slice(0, 200))
           const emptyRowsNeeded = 200 - todosToUse.length
-          const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => 
-            createEmptyTodo(i)
-          )
-          const result = [...todosToUse, ...newEmptyRows]
-          return result
+          const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => createEmptyTodo(i))
+          return [...todosToUse, ...newEmptyRows]
         }
-        
-        // For subsequent loads, preserve order of existing todos
-        // Separate unsaved todos (new- and empty-)
-        const unsavedTodos = currentTodos.filter(t => t.id.startsWith('new-') || t.id.startsWith('empty-'))
-        
-        // Create a map of existing todos by their database ID to preserve order
-        const existingTodosMap = new Map<string, TodoItem>()
-        currentTodos.forEach(t => {
-          // Only include todos with real database IDs (not new- or empty-)
-          if (!t.id.startsWith('new-') && !t.id.startsWith('empty-')) {
-            existingTodosMap.set(t.id, t)
-          }
-        })
-        
-        // Create a map of fetched todos by ID
+
         const fetchedTodosMap = new Map<string, TodoItem>()
-        fetchedTodos.forEach(t => {
-          fetchedTodosMap.set(t.id, t)
-        })
-        
-        // Preserve the order of existing todos, updating them with fresh data from database
+        fetchedTodos.forEach((t) => fetchedTodosMap.set(t.id, t))
+
         const preservedOrder: TodoItem[] = []
-        currentTodos.forEach(t => {
-          if (!t.id.startsWith('new-') && !t.id.startsWith('empty-')) {
-            // If this todo exists in fetched data, use the fresh data
+        currentTodos.forEach((t) => {
+          if (t.id.startsWith('new-') || t.id.startsWith('empty-')) {
+            preservedOrder.push(t)
+          } else {
             const freshData = fetchedTodosMap.get(t.id)
             if (freshData) {
-              preservedOrder.push({
-                ...freshData,
-                issue: (freshData.issue && freshData.issue !== 'null') ? freshData.issue : null,
-                notes: (freshData.notes && freshData.notes !== 'null') ? freshData.notes : null,
-                followup_notes: (freshData.followup_notes && freshData.followup_notes !== 'null') ? freshData.followup_notes : null,
-              })
-              fetchedTodosMap.delete(t.id) // Remove from map so we don't add it again
+              preservedOrder.push(normalizeTodoRow(freshData))
+              fetchedTodosMap.delete(t.id)
             }
           }
         })
-        
-        // Add any newly fetched todos that weren't in the current state (newly created from other sources)
-        const newFetchedTodos = Array.from(fetchedTodosMap.values()).map(t => ({
-          ...t,
-          issue: (t.issue && t.issue !== 'null') ? t.issue : null,
-          notes: (t.notes && t.notes !== 'null') ? t.notes : null,
-          followup_notes: (t.followup_notes && t.followup_notes !== 'null') ? t.followup_notes : null,
-        }))
-        
-        // Combine: unsaved todos first, then preserved order of existing todos, then new fetched todos
-        let updated = [...unsavedTodos, ...preservedOrder, ...newFetchedTodos]
-        // Cap at 200 rows
-        if (updated.length > 200) updated = updated.slice(0, 200)
-        
-        // Add empty rows only when fewer than 200
-        const emptyRowsNeeded = 200 - updated.length
-        if (emptyRowsNeeded > 0) {
-          const existingEmptyCount = updated.filter(t => t.id.startsWith('empty-')).length
-          const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => 
-            createEmptyTodo(existingEmptyCount + i)
-          )
-          updated = [...updated, ...newEmptyRows]
-        }
-        
-        return updated
+        const newFetchedTodos = Array.from(fetchedTodosMap.values()).map(normalizeTodoRow)
+        const updated = [...preservedOrder, ...newFetchedTodos]
+
+        const nonEmpty = updated.filter((t) => !t.id.startsWith('empty-'))
+        const emptyOnes = updated.filter((t) => t.id.startsWith('empty-'))
+        let result = sortBillingTodosCompleteAtBottom([...nonEmpty, ...emptyOnes])
+
+        const totalRows = result.length
+        const emptyRowsNeeded = Math.max(0, 200 - totalRows)
+        const existingEmptyCount = result.filter((t) => t.id.startsWith('empty-')).length
+        const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) =>
+          createEmptyTodo(existingEmptyCount + i)
+        )
+        return [...result, ...newEmptyRows]
       })
     } catch (error) {
       console.error('Error fetching todos:', error)
     } finally {
       setLoading(false)
-      isInitialLoadRef.current = false
     }
-  }, [clinicId, createEmptyTodo])
+  }, [clinicId, createEmptyTodo, normalizeTodoRow, sortBillingTodosCompleteAtBottom])
 
   useEffect(() => {
     todosRef.current = todos
   }, [todos])
 
   useEffect(() => {
-    if (clinicId) {
-      fetchTodos()
-    }
+    if (!clinicId) return
+    fetchTodos().then(() => {
+      setStructureVersion((v) => v + 1)
+    })
   }, [clinicId, fetchTodos])
 
   const saveTodos = useCallback(async (todosToSave: TodoItem[]) => {
-    if (!clinicId || !userProfile) {
-      console.log('[saveTodos] Skipping save - missing clinicId or userProfile')
-      return
-    }
+    if (!clinicId || !userProfile) return
 
-    // Don't save during initial load
-    if (isInitialLoadRef.current || loading) {
-      console.log('[saveTodos] Skipping save during initial load')
-      return
-    }
+    const normalizeSnap = (t: TodoItem) => ({
+      issue: (t.issue && t.issue !== 'null') ? t.issue : null,
+      notes: (t.notes && t.notes !== 'null') ? t.notes : null,
+      followup_notes: (t.followup_notes && t.followup_notes !== 'null') ? t.followup_notes : null,
+      status: (t.status === 'Open' || !t.status) ? '' : t.status,
+    })
 
-    // Only persist rows that have meaningful content (issue, notes, or followup_notes).
-    // Do not count status alone - dropdown can set "New" on empty rows and would create empty DB records.
+    // Same rule as before: only rows with issue/notes/followup_notes count as data (not status alone)
     const hasMeaningfulData = (t: TodoItem) => !!(t.issue || t.notes || t.followup_notes)
-    const withData = todosToSave.filter(hasMeaningfulData)
-    // Deduplicate by id so we never insert the same new row twice (e.g. same new-row-5-xxx)
+
     const seenIds = new Set<string>()
-    const todosToProcess = withData.filter(t => {
+    const todosToProcess = todosToSave.filter((t) => {
+      if (!hasMeaningfulData(t)) return false
       if (t.id.startsWith('new-') || t.id.startsWith('empty-')) {
         if (seenIds.has(t.id)) return false
         seenIds.add(t.id)
+        return true
       }
-      return true
+      const snap = lastSavedSnapshotRef.current.get(t.id)
+      const cur = normalizeSnap(t)
+      if (!snap) return true
+      return snap.issue !== cur.issue || snap.notes !== cur.notes || snap.followup_notes !== cur.followup_notes || snap.status !== cur.status
     })
 
-    // Delete existing DB rows that have no meaningful content so DB only has records with values
-    const toDeleteFromDb = todosToSave.filter(
-      t => !t.id.startsWith('new-') && !t.id.startsWith('empty-') && !hasMeaningfulData(t)
-    )
+    if (todosToProcess.length === 0) {
+      saveTriggeredByRowLeaveRef.current = false
+      return
+    }
 
-    if (todosToProcess.length === 0 && toDeleteFromDb.length === 0) return
+    saveInProgressRef.current = true
+    let resolveSaveComplete!: () => void
+    const saveCompletePromise = new Promise<void>((r) => {
+      resolveSaveComplete = r
+    })
+    saveCompletePromiseRef.current = { promise: saveCompletePromise, resolve: resolveSaveComplete }
 
     try {
       const savedTodosMap = new Map<string, TodoItem>()
-      const deletedIds = new Set<string>()
 
-      for (const todo of toDeleteFromDb) {
-        const { error: deleteError } = await supabase.from('todo_lists').delete().eq('id', todo.id)
-        if (deleteError) {
-          console.error('[saveTodos] Error deleting empty todo:', deleteError)
-          throw deleteError
-        }
-        deletedIds.add(todo.id)
-      }
-
-      // Process each todo (update or insert rows with data)
       for (let i = 0; i < todosToProcess.length; i++) {
         const todo = todosToProcess[i]
-        const oldId = todo.id // Store the old ID to find it in state
-
-        // Prepare todo data (no "Open" status; treat as empty)
+        const oldId = todo.id
         const statusValue = (todo.status === 'Open' || !todo.status) ? '' : todo.status
-        const todoData: any = {
+        const todoData: Record<string, unknown> = {
           clinic_id: clinicId,
           issue: (todo.issue && todo.issue !== 'null') ? todo.issue : null,
           status: statusValue,
@@ -227,7 +249,6 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
 
         let savedTodo: TodoItem | null = null
 
-        // If todo has a real database ID (not new- or empty-), update
         if (!todo.id.startsWith('new-') && !todo.id.startsWith('empty-')) {
           const { error: updateError, data: updateData } = await supabase
             .from('todo_lists')
@@ -237,7 +258,6 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
 
           if (updateError) {
             console.error('[saveTodos] Error updating todo:', updateError)
-            // If it's a table not found error, the migration hasn't been run
             if (updateError.message?.includes('relation') || updateError.message?.includes('does not exist')) {
               throw new Error('todo_lists table does not exist. Please run the migration SQL in Supabase.')
             }
@@ -245,21 +265,15 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
           }
 
           if (updateData && updateData.length > 0) {
-            savedTodo = updateData[0] as TodoItem
+            savedTodo = normalizeTodoRow(updateData[0] as TodoItem)
             savedTodosMap.set(oldId, savedTodo)
-            pendingNewIdByRowIdRef.current.delete(oldId)
+            lastSavedSnapshotRef.current.set(savedTodo.id, normalizeSnap(savedTodo))
             continue
           }
-          // Update matched 0 rows (e.g. row was deleted in DB); skip, do not insert
           continue
         }
 
-        // Insert for new todos (new- or empty- IDs) that have data
-        const todoInsertData = {
-          ...todoData,
-          created_by: userProfile.id,
-        }
-        
+        const todoInsertData = { ...todoData, created_by: userProfile.id }
         const { error: insertError, data: insertedTodo } = await supabase
           .from('todo_lists')
           .insert(todoInsertData)
@@ -268,123 +282,240 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
 
         if (insertError) {
           console.error('[saveTodos] Error inserting todo:', insertError, todoData)
-          // If it's a table not found error, the migration hasn't been run
           if (insertError.message?.includes('relation') || insertError.message?.includes('does not exist')) {
             throw new Error('todo_lists table does not exist. Please run the migration SQL in Supabase.')
           }
           throw insertError
         }
-        
+
         if (insertedTodo) {
-          savedTodo = insertedTodo as TodoItem
-          savedTodosMap.set(oldId, savedTodo) // Map old ID to new todo data
-          pendingNewIdByRowIdRef.current.delete(oldId)
+          savedTodo = normalizeTodoRow(insertedTodo as TodoItem)
+          savedTodosMap.set(oldId, savedTodo)
+          lastSavedSnapshotRef.current.set(savedTodo.id, normalizeSnap(savedTodo))
+          if (oldId !== savedTodo.id) {
+            lastSavedSnapshotRef.current.delete(oldId)
+          }
         }
       }
 
-      // Update state: remove deleted rows, apply saved data, cap and pad to 200
-      setTodos(currentTodos => {
-        let updated = currentTodos
-          .filter(todo => !deletedIds.has(todo.id))
-          .map(todo => {
-            const savedTodo = savedTodosMap.get(todo.id)
-            if (savedTodo) {
-              return {
-                ...savedTodo,
-                issue: (savedTodo.issue && savedTodo.issue !== 'null') ? savedTodo.issue : null,
-                notes: (savedTodo.notes && savedTodo.notes !== 'null') ? savedTodo.notes : null,
-                followup_notes: (savedTodo.followup_notes && savedTodo.followup_notes !== 'null') ? savedTodo.followup_notes : null,
-              }
+      setTodos((currentTodos) => {
+        const byNewId = new Map<string, TodoItem>()
+        savedTodosMap.forEach((saved, oldId) => {
+          byNewId.set(saved.id, saved)
+          if (oldId !== saved.id) byNewId.set(oldId, saved)
+        })
+        const merged = currentTodos.map((todo) => {
+          const savedTodo = savedTodosMap.get(todo.id) ?? byNewId.get(todo.id)
+          if (savedTodo) {
+            const normalized = normalizeTodoRow(savedTodo)
+            return {
+              ...todo,
+              id: normalized.id,
+              created_at: normalized.created_at,
+              updated_at: normalized.updated_at,
+              clinic_id: normalized.clinic_id,
+              created_by: normalized.created_by,
+              completed_at: normalized.completed_at,
+              issue: todo.issue !== undefined ? todo.issue : normalized.issue,
+              notes: todo.notes !== undefined ? todo.notes : normalized.notes,
+              followup_notes: todo.followup_notes !== undefined ? todo.followup_notes : normalized.followup_notes,
+              status: todo.status !== undefined ? todo.status : normalized.status,
             }
-            return todo
-          })
-
-        if (updated.length > 200) updated = updated.slice(0, 200)
-        const emptyRowsNeeded = 200 - updated.length
-        if (emptyRowsNeeded > 0) {
-          const existingEmptyCount = updated.filter(t => t.id.startsWith('empty-')).length
-          const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) =>
-            createEmptyTodo(existingEmptyCount + i)
-          )
-          updated = [...updated, ...newEmptyRows]
-        }
-        return updated
+          }
+          return todo
+        })
+        return sortBillingTodosCompleteAtBottom(merged)
       })
-      
-      // Update ref
-      todosRef.current = todosToSave
+
+      saveTriggeredByRowLeaveRef.current = false
     } catch (error) {
       console.error('[saveTodos] Error saving todos:', error)
-      // Only show alert if it's not a network/table error (those are handled above)
       const errorMessage = error instanceof Error ? error.message : String(error)
-      if (!errorMessage.includes('todo_lists table does not exist') && 
-          !errorMessage.includes('relation') && 
-          !errorMessage.includes('does not exist')) {
+      if (
+        !errorMessage.includes('todo_lists table does not exist') &&
+        !errorMessage.includes('relation') &&
+        !errorMessage.includes('does not exist')
+      ) {
         alert(errorMessage || 'Failed to save todo. Please try again.')
       }
+    } finally {
+      saveInProgressRef.current = false
+      saveCompletePromiseRef.current?.resolve()
+      saveCompletePromiseRef.current = null
+      if (savePendingRef.current) {
+        savePendingRef.current = false
+        setRunPendingSaveTrigger((t) => t + 1)
+      }
     }
-  }, [clinicId, userProfile, createEmptyTodo, loading])
+  }, [clinicId, userProfile, createEmptyTodo, normalizeTodoRow, sortBillingTodosCompleteAtBottom])
 
-  // Flush pending save when tab is left so data isn't lost on switch (same as PatientsTab/AR)
+  saveTodosRef.current = saveTodos
+
+  useEffect(() => {
+    if (runPendingSaveTrigger === 0) return
+    saveTodosRef.current(todosRef.current).catch((err) => {
+      console.error('[BillingTodoTab] Error in pending save:', err)
+    })
+  }, [runPendingSaveTrigger])
+
+  // Register flush for parent tab switch (same sequence as PatientsTab)
+  useEffect(() => {
+    if (!onRegisterFlushBeforeTabLeave) return
+    const flush = async () => {
+      const hot = hotRef.current
+      try {
+        const anyHot: any = hot as any
+        if (anyHot?.isEditing?.()) {
+          const editor: any = anyHot.getActiveEditor?.()
+          editor?.finishEditing?.()
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        ;(hot as any)?.deselectCell?.()
+      } catch {
+        // ignore
+      }
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+
+      if (saveTodosTimeoutRef.current) {
+        clearTimeout(saveTodosTimeoutRef.current)
+        saveTodosTimeoutRef.current = null
+      }
+      if (saveInProgressRef.current && saveCompletePromiseRef.current) {
+        await saveCompletePromiseRef.current.promise
+      }
+      saveTriggeredByRowLeaveRef.current = true
+      await saveTodos(todosRef.current)
+    }
+    onRegisterFlushBeforeTabLeave(flush)
+  }, [onRegisterFlushBeforeTabLeave, saveTodos])
+
+  // Best-effort flush on unmount (e.g. route away); ref always points to latest saveTodos
   useEffect(() => {
     return () => {
       if (saveTodosTimeoutRef.current) {
         clearTimeout(saveTodosTimeoutRef.current)
         saveTodosTimeoutRef.current = null
-        saveTodos(todosRef.current).catch(err => {
-          console.error('[BillingTodoTab unmount] Error flushing save:', err)
-        })
       }
-    }
-  }, [saveTodos])
-
-  const handleDeleteTodo = useCallback(async (todoId: string) => {
-    if (todoId.startsWith('new-') || todoId.startsWith('empty-')) {
-      setTodos(prev => {
-        const filtered = prev.filter(t => t.id !== todoId)
-        const emptyRowsNeeded = 200 - filtered.length
-        if (emptyRowsNeeded > 0) {
-          const existingEmptyCount = filtered.filter(t => t.id.startsWith('empty-')).length
-          const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => 
-            createEmptyTodo(existingEmptyCount + i)
-          )
-          const next = [...filtered, ...newEmptyRows]
-          todosRef.current = next
-          return next
-        }
-        todosRef.current = filtered
-        return filtered
+      void saveTodosRef.current(todosRef.current)?.catch((err: unknown) => {
+        console.error('[BillingTodoTab unmount] Error flushing save:', err)
       })
-      setStructureVersion(v => v + 1)
-      return
     }
+  }, [])
 
+  const handleDeleteTodo = useCallback(
+    async (todoId: string) => {
+      if (todoId.startsWith('new-')) {
+        setTodos((prev) => prev.filter((t) => t.id !== todoId))
+        setStructureVersion((v) => v + 1)
+        return
+      }
+
+      try {
+        const { error } = await supabase.from('todo_lists').delete().eq('id', todoId)
+        if (error) throw error
+        await fetchTodos()
+        setStructureVersion((v) => v + 1)
+        if (onDelete) onDelete(todoId)
+      } catch (error) {
+        console.error('Error deleting todo:', error)
+        alert(`Failed to delete to-do item: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+    },
+    [fetchTodos, onDelete]
+  )
+
+  const padBillingTodosTo200 = useCallback(
+    (list: TodoItem[]) => {
+      const result = [...list]
+      while (result.length > 200) {
+        const last = result[result.length - 1]
+        if (last && isBillingTodoEmptyPlaceholder(last)) result.pop()
+        else break
+      }
+      const trimmed = result.length > 200 ? result.slice(0, 200) : result
+      const out = [...trimmed]
+      while (out.length < 200) {
+        out.push(createEmptyTodo(nextEmptyNumericIdSuffix(out)))
+      }
+      return out
+    },
+    [createEmptyTodo, isBillingTodoEmptyPlaceholder]
+  )
+
+  const syncTodosFromHotAfterUndoRedo = useCallback(() => {
+    const hot = hotRef.current
+    if (!hot || (hot as any).isDestroyed) return
+    if (!canEdit) return
     try {
-      const { error } = await supabase.from('todo_lists').delete().eq('id', todoId)
-      if (error) throw error
-
-      setTodos(prev => {
-        const filtered = prev.filter(t => t.id !== todoId)
-        const emptyRowsNeeded = 200 - filtered.length
-        if (emptyRowsNeeded > 0) {
-          const existingEmptyCount = filtered.filter(t => t.id.startsWith('empty-')).length
-          const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => 
-            createEmptyTodo(existingEmptyCount + i)
-          )
-          const next = [...filtered, ...newEmptyRows]
-          todosRef.current = next
-          return next
-        }
-        todosRef.current = filtered
-        return filtered
-      })
-      setStructureVersion(v => v + 1)
-      if (onDelete) onDelete(todoId)
-    } catch (error) {
-      console.error('Error deleting todo:', error)
-      alert('Failed to delete to-do item')
+      const grid = hot.getData() as (string | number | null | undefined)[][]
+      const prev = todosRef.current
+      const next: TodoItem[] = []
+      for (let i = 0; i < grid.length; i++) {
+        const row = grid[i]
+        const p = prev[i] ?? createEmptyTodo(nextEmptyNumericIdSuffix(next))
+        next.push(mergeBillingTodoFromGridRow(p, row))
+      }
+      const padded = padBillingTodosTo200(next)
+      todosRef.current = padded
+      setTodos(padded)
+      void saveTodos(padded).catch((err) => console.error('saveTodos after HOT undo/redo sync', err))
+    } catch (e) {
+      console.error('syncTodosFromHotAfterUndoRedo', e)
     }
-  }, [onDelete, createEmptyTodo])
+  }, [canEdit, createEmptyTodo, padBillingTodosTo200, saveTodos])
+
+  const handleAfterCreateRow = useCallback(
+    (index: number, amount: number, source?: string) => {
+      if (!canEdit) return
+      if (source === 'loadData' || source === 'updateData') return
+      if (isHandsontableUndoRedoSource(source)) return
+      setTodos((prev) => {
+        const next = [...prev]
+        const base = nextEmptyNumericIdSuffix(next)
+        for (let i = 0; i < amount; i++) {
+          next.splice(index + i, 0, createEmptyTodo(base + i))
+        }
+        const padded = padBillingTodosTo200(next)
+        todosRef.current = padded
+        return padded
+      })
+      setStructureVersion((v) => v + 1)
+      requestAnimationFrame(() => {
+        saveTodos(todosRef.current).catch((err) => console.error('saveTodos after HOT create row', err))
+      })
+    },
+    [canEdit, createEmptyTodo, padBillingTodosTo200, saveTodos]
+  )
+
+  const handleAfterRemoveRow = useCallback(
+    (_index: number, _amount: number, physicalRows: number[], source?: string) => {
+      if (!canEdit) return
+      if (source === 'loadData' || source === 'updateData') return
+      if (isHandsontableUndoRedoSource(source)) return
+      const snap = [...todosRef.current]
+      const removed = physicalRows.map((i) => snap[i]).filter(Boolean)
+      removed.forEach((t) => {
+        if (t.id.startsWith('empty-')) return
+        void handleDeleteTodo(t.id)
+      })
+      setTodos((prev) => {
+        const rm = new Set(physicalRows)
+        const next = prev.filter((_, i) => !rm.has(i))
+        const sorted = sortBillingTodosCompleteAtBottom(next)
+        const padded = padBillingTodosTo200(sorted)
+        todosRef.current = padded
+        return padded
+      })
+      setStructureVersion((v) => v + 1)
+      requestAnimationFrame(() => {
+        saveTodos(todosRef.current).catch((err) => console.error('saveTodos after HOT remove row', err))
+      })
+    },
+    [canEdit, handleDeleteTodo, padBillingTodosTo200, saveTodos, sortBillingTodosCompleteAtBottom]
+  )
 
   // Export todos to CSV (only rows with at least one value)
   const exportToCsv = useCallback(() => {
@@ -430,7 +561,6 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
 
   // Status color mapping (five statuses: New, Waiting, In Progress, Complete, Updated)
   const getStatusColor = useCallback((status: string): { color: string; textColor: string } | null => {
-    console.log('status color', status)
     switch (status) {
       case 'New':
         return { color: '#53d5fd', textColor: '#ffffff' }
@@ -447,33 +577,16 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
     }
   }, [])
 
-  // When fewer than 200 rows, pad to 200; when more than 200, cap at 200
-  useEffect(() => {
-    if (!loading && todos.length > 0) {
-      setTodos(prev => {
-        if (prev.length > 200) return prev.slice(0, 200)
-        if (prev.length >= 200) return prev
-        const emptyRowsNeeded = 200 - prev.length
-        const existingEmptyCount = prev.filter(t => t.id.startsWith('empty-')).length
-        const newEmptyRows = Array.from({ length: emptyRowsNeeded }, (_, i) => 
-          createEmptyTodo(existingEmptyCount + i)
-        )
-        return [...prev, ...newEmptyRows]
-      })
-    }
-  }, [loading, todos.length, createEmptyTodo])
-
   // Reorder todos when user drags a row by the row header; persist order via created_at so reload preserves it
   const handleTodosRowMove = useCallback((movedRows: number[], finalIndex: number) => {
-    setTodos(prev => {
+    setTodos((prev) => {
       const arr = [...prev]
-      const toMove = movedRows.map(i => arr[i])
-      movedRows.sort((a, b) => b - a).forEach(i => arr.splice(i, 1))
+      const toMove = movedRows.map((i) => arr[i])
+      movedRows.sort((a, b) => b - a).forEach((i) => arr.splice(i, 1))
       const insertAt = Math.min(finalIndex, arr.length)
       toMove.forEach((item, i) => arr.splice(insertAt + i, 0, item))
-      const next = arr
-      // Persist order: set created_at so ORDER BY created_at DESC matches new order (row 0 = newest)
-      const realTodos = next.filter(t => !t.id.startsWith('empty-') && !t.id.startsWith('new-'))
+      const next = sortBillingTodosCompleteAtBottom(arr)
+      const realTodos = next.filter((t) => !t.id.startsWith('empty-') && !t.id.startsWith('new-'))
       if (realTodos.length > 0) {
         const baseTime = Date.now()
         Promise.all(
@@ -483,16 +596,18 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
               .update({ created_at: new Date(baseTime - i * 1000).toISOString() })
               .eq('id', todo.id)
           )
-        ).catch(err => console.error('Failed to persist todo order', err))
+        ).catch((err) => console.error('Failed to persist todo order', err))
       }
       return next
     })
-  }, [])
+    setStructureVersion((v) => v + 1)
+  }, [sortBillingTodosCompleteAtBottom])
 
   // Convert todos to Handsontable data format
   const getTodosHandsontableData = useCallback(() => {
     return todos.map(todo => [
-      todo.id.startsWith('empty-') ? '' : todo.id.substring(0, 8) + '...',
+      // Read-only preview of real UUIDs only; keep empty for placeholder rows (like Patient ID on PatientsTab)
+      todo.id.startsWith('empty-') || todo.id.startsWith('new-') ? '' : todo.id.substring(0, 8) + '...',
       // No "Open" status; when no value or legacy "Open", show empty cell
       (todo.status && todo.status !== 'Open') ? todo.status : '',
       (todo.issue && todo.issue !== 'null') ? todo.issue : '',
@@ -644,22 +759,24 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
 
   // Create columns with custom renderers; only ID and Status are sortable (Issue, Notes, F/u notes have headerAction: false)
   const todosColumns = useMemo(() => [
-    { 
-      data: 0, 
-      title: 'ID', 
-      type: 'text' as const, 
+    {
+      data: 0,
+      title: 'ID',
+      type: 'text' as const,
       width: 80,
       readOnly: !canEdit || getReadOnly('id_column'),
+      columnSorting: { indicator: true },
     },
-    { 
-      data: 1, 
-      title: 'Status', 
-      type: 'dropdown' as const, 
+    {
+      data: 1,
+      title: 'Status',
+      type: 'dropdown' as const,
       width: 120,
       selectOptions: ['New', 'Waiting', 'In Progress', 'Complete', 'Updated'],
       allowEmpty: false,
       renderer: createBubbleDropdownRenderer(getStatusColor) as any,
       readOnly: !canEdit || getReadOnly('status'),
+      columnSorting: { headerAction: false },
     },
     { 
       data: 2, 
@@ -687,227 +804,195 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
     },
   ], [canEdit, lockData, getStatusColor])
 
-  const handleTodosHandsontableChange = useCallback((changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
-    if (!changes) return
-    // Skip programmatic data load so we never run save after "delete all" refill (avoids inserting 100 empty records)
-    if (source === 'loadData' || source === 'populateFromArray') return
+  const handleTodosHandsontableChange = useCallback(
+    (changes: Handsontable.CellChange[] | null, source: Handsontable.ChangeSource) => {
+      if (!changes || source === 'loadData') return
 
-    // Use ref as single source of truth so rapid edits don't see stale state (always apply edits, never drop)
-    const currentTodos = todosRef.current.length > 0 ? todosRef.current : todos
-    const updatedTodos = [...currentTodos]
-    const fields: Array<'id' | 'status' | 'issue' | 'notes' | 'followup_notes'> = ['id', 'status', 'issue', 'notes', 'followup_notes']
+      const currentTodos = todosRef.current.length > 0 ? todosRef.current : todos
+      const updatedTodos = [...currentTodos]
+      const fields: Array<'id' | 'status' | 'issue' | 'notes' | 'followup_notes'> = [
+        'id',
+        'status',
+        'issue',
+        'notes',
+        'followup_notes',
+      ]
 
-    changes.forEach(([row, col, , newValue]) => {
-      while (updatedTodos.length <= row) {
-        const existingEmptyCount = updatedTodos.filter(t => t.id.startsWith('empty-')).length
-        updatedTodos.push(createEmptyTodo(existingEmptyCount))
-      }
+      const rowsInChange = [...new Set(changes.map(([r]) => r))]
+      const primaryRow = rowsInChange[0] ?? null
+      const prevRow = lastEditedRowRef.current
+      const didLeaveRow = prevRow !== null && primaryRow !== null && !rowsInChange.includes(prevRow)
 
-      const todo = updatedTodos[row]
-      if (todo) {
-        const field = fields[col as number]
-        const needsNewId = todo.id.startsWith('empty-')
-        // Stable id per row (same as AR/Patients) so multiple cell edits = one insert
-        let newId: string
-        if (needsNewId) {
-          const existing = pendingNewIdByRowIdRef.current.get(todo.id)
-          if (existing) {
-            newId = existing
-          } else {
-            newId = `new-row-${row}-${sessionIdRef.current}`
-            pendingNewIdByRowIdRef.current.set(todo.id, newId)
+      changes.forEach(([row, col, , newValue]) => {
+        while (updatedTodos.length <= row) {
+          const existingEmptyCount = updatedTodos.filter((t) => t.id.startsWith('empty-')).length
+          updatedTodos.push(createEmptyTodo(existingEmptyCount))
+        }
+        const todo = updatedTodos[row]
+        if (todo) {
+          const field = fields[col as number]
+          if (field === 'status') {
+            updatedTodos[row] = { ...todo, status: String(newValue || ''), updated_at: new Date().toISOString() }
+          } else if (field === 'issue') {
+            const issueVal = newValue === '' || newValue === 'null' ? null : String(newValue)
+            updatedTodos[row] = { ...todo, issue: issueVal, updated_at: new Date().toISOString() }
+          } else if (field === 'notes') {
+            const notesVal = newValue === '' || newValue === 'null' ? null : String(newValue)
+            updatedTodos[row] = { ...todo, notes: notesVal, updated_at: new Date().toISOString() }
+          } else if (field === 'followup_notes') {
+            const followupVal = newValue === '' || newValue === 'null' ? null : String(newValue)
+            updatedTodos[row] = { ...todo, followup_notes: followupVal, updated_at: new Date().toISOString() }
           }
-        } else {
-          newId = todo.id
-        }
-
-        if (field === 'status') {
-          updatedTodos[row] = { ...todo, id: newId, status: String(newValue || ''), updated_at: new Date().toISOString() }
-        } else if (field === 'issue') {
-          const issueVal = (newValue === '' || newValue === 'null') ? null : String(newValue)
-          updatedTodos[row] = { ...todo, id: newId, issue: issueVal, updated_at: new Date().toISOString() }
-        } else if (field === 'notes') {
-          const notesVal = (newValue === '' || newValue === 'null') ? null : String(newValue)
-          updatedTodos[row] = { ...todo, id: newId, notes: notesVal, updated_at: new Date().toISOString() }
-        } else if (field === 'followup_notes') {
-          const followupVal = (newValue === '' || newValue === 'null') ? null : String(newValue)
-          updatedTodos[row] = { ...todo, id: newId, followup_notes: followupVal, updated_at: new Date().toISOString() }
-        } else if (needsNewId) {
-          updatedTodos[row] = { ...todo, id: newId, updated_at: new Date().toISOString() }
-        }
-      }
-    })
-
-    // When status changes to Complete, move row to bottom of data; when changed from Complete, move to top
-    const statusChanged = changes.some(([, col]) => col === 1)
-    if (statusChanged) {
-      const isEmptyRow = (t: TodoItem) =>
-        t.id.startsWith('empty-') &&
-        !t.issue &&
-        !t.notes &&
-        !t.followup_notes &&
-        (!t.status || t.status === '' || t.status === 'Open')
-      const dataRows = updatedTodos.filter((t) => !isEmptyRow(t))
-      let incomplete = dataRows.filter((t) => t.status !== 'Complete')
-      const complete = dataRows.filter((t) => t.status === 'Complete')
-      const emptyRows = updatedTodos.filter((t) => isEmptyRow(t))
-      // Rows that were just changed from Complete to something else go to the top of incomplete
-      const movedToTopIds = new Set<string>()
-      changes.forEach(([row, , oldVal, newVal]) => {
-        if (row < updatedTodos.length && oldVal === 'Complete' && newVal !== 'Complete') {
-          movedToTopIds.add(updatedTodos[row].id)
         }
       })
-      if (movedToTopIds.size > 0) {
-        incomplete = [
-          ...incomplete.filter((t) => movedToTopIds.has(t.id)),
-          ...incomplete.filter((t) => !movedToTopIds.has(t.id)),
-        ]
+
+      const statusChanged = changes.some(([, col]) => col === 1)
+      if (statusChanged) {
+        const dataRows = updatedTodos.filter((t) => !isBillingTodoEmptyPlaceholder(t))
+        let incomplete = dataRows.filter((t) => t.status !== 'Complete')
+        const complete = dataRows.filter((t) => t.status === 'Complete')
+        const emptyRows = updatedTodos.filter((t) => isBillingTodoEmptyPlaceholder(t))
+        const movedToTopIds = new Set<string>()
+        changes.forEach(([row, col, oldVal, newVal]) => {
+          if (
+            col === 1 &&
+            row < updatedTodos.length &&
+            oldVal === 'Complete' &&
+            newVal !== 'Complete'
+          ) {
+            movedToTopIds.add(updatedTodos[row].id)
+          }
+        })
+        if (movedToTopIds.size > 0) {
+          incomplete = [
+            ...incomplete.filter((t) => movedToTopIds.has(t.id)),
+            ...incomplete.filter((t) => !movedToTopIds.has(t.id)),
+          ]
+        }
+        const reordered = [...incomplete, ...complete, ...emptyRows]
+        while (reordered.length < updatedTodos.length) {
+          const existingEmptyCount = reordered.filter((t) => t.id.startsWith('empty-')).length
+          reordered.push(createEmptyTodo(existingEmptyCount))
+        }
+        if (reordered.length > updatedTodos.length) {
+          reordered.length = updatedTodos.length
+        }
+        updatedTodos.length = 0
+        updatedTodos.push(...reordered)
       }
-      const reordered = [...incomplete, ...complete, ...emptyRows]
-      // Keep length; truncate or pad to match updatedTodos length so we don't change row count here
-      while (reordered.length < updatedTodos.length) {
-        const existingEmptyCount = reordered.filter((t) => t.id.startsWith('empty-')).length
-        reordered.push(createEmptyTodo(existingEmptyCount))
+
+      if (updatedTodos.length > 200) {
+        updatedTodos.length = 200
       }
-      if (reordered.length > updatedTodos.length) reordered.length = updatedTodos.length
-      updatedTodos.length = 0
-      updatedTodos.push(...reordered)
-    }
+      if (updatedTodos.length < 200) {
+        const emptyRowsNeeded = 200 - updatedTodos.length
+        const existingEmptyCount = updatedTodos.filter((t) => t.id.startsWith('empty-')).length
+        updatedTodos.push(
+          ...Array.from({ length: emptyRowsNeeded }, (_, i) => createEmptyTodo(existingEmptyCount + i))
+        )
+      }
 
-    // Cap at 200 rows
-    if (updatedTodos.length > 200) updatedTodos.length = 200
-    if (updatedTodos.length < 200) {
-      const emptyRowsNeeded = 200 - updatedTodos.length
-      const existingEmptyCount = updatedTodos.filter(t => t.id.startsWith('empty-')).length
-      updatedTodos.push(...Array.from({ length: emptyRowsNeeded }, (_, i) => createEmptyTodo(existingEmptyCount + i)))
-    }
+      lastEditedRowRef.current = primaryRow
+      if (primaryRow !== null) lastSelectedRowRef.current = primaryRow
 
-    todosRef.current = updatedTodos
-    setTodos(updatedTodos)
-    if (statusChanged) setStructureVersion((v) => v + 1)
+      todosRef.current = updatedTodos
+      setTodos(updatedTodos)
+      if (statusChanged) {
+        setStructureVersion((v) => v + 1)
+      }
 
-    // Schedule save when change touched issue, notes, followup_notes, or status (skip only during initial load so we don't lose edits)
-    const hasMeaningfulChange = changes.some(([, col]) => col === 1 || col === 2 || col === 3 || col === 4)
-    if (hasMeaningfulChange && !isInitialLoadRef.current && !loading) {
+      if (didLeaveRow) {
+        saveTriggeredByRowLeaveRef.current = true
+        if (saveTodosTimeoutRef.current) {
+          clearTimeout(saveTodosTimeoutRef.current)
+          saveTodosTimeoutRef.current = null
+        }
+        if (!saveInProgressRef.current) {
+          saveTodos(todosRef.current).catch((err) =>
+            console.error('[BillingTodo→] Error flushing save on row leave:', err)
+          )
+        }
+      }
+
+      if (pendingRowLeaveSaveRef.current) {
+        pendingRowLeaveSaveRef.current = false
+        if (pendingRowLeaveSaveTimeoutRef.current) {
+          clearTimeout(pendingRowLeaveSaveTimeoutRef.current)
+          pendingRowLeaveSaveTimeoutRef.current = null
+        }
+        saveTriggeredByRowLeaveRef.current = true
+        if (saveTodosTimeoutRef.current) {
+          clearTimeout(saveTodosTimeoutRef.current)
+          saveTodosTimeoutRef.current = null
+        }
+        if (!saveInProgressRef.current) {
+          saveTodos(todosRef.current).catch((err) =>
+            console.error('[BillingTodo→] Error flushing save (pending row leave):', err)
+          )
+        }
+      }
+
+      const hasMeaningfulChange = changes.some(([, col]) => col === 1 || col === 2 || col === 3 || col === 4)
+      if (!hasMeaningfulChange) return
+
       if (saveTodosTimeoutRef.current) clearTimeout(saveTodosTimeoutRef.current)
       saveTodosTimeoutRef.current = setTimeout(() => {
         saveTodosTimeoutRef.current = null
-        saveTodos(todosRef.current).catch(err => {
+        if (saveInProgressRef.current) {
+          savePendingRef.current = true
+          return
+        }
+        saveTodos(todosRef.current).catch((err) => {
           console.error('[handleTodosHandsontableChange] Error in saveTodos:', err)
         })
-      }, 250)
-    }
-  }, [saveTodos, createEmptyTodo, loading, todos])
+      }, 500)
+    },
+    [saveTodos, createEmptyTodo, todos, isBillingTodoEmptyPlaceholder]
+  )
 
-  const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number; todoId: string } | null>(null)
-  const tableContextMenuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!tableContextMenu) return
-    const handleClickOutside = (event: MouseEvent) => {
-      if (tableContextMenuRef.current && !tableContextMenuRef.current.contains(event.target as Node)) {
-        setTableContextMenu(null)
+  const handleAfterSelection = useCallback(
+    (r: number, _c: number, _r2: number, _c2: number) => {
+      const prev = lastSelectedRowRef.current
+      if (prev !== null && r !== prev && !saveInProgressRef.current) {
+        pendingRowLeaveSaveRef.current = true
+        if (pendingRowLeaveSaveTimeoutRef.current) clearTimeout(pendingRowLeaveSaveTimeoutRef.current)
+        const FALLBACK_MS = 800
+        pendingRowLeaveSaveTimeoutRef.current = setTimeout(() => {
+          pendingRowLeaveSaveTimeoutRef.current = null
+          if (!pendingRowLeaveSaveRef.current) return
+          pendingRowLeaveSaveRef.current = false
+          saveTriggeredByRowLeaveRef.current = true
+          if (saveTodosTimeoutRef.current) {
+            clearTimeout(saveTodosTimeoutRef.current)
+            saveTodosTimeoutRef.current = null
+          }
+          saveTodos(todosRef.current).catch((err) =>
+            console.error('[BillingTodo→] Error flushing save on selection change (fallback):', err)
+          )
+        }, FALLBACK_MS)
       }
+      lastSelectedRowRef.current = r
+    },
+    [saveTodos]
+  )
+
+  const handleAfterDeselect = useCallback(() => {
+    if (saveInProgressRef.current) return
+    if (lastSelectedRowRef.current === null) return
+    if (pendingRowLeaveSaveTimeoutRef.current) {
+      clearTimeout(pendingRowLeaveSaveTimeoutRef.current)
+      pendingRowLeaveSaveTimeoutRef.current = null
     }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [tableContextMenu])
-
-  const handleTodosHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
-    event.preventDefault()
-    if (!canEdit) return
-    const todo = todos[row]
-    if (todo) {
-      setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row, todoId: todo.id })
+    pendingRowLeaveSaveRef.current = false
+    saveTriggeredByRowLeaveRef.current = true
+    if (saveTodosTimeoutRef.current) {
+      clearTimeout(saveTodosTimeoutRef.current)
+      saveTodosTimeoutRef.current = null
     }
-  }, [todos, canEdit])
-
-  const handleContextMenuAddRowBelow = useCallback(() => {
-    if (tableContextMenu == null) return
-    const { rowIndex } = tableContextMenu
-    const existingEmptyCount = todos.filter(t => t.id.startsWith('empty-')).length
-    const newRow = createEmptyTodo(existingEmptyCount)
-    let updated = [...todos.slice(0, rowIndex + 1), newRow, ...todos.slice(rowIndex + 1)]
-    if (updated.length > 200) updated = updated.slice(0, 200)
-    const toSave = updated.length < 200
-      ? [...updated, ...Array.from({ length: 200 - updated.length }, (_, i) => createEmptyTodo(existingEmptyCount + 1 + i))]
-      : updated
-    todosRef.current = toSave
-    setTodos(toSave)
-    setStructureVersion(v => v + 1)
-    saveTodos(toSave).catch(err => console.error('saveTodos after add row', err))
-    setTableContextMenu(null)
-  }, [tableContextMenu, todos, createEmptyTodo, saveTodos])
-
-  const handleContextMenuAddRowAbove = useCallback(() => {
-    if (tableContextMenu == null) return
-    const { rowIndex } = tableContextMenu
-    const existingEmptyCount = todos.filter(t => t.id.startsWith('empty-')).length
-    const newRow = createEmptyTodo(existingEmptyCount)
-    let updated = [...todos.slice(0, rowIndex), newRow, ...todos.slice(rowIndex)]
-    if (updated.length > 200) updated = updated.slice(0, 200)
-    const toSave = updated.length < 200
-      ? [...updated, ...Array.from({ length: 200 - updated.length }, (_, i) => createEmptyTodo(existingEmptyCount + 1 + i))]
-      : updated
-    todosRef.current = toSave
-    setTodos(toSave)
-    setStructureVersion(v => v + 1)
-    saveTodos(toSave).catch(err => console.error('saveTodos after add row', err))
-    setTableContextMenu(null)
-  }, [tableContextMenu, todos, createEmptyTodo, saveTodos])
-
-  const handleContextMenuDeleteRow = useCallback(async () => {
-    if (tableContextMenu == null) return
-    const { todoId } = tableContextMenu
-    const deletedTodo = todos.find(t => t.id === todoId)
-    const insertIndex = deletedTodo != null ? todos.findIndex(t => t.id === todoId) : -1
-    setTableContextMenu(null)
-    if (todoId.startsWith('empty-') || todoId.startsWith('new-')) {
-      const updated = todos.filter(t => t.id !== todoId)
-      const emptyNeeded = Math.max(0, 200 - updated.length)
-      const existingEmpty = updated.filter(t => t.id.startsWith('empty-')).length
-      const toSave = emptyNeeded > existingEmpty
-        ? [...updated, ...Array.from({ length: emptyNeeded - existingEmpty }, (_, i) => createEmptyTodo(existingEmpty + i))]
-        : updated
-      todosRef.current = toSave
-      setTodos(toSave)
-      setStructureVersion(v => v + 1)
-      saveTodos(toSave).catch(err => console.error('saveTodos after delete row', err))
-      if (deletedTodo != null && insertIndex >= 0) {
-        onRegisterUndo?.(() => {
-          setTodos(prev => {
-            const next = [...prev.slice(0, insertIndex), deletedTodo, ...prev.slice(insertIndex)].slice(0, 200)
-            todosRef.current = next
-            saveTodos(next).catch(err => console.error('saveTodos after undo delete row', err))
-            return next
-          })
-          setStructureVersion(v => v + 1)
-        })
-      }
-    } else {
-      if (deletedTodo != null && insertIndex >= 0) {
-        onRegisterUndo?.(() => {
-          void Promise.resolve(
-            supabase.from('todo_lists').insert(deletedTodo)
-          ).then(() => {
-            // Restore at original position in state instead of refetching (fetchTodos would append and put row at bottom)
-            setTodos(prev => {
-              const next = [...prev.slice(0, insertIndex), deletedTodo, ...prev.slice(insertIndex)].slice(0, 200)
-              todosRef.current = next
-              return next
-            })
-            setStructureVersion(v => v + 1)
-          }).catch((err: unknown) => console.error('Undo delete todo: re-insert failed', err))
-        })
-      }
-      if (saveTodosTimeoutRef.current) {
-        clearTimeout(saveTodosTimeoutRef.current)
-        saveTodosTimeoutRef.current = null
-      }
-      await handleDeleteTodo(todoId)
-    }
-  }, [tableContextMenu, todos, createEmptyTodo, saveTodos, handleDeleteTodo, onRegisterUndo])
+    saveTodos(todosRef.current).catch((err) =>
+      console.error('[BillingTodo→] Error flushing save on deselect (click outside):', err)
+    )
+  }, [saveTodos])
 
   // ResizeObserver for split screen: fill table height (must run before any early return)
   useEffect(() => {
@@ -949,7 +1034,8 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
         }}
       >
         <HandsontableWrapper
-          key={`todos-${clinicId}-${JSON.stringify(lockData)}`}
+          key={`todos-${clinicId}`}
+          hotInstanceRef={hotRef}
           data={getTodosHandsontableData()}
           dataVersion={structureVersion}
           columns={todosColumns}
@@ -958,52 +1044,23 @@ export default function BillingTodoTab({ clinicId, canEdit, onDelete, onRegister
           width="100%"
           height={isInSplitScreen ? tableHeight : 600}
           afterChange={handleTodosHandsontableChange}
+          afterSelection={handleAfterSelection}
+          afterDeselect={handleAfterDeselect}
           onAfterRowMove={handleTodosRowMove}
-          onContextMenu={handleTodosHandsontableContextMenu}
+          afterCreateRow={handleAfterCreateRow}
+          afterRemoveRow={handleAfterRemoveRow}
+          onAfterUndoRedoSync={syncTodosFromHotAfterUndoRedo}
+          contextMenuWithNativeRows
           onCellHighlight={handleCellHighlight}
           getCellIsHighlighted={getCellIsHighlighted}
           cells={todosCellsCallback}
           enableFormula={true}
-          columnSorting={true}
+          columnSorting={{ indicator: true }}
           readOnly={!canEdit}
           style={{ backgroundColor: '#d2dbe5' }}
           className="handsontable-custom billing-todo-sortable"
         />
       </div>
-
-      {tableContextMenu != null && createPortal(
-        <div
-          ref={tableContextMenuRef}
-          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[160px]"
-          style={{ left: tableContextMenu.x, top: tableContextMenu.y }}
-        >
-          <button
-            type="button"
-            onClick={handleContextMenuAddRowAbove}
-            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
-          >
-            <Plus size={16} />
-            Add row above
-          </button>
-          <button
-            type="button"
-            onClick={handleContextMenuAddRowBelow}
-            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
-          >
-            <Plus size={16} />
-            Add row below
-          </button>
-          <button
-            type="button"
-            onClick={handleContextMenuDeleteRow}
-            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
-          >
-            <Trash2 size={16} />
-            Delete row
-          </button>
-        </div>,
-        document.body
-      )}
     </div>
   )
 }

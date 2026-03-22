@@ -1,19 +1,46 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import { Patient, IsLockPatients } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
-import { Plus, Trash2 } from 'lucide-react'
 import { copayTextCellRenderer, coinsuranceTextCellRenderer } from '@/lib/handsontableCustomRenderers'
 import { toDisplayValue, toStoredString } from '@/lib/utils'
+
+function nextEmptyNumericIdSuffix(rows: { id: string }[]): number {
+  let max = -1
+  for (const r of rows) {
+    const m = /^empty-(\d+)$/.exec(r.id)
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return max + 1
+}
+
+function isHandsontableUndoRedoSource(source?: string) {
+  return source === 'UndoRedo.undo' || source === 'UndoRedo.redo'
+}
+
+function mergePatientFromGridRow(
+  patient: Patient,
+  row: (string | number | null | undefined)[]
+): Patient {
+  const copayStr = row[4] === '' || row[4] == null || row[4] === 'null' ? null : String(row[4])
+  const coinsStr = row[5] === '' || row[5] == null || row[5] === 'null' ? null : String(row[5])
+  return {
+    ...patient,
+    patient_id: toStoredString(String(row[0] ?? '')) ?? '',
+    first_name: toStoredString(String(row[1] ?? '')) ?? '',
+    last_name: toStoredString(String(row[2] ?? '')) ?? '',
+    insurance: toStoredString(String(row[3] ?? '')) || null,
+    copay: copayStr,
+    coinsurance: coinsStr,
+  }
+}
 
 interface PatientsTabProps {
   clinicId: string
   canEdit: boolean
   onDelete?: (patientId: string) => void
-  onRegisterUndo?: (undo: () => void) => void
   isLockPatients?: IsLockPatients | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockPatients) => boolean
@@ -31,7 +58,7 @@ interface PatientsTabProps {
   backupVersionKey?: number
 }
 
-export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUndo, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen, onPatientCreated, onPatientsCreated, onRegisterFlushBeforeTabLeave, overridePatients = null, isViewingBackup = false, backupVersionKey = 0 }: PatientsTabProps) {
+export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatients, onLockColumn, isColumnLocked, isInSplitScreen, onPatientCreated, onPatientsCreated, onRegisterFlushBeforeTabLeave, overridePatients = null, isViewingBackup = false, backupVersionKey = 0 }: PatientsTabProps) {
   const { userProfile } = useAuth()
   const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
@@ -518,6 +545,94 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     }
   }, [fetchPatients, onDelete])
 
+  const padPatientsTo200 = useCallback(
+    (list: Patient[]) => {
+      const result = [...list]
+      while (result.length > 200) {
+        const last = result[result.length - 1]
+        if (last?.id.startsWith('empty-')) result.pop()
+        else break
+      }
+      const trimmed = result.length > 200 ? result.slice(0, 200) : result
+      const out = [...trimmed]
+      while (out.length < 200) {
+        out.push(createEmptyPatient(nextEmptyNumericIdSuffix(out)))
+      }
+      return out
+    },
+    [createEmptyPatient]
+  )
+
+  const syncPatientsFromHotAfterUndoRedo = useCallback(() => {
+    const hot = hotRef.current
+    if (!hot || (hot as any).isDestroyed) return
+    if (!canEdit) return
+    try {
+      const grid = hot.getData() as (string | number | null | undefined)[][]
+      const prev = patientsRef.current
+      const next: Patient[] = []
+      for (let i = 0; i < grid.length; i++) {
+        const row = grid[i]
+        const p = prev[i] ?? createEmptyPatient(nextEmptyNumericIdSuffix(next))
+        next.push(mergePatientFromGridRow(p, row))
+      }
+      const padded = padPatientsTo200(next)
+      patientsRef.current = padded
+      setPatients(padded)
+      void savePatients(padded).catch((err) => console.error('savePatients after HOT undo/redo sync', err))
+    } catch (e) {
+      console.error('syncPatientsFromHotAfterUndoRedo', e)
+    }
+  }, [canEdit, createEmptyPatient, padPatientsTo200, savePatients])
+
+  const handleAfterCreateRow = useCallback(
+    (index: number, amount: number, source?: string) => {
+      if (!canEdit) return
+      if (source === 'loadData' || source === 'updateData') return
+      if (isHandsontableUndoRedoSource(source)) return
+      setPatients((prev) => {
+        const next = [...prev]
+        const base = nextEmptyNumericIdSuffix(next)
+        for (let i = 0; i < amount; i++) {
+          next.splice(index + i, 0, createEmptyPatient(base + i))
+        }
+        const padded = padPatientsTo200(next)
+        patientsRef.current = padded
+        return padded
+      })
+      setStructureVersion((v) => v + 1)
+      requestAnimationFrame(() => {
+        savePatients(patientsRef.current).catch((err) => console.error('savePatients after HOT create row', err))
+      })
+    },
+    [canEdit, createEmptyPatient, padPatientsTo200, savePatients]
+  )
+
+  const handleAfterRemoveRow = useCallback(
+    (_index: number, _amount: number, physicalRows: number[], source?: string) => {
+      if (!canEdit) return
+      if (source === 'loadData' || source === 'updateData') return
+      if (isHandsontableUndoRedoSource(source)) return
+      const snap = [...patientsRef.current]
+      const removed = physicalRows.map((i) => snap[i]).filter(Boolean)
+      removed.forEach((p) => {
+        if (p.id.startsWith('empty-')) return
+        void handleDeletePatient(p.id)
+      })
+      setPatients((prev) => {
+        const rm = new Set(physicalRows)
+        const next = padPatientsTo200(prev.filter((_, i) => !rm.has(i)))
+        patientsRef.current = next
+        return next
+      })
+      setStructureVersion((v) => v + 1)
+      requestAnimationFrame(() => {
+        savePatients(patientsRef.current).catch((err) => console.error('savePatients after HOT remove row', err))
+      })
+    },
+    [canEdit, handleDeletePatient, padPatientsTo200, savePatients]
+  )
+
   // Reorder patients when user drags a row; persist order via created_at so reload preserves it
   const handlePatientsRowMove = useCallback((movedRows: number[], finalIndex: number) => {
     setPatients(prev => {
@@ -839,112 +954,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
     savePatients(patientsRef.current).catch(err => console.error('[PatientInfo→Providers] Error flushing save on deselect (click outside):', err))
   }, [savePatients])
 
-  const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number; patientId: string } | null>(null)
-  const tableContextMenuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!tableContextMenu) return
-    const handleClickOutside = (event: MouseEvent) => {
-      if (tableContextMenuRef.current && !tableContextMenuRef.current.contains(event.target as Node)) {
-        setTableContextMenu(null)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [tableContextMenu])
-
-  const handlePatientsHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
-    event.preventDefault()
-    if (!canEdit) return
-    const patient = displayPatients[row]
-    if (patient) {
-      setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row, patientId: patient.id })
-    }
-  }, [displayPatients, canEdit])
-
-  const handleContextMenuAddRowBelow = useCallback(() => {
-    if (tableContextMenu == null) return
-    const rowIndex = patients.findIndex(p => p.id === tableContextMenu.patientId)
-    if (rowIndex === -1) { setTableContextMenu(null); return }
-    const existingEmptyCount = patients.filter(p => p.id.startsWith('empty-')).length
-    const newRow = createEmptyPatient(existingEmptyCount)
-    const updated = [...patients.slice(0, rowIndex + 1), newRow, ...patients.slice(rowIndex + 1)]
-    const toSave = updated.length < 200
-      ? [...updated, ...Array.from({ length: 200 - updated.length }, (_, i) => createEmptyPatient(existingEmptyCount + 1 + i))]
-      : updated
-    patientsRef.current = toSave
-    setPatients(toSave)
-    setStructureVersion(v => v + 1)
-    savePatients(toSave).catch(err => console.error('savePatients after add row', err))
-    setTableContextMenu(null)
-  }, [tableContextMenu, patients, createEmptyPatient, savePatients])
-
-  const handleContextMenuAddRowAbove = useCallback(() => {
-    if (tableContextMenu == null) return
-    const rowIndex = patients.findIndex(p => p.id === tableContextMenu.patientId)
-    if (rowIndex === -1) { setTableContextMenu(null); return }
-    const existingEmptyCount = patients.filter(p => p.id.startsWith('empty-')).length
-    const newRow = createEmptyPatient(existingEmptyCount)
-    const updated = [...patients.slice(0, rowIndex), newRow, ...patients.slice(rowIndex)]
-    const toSave = updated.length < 200
-      ? [...updated, ...Array.from({ length: 200 - updated.length }, (_, i) => createEmptyPatient(existingEmptyCount + 1 + i))]
-      : updated
-    patientsRef.current = toSave
-    setPatients(toSave)
-    setStructureVersion(v => v + 1)
-    savePatients(toSave).catch(err => console.error('savePatients after add row', err))
-    setTableContextMenu(null)
-  }, [tableContextMenu, patients, createEmptyPatient, savePatients])
-
-  const handleContextMenuDeleteRow = useCallback(() => {
-    if (tableContextMenu == null) return
-    const rowIndex = patients.findIndex(p => p.id === tableContextMenu.patientId)
-    const patient = rowIndex >= 0 ? patients[rowIndex] : null
-    if (!patient) {
-      setTableContextMenu(null)
-      return
-    }
-    const deletedPatient = { ...patient }
-    if (patient.id.startsWith('empty-') || patient.id.startsWith('new-')) {
-      const updated = patients.filter(p => p.id !== tableContextMenu.patientId)
-      const emptyNeeded = Math.max(0, 200 - updated.length)
-      const existingEmpty = updated.filter(p => p.id.startsWith('empty-')).length
-      const toSave = emptyNeeded > existingEmpty
-        ? [...updated, ...Array.from({ length: emptyNeeded - existingEmpty }, (_, i) => createEmptyPatient(existingEmpty + i))]
-        : updated
-      patientsRef.current = toSave
-      setPatients(toSave)
-      setStructureVersion(v => v + 1)
-      savePatients(toSave).catch(err => console.error('savePatients after delete row', err))
-      onRegisterUndo?.(() => {
-        setPatients(prev => {
-          const next = [...prev.slice(0, rowIndex), deletedPatient, ...prev.slice(rowIndex)].slice(0, 200)
-          patientsRef.current = next
-          savePatients(next).catch(err => console.error('savePatients after undo delete row', err))
-          return next
-        })
-        setStructureVersion(v => v + 1)
-      })
-    } else {
-      onRegisterUndo?.(() => {
-        supabase
-          .from('patients')
-          .insert(deletedPatient)
-          .then(() => {
-            // Restore at original position in state instead of refetching (fetchPatients would append and put row at bottom)
-            setPatients(prev => {
-              const next = [...prev.slice(0, rowIndex), deletedPatient, ...prev.slice(rowIndex)].slice(0, 200)
-              patientsRef.current = next
-              return next
-            })
-            setStructureVersion(v => v + 1)
-          }, (err: unknown) => console.error('Undo delete patient: re-insert failed', err))
-      })
-      handleDeletePatient(patient.id)
-    }
-    setTableContextMenu(null)
-  }, [tableContextMenu, patients, createEmptyPatient, savePatients, handleDeletePatient, onRegisterUndo])
-
   // ResizeObserver for split screen: fill table height (must run before any early return)
   useEffect(() => {
     if (!isInSplitScreen) return
@@ -997,7 +1006,10 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
           afterSelection={handleAfterSelection}
           afterDeselect={handleAfterDeselect}
           onAfterRowMove={handlePatientsRowMove}
-          onContextMenu={handlePatientsHandsontableContextMenu}
+          afterCreateRow={handleAfterCreateRow}
+          afterRemoveRow={handleAfterRemoveRow}
+          onAfterUndoRedoSync={syncPatientsFromHotAfterUndoRedo}
+          contextMenuWithNativeRows
           onCellHighlight={handleCellHighlight}
           getCellIsHighlighted={getCellIsHighlighted}
           cells={patientsCellsCallback}
@@ -1009,40 +1021,6 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, onRegisterUnd
           className="handsontable-custom billing-todo-sortable"
         />
       </div>
-
-      {tableContextMenu != null && createPortal(
-        <div
-          ref={tableContextMenuRef}
-          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[160px]"
-          style={{ left: tableContextMenu.x, top: tableContextMenu.y }}
-        >
-          <button
-            type="button"
-            onClick={handleContextMenuAddRowAbove}
-            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
-          >
-            <Plus size={16} />
-            Add row above
-          </button>
-          <button
-            type="button"
-            onClick={handleContextMenuAddRowBelow}
-            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
-          >
-            <Plus size={16} />
-            Add row below
-          </button>
-          <button
-            type="button"
-            onClick={handleContextMenuDeleteRow}
-            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
-          >
-            <Trash2 size={16} />
-            Delete row
-          </button>
-        </div>,
-        document.body
-      )}
     </div>
   )
 }

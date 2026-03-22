@@ -92,10 +92,12 @@ export default function ClinicDetail() {
     providerId?: string;
   } | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
-  /** Last undo callback (e.g. restore deleted row). Cleared after Ctrl+Z or when another delete happens. */
+  /** Last undo callback (e.g. provider sheet row restore). Cleared after Ctrl+Z or when another delete registers. */
   const lastUndoRef = useRef<(() => void) | null>(null)
-  /** Flush Patient Info save (with row-leave flag) before switching tab; registered by PatientsTab */
+  /** Flush Patient Info save before switching tab; registered by PatientsTab */
   const patientsTabFlushRef = useRef<(() => Promise<void>) | null>(null)
+  /** Flush Billing To-Do save before switching tab; registered by BillingTodoTab */
+  const billingTodoTabFlushRef = useRef<(() => Promise<void>) | null>(null)
 
   // Month filter for provider tab (and pay-period half when clinic has payroll=2)
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
@@ -2579,11 +2581,16 @@ export default function ClinicDetail() {
         setSplitScreen({ left: splitScreen.left, right: tab })
       }
     } else {
-      // When leaving Patient Info, flush save so new patient is sent to provider sheets before switching
-      if (activeTab === 'patients' && tab !== 'patients' && patientsTabFlushRef.current) {
-        // Show loading state while we commit the active edit + flush save, so navigation doesn't show stale data.
+      // When leaving Patient Info or Billing To-Do, flush save (finish editor + persist) before switching — same pattern as PatientsTab
+      const flushBeforeTabLeave =
+        activeTab === 'patients' && tab !== 'patients'
+          ? patientsTabFlushRef.current
+          : activeTab === 'todo' && tab !== 'todo'
+            ? billingTodoTabFlushRef.current
+            : null
+      if (flushBeforeTabLeave) {
         setLoading(true)
-        patientsTabFlushRef.current().then(() => {
+        flushBeforeTabLeave().then(() => {
           setActiveTab(tab)
           const lastProviderId = getLastSelectedProviderId()
           const path =
@@ -2663,7 +2670,6 @@ export default function ClinicDetail() {
             onPatientsCreated={handlePatientsCreated}
             isInSplitScreen={!!splitScreen}
             isLockPatients={isLockPatients}
-            onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
             onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockPatients && isPatientColumnLocked(columnName as keyof IsLockPatients)
                 ? (isLockPatients[`${columnName}_comment` as keyof IsLockPatients] as string | null) || ''
@@ -2689,7 +2695,7 @@ export default function ClinicDetail() {
             isLockBillingTodo={isLockBillingTodo}
             isInSplitScreen={!!splitScreen}
             exportRef={billingTodoExportRef}
-            onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
+            onRegisterFlushBeforeTabLeave={(flush) => { billingTodoTabFlushRef.current = flush }}
             onLockColumn={canLockColumns ? (columnName: string) => {
               const existingComment = isLockBillingTodo && isBillingTodoColumnLocked(columnName as keyof IsLockBillingTodo)
                 ? (isLockBillingTodo[`${columnName}_comment` as keyof IsLockBillingTodo] as string | null) || ''
@@ -2745,7 +2751,6 @@ export default function ClinicDetail() {
               canEdit={canEdit && !backupOverrideAR}
               isInSplitScreen={!!splitScreen}
               isLockAccountsReceivable={isLockAccountsReceivable}
-              onRegisterUndo={(undo) => { lastUndoRef.current = undo }}
               onLockColumn={canLockColumns ? (columnName: string) => {
                 const existingComment = isLockAccountsReceivable && isARColumnLocked(columnName as keyof IsLockAccountsReceivable)
                   ? (isLockAccountsReceivable[`${columnName}_comment` as keyof IsLockAccountsReceivable] as string | null) || ''
@@ -2984,7 +2989,7 @@ export default function ClinicDetail() {
     }
   }, [contextMenu])
 
-  // Undo last delete row (all tabs) with Ctrl+Z / Cmd+Z
+  // Undo last provider-sheet row delete with Ctrl+Z / Cmd+Z (Handsontable tabs use built-in undo for grid edits)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {

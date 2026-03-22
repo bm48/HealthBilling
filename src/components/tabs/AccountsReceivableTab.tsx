@@ -1,13 +1,55 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
-import { AccountsReceivable, StatusColor, IsLockAccountsReceivable } from '@/types'
+import { AccountsReceivable, ARType, StatusColor, IsLockAccountsReceivable } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { createBubbleDropdownRenderer } from '@/lib/handsontableCustomRenderers'
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { toDisplayValue, toDisplayDate, toStoredString } from '@/lib/utils'
+
+function nextEmptyNumericIdSuffix(rows: { id: string }[]): number {
+  let max = -1
+  for (const r of rows) {
+    const m = /^empty-(\d+)$/.exec(r.id)
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return max + 1
+}
+
+function isHandsontableUndoRedoSource(source?: string) {
+  return source === 'UndoRedo.undo' || source === 'UndoRedo.redo'
+}
+
+function mergeARFromGridRow(
+  ar: AccountsReceivable,
+  row: (string | number | null | undefined)[]
+): AccountsReceivable {
+  const ar_id = row[0] === '' || row[0] == null || row[0] === 'null' ? '' : String(row[0])
+  const name = toStoredString(String(row[1] ?? ''))
+  const date_of_service = toStoredString(String(row[2] ?? ''))
+  const amount =
+    row[3] === '' || row[3] == null || row[3] === 'null'
+      ? null
+      : typeof row[3] === 'number'
+        ? row[3]
+        : parseFloat(String(row[3])) || null
+  const date_recorded = toStoredString(String(row[4] ?? ''))
+  const typeStr = toStoredString(String(row[5] ?? ''))
+  const type: ARType | null =
+    typeStr === 'Patient' || typeStr === 'Insurance' || typeStr === 'Admin' ? typeStr : null
+  const notes = toStoredString(String(row[6] ?? ''))
+  return {
+    ...ar,
+    ar_id,
+    name: name || null,
+    date_of_service: date_of_service || null,
+    amount,
+    date_recorded: date_recorded || null,
+    type,
+    notes: notes || null,
+  }
+}
 
 interface AccountsReceivableTabProps {
   clinicId: string
@@ -15,7 +57,6 @@ interface AccountsReceivableTabProps {
   clinicPayroll?: 1 | 2
   canEdit: boolean
   onDelete?: (arId: string) => void
-  onRegisterUndo?: (undo: () => void) => void
   isLockAccountsReceivable?: IsLockAccountsReceivable | null
   onLockColumn?: (columnName: string) => void
   isColumnLocked?: (columnName: keyof IsLockAccountsReceivable) => boolean
@@ -27,7 +68,7 @@ interface AccountsReceivableTabProps {
   backupVersionKey?: number
 }
 
-export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, canEdit, onDelete, onRegisterUndo, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen, overrideFullAR = null, isViewingBackup = false, backupVersionKey = 0 }: AccountsReceivableTabProps) {
+export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, canEdit, onDelete, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen, overrideFullAR = null, isViewingBackup = false, backupVersionKey = 0 }: AccountsReceivableTabProps) {
   const { userProfile } = useAuth()
   const [statusColors, setStatusColors] = useState<StatusColor[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,6 +88,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
   const [tableHeight, setTableHeight] = useState(600)
   const [structureVersion, setStructureVersion] = useState(0)
   const scrollToRowAfterUpdateRef = useRef<number | null>(null)
+  const hotRef = useRef<Handsontable | null>(null)
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
 
   /** When clinicPayroll=2 and payroll is passed, show "March 1st Half 2025"; otherwise "March 2025". */
@@ -432,6 +474,118 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
     }
   }, [fetchAccountsReceivable, onDelete, createEmptyAR, isARInMonth, selectedMonth])
 
+  const syncARFullListFromDisplay = useCallback(
+    (toDisplay: AccountsReceivable[]) => {
+      fullListRef.current = [
+        ...fullListRef.current.filter((a) => !isARInMonth(a, selectedMonth)),
+        ...toDisplay.filter((a) => !a.id.startsWith('empty-')),
+      ]
+    },
+    [isARInMonth, selectedMonth]
+  )
+
+  const padARDisplayedTo200 = useCallback(
+    (list: AccountsReceivable[]) => {
+      const result = [...list]
+      while (result.length > 200) {
+        const last = result[result.length - 1]
+        if (last && (last.id.startsWith('empty-') || last.id.startsWith('placeholder-'))) result.pop()
+        else break
+      }
+      const trimmed = result.length > 200 ? result.slice(0, 200) : result
+      const out = [...trimmed]
+      while (out.length < 200) {
+        out.push(createEmptyAR(nextEmptyNumericIdSuffix(out)))
+      }
+      return out
+    },
+    [createEmptyAR]
+  )
+
+  const syncDisplayedARFromHotAfterUndoRedo = useCallback(() => {
+    const hot = hotRef.current
+    if (!hot || (hot as any).isDestroyed) return
+    if (!canEdit) return
+    const firstDay = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}-01`
+    try {
+      const grid = hot.getData() as (string | number | null | undefined)[][]
+      const prev = displayedARRef.current
+      const next: AccountsReceivable[] = []
+      for (let i = 0; i < grid.length; i++) {
+        const row = grid[i]
+        let p = prev[i]
+        if (!p) {
+          const existingEmptyCount = next.filter((a) => a.id.startsWith('empty-')).length
+          p = { ...createEmptyAR(existingEmptyCount), date_of_service: firstDay }
+        }
+        next.push(mergeARFromGridRow(p, row))
+      }
+      const padded = padARDisplayedTo200(next)
+      displayedARRef.current = padded
+      syncARFullListFromDisplay(padded)
+      setDisplayedAR(padded)
+      void saveAccountsReceivable(fullListRef.current).catch((err) =>
+        console.error('saveAccountsReceivable after HOT undo/redo sync', err)
+      )
+    } catch (e) {
+      console.error('syncDisplayedARFromHotAfterUndoRedo', e)
+    }
+  }, [canEdit, selectedMonth, createEmptyAR, padARDisplayedTo200, syncARFullListFromDisplay, saveAccountsReceivable])
+
+  const handleAfterCreateRow = useCallback(
+    (index: number, amount: number, source?: string) => {
+      if (!canEdit) return
+      if (source === 'loadData' || source === 'updateData') return
+      if (isHandsontableUndoRedoSource(source)) return
+      setDisplayedAR((prev) => {
+        const next = [...prev]
+        const base = nextEmptyNumericIdSuffix(next)
+        for (let i = 0; i < amount; i++) {
+          next.splice(index + i, 0, createEmptyAR(base + i))
+        }
+        const padded = padARDisplayedTo200(next)
+        displayedARRef.current = padded
+        syncARFullListFromDisplay(padded)
+        return padded
+      })
+      setStructureVersion((v) => v + 1)
+      requestAnimationFrame(() => {
+        saveAccountsReceivable(fullListRef.current).catch((err) =>
+          console.error('saveAccountsReceivable after HOT create row', err)
+        )
+      })
+    },
+    [canEdit, createEmptyAR, padARDisplayedTo200, syncARFullListFromDisplay, saveAccountsReceivable]
+  )
+
+  const handleAfterRemoveRow = useCallback(
+    (_index: number, _amount: number, physicalRows: number[], source?: string) => {
+      if (!canEdit) return
+      if (source === 'loadData' || source === 'updateData') return
+      if (isHandsontableUndoRedoSource(source)) return
+      const snap = [...displayedARRef.current]
+      const removed = physicalRows.map((i) => snap[i]).filter(Boolean)
+      removed.forEach((ar) => {
+        if (ar.id.startsWith('empty-') || ar.id.startsWith('placeholder-')) return
+        void handleDeleteAR(ar.id)
+      })
+      setDisplayedAR((prev) => {
+        const rm = new Set(physicalRows)
+        const next = padARDisplayedTo200(prev.filter((_, i) => !rm.has(i)))
+        displayedARRef.current = next
+        syncARFullListFromDisplay(next)
+        return next
+      })
+      setStructureVersion((v) => v + 1)
+      requestAnimationFrame(() => {
+        saveAccountsReceivable(fullListRef.current).catch((err) =>
+          console.error('saveAccountsReceivable after HOT remove row', err)
+        )
+      })
+    },
+    [canEdit, handleDeleteAR, padARDisplayedTo200, syncARFullListFromDisplay, saveAccountsReceivable]
+  )
+
   // Type color mapping
   const getTypeColor = useCallback((type: string | null): { color: string; textColor: string } | null => {
     if (!type) return null
@@ -781,147 +935,6 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
     if (hadDateColumnEdit) setStructureVersion((v) => v + 1)
   }, [displayedAR, saveAccountsReceivable, selectedMonth, isARInMonth, createEmptyAR, firstDayOfSelectedMonth, clinicId, clinicPayroll, selectedPayroll])
 
-  const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
-  const tableContextMenuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!tableContextMenu) return
-    const handleClickOutside = (event: MouseEvent) => {
-      if (tableContextMenuRef.current && !tableContextMenuRef.current.contains(event.target as Node)) {
-        setTableContextMenu(null)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [tableContextMenu])
-
-  const handleARHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
-    event.preventDefault()
-    if (!canEdit) return
-    const ar = displayAR[row]
-    if (ar) {
-      setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row })
-    }
-  }, [displayAR, canEdit])
-
-  const handleContextMenuAddRowBelow = useCallback(() => {
-    if (tableContextMenu == null) return
-    const { rowIndex } = tableContextMenu
-    const ar = displayedAR[rowIndex]
-    if (!ar) {
-      setTableContextMenu(null)
-      return
-    }
-    const existingEmptyCount = displayedAR.filter(a => a.id.startsWith('empty-')).length
-    const newRow: AccountsReceivable = { ...createEmptyAR(existingEmptyCount) }
-    const updated = [...displayedAR.slice(0, rowIndex + 1), newRow, ...displayedAR.slice(rowIndex + 1)]
-    const toDisplay =
-      updated.length < 200
-        ? [...updated, ...Array.from({ length: 200 - updated.length }, (_, i) => createEmptyAR(existingEmptyCount + 1 + i))]
-        : updated
-    displayedARRef.current = toDisplay
-    setDisplayedAR(toDisplay)
-    fullListRef.current = [
-      ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-      ...toDisplay.filter(a => !a.id.startsWith('empty-')),
-    ]
-    scrollToRowAfterUpdateRef.current = rowIndex + 1
-    setStructureVersion(v => v + 1)
-    setTableContextMenu(null)
-    saveAccountsReceivable(fullListRef.current).catch(err =>
-      console.error('saveAccountsReceivable after add row', err)
-    )
-  }, [tableContextMenu, displayedAR, createEmptyAR, saveAccountsReceivable, selectedMonth, isARInMonth])
-
-  const handleContextMenuAddRowAbove = useCallback(() => {
-    if (tableContextMenu == null) return
-    const { rowIndex } = tableContextMenu
-    const ar = displayedAR[rowIndex]
-    if (!ar) {
-      setTableContextMenu(null)
-      return
-    }
-    const existingEmptyCount = displayedAR.filter(a => a.id.startsWith('empty-')).length
-    const newRow: AccountsReceivable = { ...createEmptyAR(existingEmptyCount) }
-    const updated = [...displayedAR.slice(0, rowIndex), newRow, ...displayedAR.slice(rowIndex)]
-    const toDisplay =
-      updated.length < 200
-        ? [...updated, ...Array.from({ length: 200 - updated.length }, (_, i) => createEmptyAR(existingEmptyCount + 1 + i))]
-        : updated
-    displayedARRef.current = toDisplay
-    setDisplayedAR(toDisplay)
-    fullListRef.current = [
-      ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-      ...toDisplay.filter(a => !a.id.startsWith('empty-')),
-    ]
-    scrollToRowAfterUpdateRef.current = rowIndex
-    setStructureVersion(v => v + 1)
-    setTableContextMenu(null)
-    saveAccountsReceivable(fullListRef.current).catch(err =>
-      console.error('saveAccountsReceivable after add row', err)
-    )
-  }, [tableContextMenu, displayedAR, createEmptyAR, saveAccountsReceivable, selectedMonth, isARInMonth])
-
-  const handleContextMenuDeleteRow = useCallback(() => {
-    if (tableContextMenu == null) return
-    const rowIndex = tableContextMenu.rowIndex
-    const ar = displayedAR[rowIndex]
-    if (!ar) {
-      setTableContextMenu(null)
-      return
-    }
-    if (ar.id.startsWith('empty-')) {
-      setTableContextMenu(null)
-      return
-    }
-    const deletedAR = { ...ar }
-    if (ar.id.startsWith('new-')) {
-      const updated = displayedAR.filter(a => a.id !== ar.id)
-      const emptyNeeded = Math.max(0, 200 - updated.length)
-      const existingEmpty = updated.filter(a => a.id.startsWith('empty-')).length
-      const toDisplay = emptyNeeded > existingEmpty
-        ? [...updated, ...Array.from({ length: emptyNeeded - existingEmpty }, (_, i) => createEmptyAR(existingEmpty + i))]
-        : updated
-      displayedARRef.current = toDisplay
-      setDisplayedAR(toDisplay)
-      fullListRef.current = [
-        ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-        ...toDisplay.filter(a => !a.id.startsWith('empty-')),
-      ]
-      setStructureVersion(v => v + 1)
-      saveAccountsReceivable(fullListRef.current).catch(err => console.error('saveAccountsReceivable after delete row', err))
-      onRegisterUndo?.(() => {
-        const next = [...displayedARRef.current.slice(0, rowIndex), deletedAR, ...displayedARRef.current.slice(rowIndex)].slice(0, 200)
-        displayedARRef.current = next
-        setDisplayedAR(next)
-        fullListRef.current = [
-          ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-          ...next.filter(a => !a.id.startsWith('empty-')),
-        ]
-        saveAccountsReceivable(fullListRef.current).catch(e => console.error(e))
-        setStructureVersion(v => v + 1)
-      })
-    } else {
-      onRegisterUndo?.(() => {
-        supabase
-          .from('accounts_receivables')
-          .insert(deletedAR)
-          .then(() => {
-            const next = [...displayedARRef.current.slice(0, rowIndex), deletedAR, ...displayedARRef.current.slice(rowIndex)].slice(0, 200)
-            displayedARRef.current = next
-            setDisplayedAR(next)
-            fullListRef.current = [
-              ...fullListRef.current.filter(a => !isARInMonth(a, selectedMonth)),
-              ...next.filter(a => !a.id.startsWith('empty-')),
-            ]
-            setStructureVersion(v => v + 1)
-          }, (err: unknown) => console.error('Undo delete AR: re-insert failed', err))
-      })
-      handleDeleteAR(ar.id)
-    }
-    setTableContextMenu(null)
-  }, [tableContextMenu, displayedAR, createEmptyAR, saveAccountsReceivable, handleDeleteAR, onRegisterUndo, selectedMonth, isARInMonth])
-
   // ResizeObserver for split screen: fill table height (must run before any early return)
   useEffect(() => {
     if (!isInSplitScreen) return
@@ -1034,7 +1047,11 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
           height={isInSplitScreen ? tableHeight : 600}
           afterChange={handleARHandsontableChange}
           onAfterRowMove={handleARRowMove}
-          onContextMenu={handleARHandsontableContextMenu}
+          afterCreateRow={handleAfterCreateRow}
+          afterRemoveRow={handleAfterRemoveRow}
+          onAfterUndoRedoSync={syncDisplayedARFromHotAfterUndoRedo}
+          hotInstanceRef={hotRef}
+          contextMenuWithNativeRows
           onCellHighlight={handleCellHighlight}
           getCellIsHighlighted={getCellIsHighlighted}
           cells={arCellsCallback}
@@ -1044,40 +1061,6 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
           className="handsontable-custom"
         />
       </div>
-
-      {tableContextMenu != null && createPortal(
-        <div
-          ref={tableContextMenuRef}
-          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 py-1 min-w-[160px]"
-          style={{ left: tableContextMenu.x, top: tableContextMenu.y }}
-        >
-          <button
-            type="button"
-            onClick={handleContextMenuAddRowAbove}
-            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
-          >
-            <Plus size={16} />
-            Add row above
-          </button>
-          <button
-            type="button"
-            onClick={handleContextMenuAddRowBelow}
-            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
-          >
-            <Plus size={16} />
-            Add row below
-          </button>
-          <button
-            type="button"
-            onClick={handleContextMenuDeleteRow}
-            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
-          >
-            <Trash2 size={16} />
-            Delete row
-          </button>
-        </div>,
-        document.body
-      )}
     </div>
   )
 }
