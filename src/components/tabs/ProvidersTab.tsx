@@ -1949,6 +1949,7 @@ export default function ProvidersTab({
       changedCells: changes.length,
     })
     if (saveProviderSheetTimeoutRef.current) clearTimeout(saveProviderSheetTimeoutRef.current)
+    // 400ms: patient_id merge from DB runs at 350ms; saving sooner could persist rows before demographics are merged on the row object.
     saveProviderSheetTimeoutRef.current = setTimeout(() => {
       saveProviderSheetTimeoutRef.current = null
       const pending = pendingProviderSheetSaveRef.current
@@ -1962,7 +1963,7 @@ export default function ProvidersTab({
           console.error('[handleProviderRowsHandsontableChange] Error in saveProviderSheetRowsDirect:', err)
         })
       }
-    }, 250)
+    }, 400)
 
     // When patient_id was merged or cleared, a date column was edited, total was auto-calculated, or a row was deleted,
     // bump so HandsontableWrapper pushes the ref data to the grid (wrapper only updates on dataVersion/length change).

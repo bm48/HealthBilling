@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
 import { enrichSheetRowsFromPatients, applyCoPatientSnapshotToSheetRows } from '@/lib/enrichProviderSheetRowsFromPatients'
-import { syncCoPatientsFromProviderSheetRows } from '@/lib/syncCoPatientsFromProviderSheetRows'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   Clinic,
@@ -426,7 +425,6 @@ export default function ProviderSheetPage() {
           providerId,
           processRows: rowsToProcess.length,
         })
-        await syncCoPatientsFromProviderSheetRows(supabase, clinicId, rowsToProcess)
         const fresh = await refetchPatients()
         if (fresh && provider) {
           setProviderSheetRows((prev) => ({

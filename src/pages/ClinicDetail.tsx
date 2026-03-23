@@ -4,7 +4,6 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
 import { enrichSheetRowsFromPatients, applyCoPatientSnapshotToSheetRows } from '@/lib/enrichProviderSheetRowsFromPatients'
-import { syncCoPatientsFromProviderSheetRows } from '@/lib/syncCoPatientsFromProviderSheetRows'
 import { fetchBackupCsvAsSheetRows, padSheetRowsTo200 } from '@/lib/providerSheetBackups'
 import BackupVersionsBar, { type BackupVersionMeta } from '@/components/BackupVersionsBar'
 import {
@@ -1834,9 +1833,7 @@ export default function ClinicDetail() {
         providerId,
         savedRows: savedRows.length,
       })
-      // Always sync from the full saved provider rows: co-patients are filtered inside sync util,
-      // and this avoids missing edits when optimistic state already changed before diffing.
-      await syncCoPatientsFromProviderSheetRows(supabase, clinicId, rowsToProcess)
+      // Patient demographics are owned by `patients` (Patients tab / API), not pushed from provider sheets.
       const freshPatients = await fetchPatients()
       try {
         const pendingKey = `provider_sheet_pending_${clinicId}_${providerId}_${selectedMonthKey}`
