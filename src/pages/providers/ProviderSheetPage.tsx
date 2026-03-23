@@ -4,12 +4,6 @@ import { supabase } from '@/lib/supabase'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
 import { enrichSheetRowsFromPatients, applyCoPatientSnapshotToSheetRows } from '@/lib/enrichProviderSheetRowsFromPatients'
 import { syncCoPatientsFromProviderSheetRows } from '@/lib/syncCoPatientsFromProviderSheetRows'
-import {
-  loadPatientAssignmentState,
-  validatePatientIdsForProviderSheet,
-  alertPatientIdWrongProviderDeduped,
-  claimPrivatePatientIdsForProvider,
-} from '@/lib/providerSheetPatientAssignment'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   Clinic,
@@ -421,20 +415,6 @@ export default function ProviderSheetPage() {
         return true
       })
 
-      let patientAssignmentState: Awaited<ReturnType<typeof loadPatientAssignmentState>>
-      try {
-        patientAssignmentState = await loadPatientAssignmentState(supabase, clinicId)
-      } catch (e) {
-        console.error('[ProviderSheetPage] loadPatientAssignmentState', e)
-        alert('Could not verify patient assignments. Please try again.')
-        return
-      }
-      const validation = validatePatientIdsForProviderSheet(rowsToProcess, providerId, patientAssignmentState)
-      if (!validation.ok) {
-        alertPatientIdWrongProviderDeduped(validation.conflictingPatientId)
-        return
-      }
-
       try {
         console.log('[ProviderSheetPage:ProvidersSave] start', {
           providerId,
@@ -446,11 +426,6 @@ export default function ProviderSheetPage() {
           providerId,
           processRows: rowsToProcess.length,
         })
-        try {
-          await claimPrivatePatientIdsForProvider(supabase, clinicId, providerId, rowsToProcess, patientAssignmentState)
-        } catch (claimErr) {
-          console.error('[ProviderSheetPage] claimPrivatePatientIdsForProvider', claimErr)
-        }
         await syncCoPatientsFromProviderSheetRows(supabase, clinicId, rowsToProcess)
         const fresh = await refetchPatients()
         if (fresh && provider) {

@@ -9,12 +9,6 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { toDisplayValue, toDisplayDate, parseDateOfServiceInput, toStoredString } from '@/lib/utils'
 import { computeBillingMetrics } from '@/lib/billingMetrics'
-import {
-  alertPatientIdWrongProviderDeduped,
-  loadPatientAssignmentState,
-  isPatientIdAllowedForProviderSheet,
-  type PatientAssignmentState,
-} from '@/lib/providerSheetPatientAssignment'
 
 /** Only defer patient_id to DB validation for paste / fill / multi-cell — not per-keystroke cell edits. */
 function shouldBatchDeferPatientId(source: string, nonNullChangeCount: number): boolean {
@@ -198,7 +192,7 @@ interface ProvidersTabProps {
   isViewingBackup?: boolean
   /** When viewing backup, a value that changes when the user selects a different version (e.g. version number), so the grid refreshes. */
   backupVersionKey?: number
-  /** Bumped when co-patients or private patient claims change (ClinicDetail); keeps ID validation in sync. */
+  /** Bumped when patient table data changes; keeps Providers tab display in sync. */
   patientAssignmentRevision?: number
   /** Register a flush function to run before leaving Providers tab. */
   onRegisterFlushBeforeTabLeave?: (flush: () => Promise<void>) => void
@@ -248,16 +242,6 @@ export default function ProvidersTab({
 }: ProvidersTabProps) {
   
   const { userProfile } = useAuth()
-  const assignmentStateRef = useRef<PatientAssignmentState>({
-    coPatientIdKeys: new Set(),
-    privateClaimByPatientIdKey: new Map(),
-  })
-  useEffect(() => {
-    if (!clinicId) return
-    void loadPatientAssignmentState(supabase, clinicId).then((s) => {
-      assignmentStateRef.current = s
-    })
-  }, [clinicId, patients, patientAssignmentRevision])
   // Use isLockProviders from props directly - it will update when parent refreshes
   const lockData = isLockProviders || null
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
@@ -492,25 +476,24 @@ export default function ProvidersTab({
   const getTableDataFromRows = useCallback((rows: SheetRow[]) => {
     return rows.map(row => {
       const patientDisplay = toDisplayValue(row.patient_id)
-      // Co-patients are source-of-truth from patients table; private patients remain row-driven.
+      // Patient demographics on provider rows are sourced from `patients` by patient_id.
       const pidKey = String(row.patient_id ?? '').trim().toLowerCase()
       const coPatient = pidKey ? coPatientByIdKey.get(pidKey) : undefined
-      const draft = pidKey ? coPatientDraftByIdKeyRef.current.get(pidKey) : undefined
       const firstNameDisplay = toDisplayValue(
-        draft?.patient_first_name ?? (coPatient ? coPatient.first_name : row.patient_first_name)
+        coPatient ? coPatient.first_name : row.patient_first_name
       )
       const lastNameSource = coPatient ? coPatient.last_name : row.patient_last_name
       const lastInitialDisplay = toDisplayValue(
         lastNameSource ? String(lastNameSource).charAt(0) : row.last_initial
       )
       const insuranceDisplay = toDisplayValue(
-        draft?.patient_insurance ?? (coPatient ? coPatient.insurance : row.patient_insurance)
+        coPatient ? coPatient.insurance : row.patient_insurance
       )
       const copayDisplay = toDisplayValue(
-        draft?.patient_copay ?? (coPatient ? coPatient.copay : row.patient_copay)
+        coPatient ? coPatient.copay : row.patient_copay
       )
       const coinsuranceDisplay = toDisplayValue(
-        draft?.patient_coinsurance ?? (coPatient ? coPatient.coinsurance : row.patient_coinsurance)
+        coPatient ? coPatient.coinsurance : row.patient_coinsurance
       )
       const visitTypeVal = () => row.visit_type === 'Telehealth'
       const insertVisitType = (arr: (string | number)[]) => showVisitTypeColumn ? [...arr.slice(0, 9), visitTypeVal(), ...arr.slice(9)] : arr
@@ -1181,11 +1164,11 @@ export default function ProvidersTab({
     if (officeStaffView) {
       const base = [
         { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id')) },
-        { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name')) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: true },
         { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: true },
-        { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance')) },
-        { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay')) },
-        { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance')) },
+        { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: true },
+        { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: true },
+        { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: true },
         { data: 6, title: 'Date of Service', type: 'text' as const, width: 90, editor: DateOfServiceEditor, readOnly: getReadOnlyForColumn(6, !canEdit || getReadOnly('date_of_service')) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyForColumn(7, !canEdit || getReadOnly('cpt_code')) },
         ...(visitTypeCol ? [visitTypeCol(getReadOnlyForColumn(9, !canEdit))] : []),
@@ -1200,7 +1183,7 @@ export default function ProvidersTab({
     if (isProviderView && providerLevel !== 2) {
       const base = [
         { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyProviderView(0) },
-        { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(1) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: true },
         { data: 2, title: 'LI', type: 'text' as const, width: 80, readOnly: true },
         // { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(3) },
         // { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
@@ -1215,11 +1198,11 @@ export default function ProvidersTab({
     if (isProviderView && providerLevel === 2) {
       return [
         { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyProviderView(0) },
-        { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(1) },
+        { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: true },
         { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: true },
-        { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(3) },
-        { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
-        { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyProviderView(5) },
+        { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: true },
+        { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: true },
+        { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: true },
         { data: 6, title: 'Date of Service', type: 'text' as const, width: 90, editor: DateOfServiceEditor, readOnly: getReadOnlyProviderView(6) },
         { data: 7, title: 'CPT Code', type: 'dropdown' as const, width: 160, editor: MultiSelectCptEditor, selectOptions: billingCodes.map(c => c.code), renderer: createMultiBubbleDropdownRenderer((val) => getCPTColor(val)) as any, readOnly: getReadOnlyProviderView(7) },
         ...(visitTypeCol ? [visitTypeCol(getReadOnlyProviderView(9))] : []),
@@ -1250,7 +1233,7 @@ export default function ProvidersTab({
         title: 'First Name', 
         type: 'text' as const, 
         width: 90,
-        readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name'))
+        readOnly: true
       },
       { 
         data: 2, 
@@ -1264,7 +1247,7 @@ export default function ProvidersTab({
         title: 'Ins', 
         type: 'text' as const, 
         width: 90,
-        readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance'))
+        readOnly: true
       },
       { 
         data: 4, 
@@ -1272,7 +1255,7 @@ export default function ProvidersTab({
         type: 'text' as const, 
         width: 80,
         renderer: copayTextCellRenderer,
-        readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay'))
+        readOnly: true
       },
       { 
         data: 5, 
@@ -1280,7 +1263,7 @@ export default function ProvidersTab({
         type: 'text' as const, 
         width: 80,
         renderer: coinsuranceTextCellRenderer,
-        readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance'))
+        readOnly: true
       },
       { 
         data: 6, 
@@ -1447,21 +1430,16 @@ export default function ProvidersTab({
               const cid = clinicIdForValidationRef.current
               if (!hot.isDestroyed && ap && cid && batch.length > 0) {
                 void (async () => {
-                  const [{ data, error }, assignmentState] = await Promise.all([
-                    supabase.from('patients').select('*').eq('clinic_id', cid),
-                    loadPatientAssignmentState(supabase, cid),
-                  ])
+                  const { data, error } = await supabase.from('patients').select('*').eq('clinic_id', cid)
                   if (error) {
                     console.error('[ProvidersTab] patient ID validation (DB) failed', error)
                     return
                   }
-                  assignmentStateRef.current = assignmentState
                   const byKey = new Map<string, Patient>()
                   for (const p of data || []) {
                     const k = String(p.patient_id ?? '').trim().toLowerCase()
                     if (k) byKey.set(k, p as Patient)
                   }
-                  const alerted = new Set<string>()
                   const byRow = new Map<number, { col: string | number; newVal: string }>()
                   for (const item of batch) {
                     byRow.set(item.row, { col: item.col, newVal: item.newVal })
@@ -1469,18 +1447,6 @@ export default function ProvidersTab({
                   for (const [row, { col, newVal }] of byRow) {
                     const key = newVal.trim().toLowerCase()
                     const rec = byKey.get(key)
-                    if (!isPatientIdAllowedForProviderSheet(newVal, ap.id, assignmentState)) {
-                      if (!alerted.has(key)) {
-                        alerted.add(key)
-                        alertPatientIdWrongProviderDeduped(newVal)
-                      }
-                      try {
-                        hot.setDataAtCell(row, col as number, '', 'clearInvalidOtherProviderPatientId')
-                      } catch (e) {
-                        console.error('[ProvidersTab] clear invalid patient ID cell failed', e)
-                      }
-                      continue
-                    }
                     pendingPatientMergeByRowRef.current.set(row, rec ?? null)
                     try {
                       hot.setDataAtCell(row, col as number, newVal, 'patientIdDbValidated')
@@ -1651,7 +1617,6 @@ export default function ProvidersTab({
           if (patientIdOrNull == null || patientIdOrNull === '') {
             hadPatientIdClear = true
             clearDraftByPid(sheetRow.patient_id)
-            if (String(source) === 'clearInvalidOtherProviderPatientId') hadRejectedPatientId = true
             const t = patientIdEditDebounceRef.current.get(row)
             if (t) clearTimeout(t)
             patientIdEditDebounceRef.current.delete(row)
@@ -1675,14 +1640,6 @@ export default function ProvidersTab({
           if (String(source) === 'patientIdDbValidated') {
             const dbPatient = pendingPatientMergeByRowRef.current.get(row)
             pendingPatientMergeByRowRef.current.delete(row)
-            if (
-              !isPatientIdAllowedForProviderSheet(patientIdOrNull, activeProvider.id, assignmentStateRef.current)
-            ) {
-              hadRejectedPatientId = true
-              hadPatientIdClear = true
-              updatedRows[row] = sheetRowAfterInvalidOtherProviderPatient(sheetRow, newId)
-              return
-            }
             if (dbPatient) hadPatientIdMerge = true
             updatedRows[row] = buildSheetRowWithPatientIdMerge(sheetRow, patientIdOrNull, dbPatient ?? null)
             setDraftFromRow(updatedRows[row] as SheetRow)
@@ -1700,12 +1657,6 @@ export default function ProvidersTab({
             const patient = patients.find(
               (p) => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase()
             )
-            if (!isPatientIdAllowedForProviderSheet(patientIdOrNull, activeProvider.id, assignmentStateRef.current)) {
-              hadRejectedPatientId = true
-              hadPatientIdClear = true
-              updatedRows[row] = sheetRowAfterInvalidOtherProviderPatient(sheetRow, newId)
-              return
-            }
             const merged: Partial<SheetRow> = {
               ...sheetRow,
               id: newId,
@@ -1751,15 +1702,11 @@ export default function ProvidersTab({
                 if (!pidRaw) return
                 const key = pidRaw.toLowerCase()
 
-                const [{ data, error }, assignmentState] = await Promise.all([
-                  supabase.from('patients').select('*').eq('clinic_id', clinic),
-                  loadPatientAssignmentState(supabase, clinic),
-                ])
+                const { data, error } = await supabase.from('patients').select('*').eq('clinic_id', clinic)
                 if (error) {
                   console.error('[ProvidersTab] patient ID validation (edit) failed', error)
                   return
                 }
-                assignmentStateRef.current = assignmentState
                 const rec =
                   (data || []).find((p) => String(p.patient_id ?? '').trim().toLowerCase() === key) ?? null
 
@@ -1767,24 +1714,6 @@ export default function ProvidersTab({
                 if (!cur || row >= cur.length) return
                 const baseRow = cur[row]
                 if (!baseRow || String(baseRow.patient_id ?? '').trim().toLowerCase() !== key) return
-
-                if (!isPatientIdAllowedForProviderSheet(pidRaw, ap.id, assignmentState)) {
-                  pendingInvalidPatientRowRef.current.delete(row)
-                  patientIdEditLatestPidRef.current.delete(row)
-                  const br = baseRow
-                  const needsNewId = br.id.startsWith('empty-')
-                  const rowNewId = needsNewId ? `new-${Date.now()}-${Math.random()}` : br.id
-                  cur[row] = sheetRowAfterInvalidOtherProviderPatient(br, rowNewId)
-                  latestProviderRowsRef.current = { providerId: ap.id, rows: cur }
-                  latestTableDataRef.current = getTableDataFromRows(cur)
-                  pendingProviderSheetSaveRef.current = { providerId: ap.id, rows: cur }
-                  onSaveProviderSheetRowsDirectRef.current(ap.id, cur).catch((e) =>
-                    console.error('[ProvidersTab] save after invalid patient id (edit)', e)
-                  )
-                  setStructureVersion((v) => v + 1)
-                  alertPatientIdWrongProviderDeduped(pidRaw)
-                  return
-                }
 
                 const merged = buildSheetRowWithPatientIdMerge(baseRow, pidRaw, rec)
                 cur[row] = merged

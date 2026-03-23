@@ -5,12 +5,6 @@ import { supabase } from '@/lib/supabase'
 import { fetchSheetRows, saveSheetRows } from '@/lib/providerSheetRows'
 import { enrichSheetRowsFromPatients, applyCoPatientSnapshotToSheetRows } from '@/lib/enrichProviderSheetRowsFromPatients'
 import { syncCoPatientsFromProviderSheetRows } from '@/lib/syncCoPatientsFromProviderSheetRows'
-import {
-  loadPatientAssignmentState,
-  validatePatientIdsForProviderSheet,
-  alertPatientIdWrongProviderDeduped,
-  claimPrivatePatientIdsForProvider,
-} from '@/lib/providerSheetPatientAssignment'
 import { fetchBackupCsvAsSheetRows, padSheetRowsTo200 } from '@/lib/providerSheetBackups'
 import BackupVersionsBar, { type BackupVersionMeta } from '@/components/BackupVersionsBar'
 import {
@@ -50,7 +44,7 @@ export default function ClinicDetail() {
   const [providerSheetsByMonth, setProviderSheetsByMonth] = useState<Record<string, Record<string, ProviderSheet>>>({})
   const [providerSheetRowsByMonth, setProviderSheetRowsByMonth] = useState<Record<string, Record<string, SheetRow[]>>>({})
   const [providerRowsVersion, setProviderRowsVersion] = useState(0)
-  /** Bumped when co-patients or private_patient_claims change so Providers tab refreshes patient ID rules. */
+  /** Bumped when patients table changes so Providers tab refreshes patient display. */
   const [patientAssignmentRevision, setPatientAssignmentRevision] = useState(0)
   const [billingCodes, setBillingCodes] = useState<BillingCode[]>([])
   const [statusColors, setStatusColors] = useState<StatusColor[]>([])
@@ -1436,12 +1430,6 @@ export default function ClinicDetail() {
       let sheetRows: SheetRow[] = []
       if (sheet) {
         sheetRows = await fetchSheetRows(supabase, sheet.id)
-        try {
-          const patientAssignmentState = await loadPatientAssignmentState(supabase, clinicId)
-          await claimPrivatePatientIdsForProvider(supabase, clinicId, providerId, sheetRows, patientAssignmentState)
-        } catch (claimErr) {
-          console.error('[ClinicDetail] claim on provider sheet fetch failed', claimErr)
-        }
         const { data: clinicPatients } = await supabase.from('patients').select('*').eq('clinic_id', clinicId)
         sheetRows = enrichSheetRowsFromPatients(sheetRows, (clinicPatients || []) as Patient[])
 
@@ -1654,12 +1642,6 @@ export default function ClinicDetail() {
       }
 
       const providerIds = providersData.map((p: { id: string }) => p.id)
-      let patientAssignmentState: Awaited<ReturnType<typeof loadPatientAssignmentState>> | null = null
-      try {
-        patientAssignmentState = await loadPatientAssignmentState(supabase, clinicId)
-      } catch (e) {
-        console.error('[ClinicDetail] loadPatientAssignmentState failed during provider sheets fetch', e)
-      }
 
       const { data: clinicPatientsForEnrich } = await supabase.from('patients').select('*').eq('clinic_id', clinicId)
       const clinicPatientsList = (clinicPatientsForEnrich || []) as Patient[]
@@ -1734,13 +1716,6 @@ export default function ClinicDetail() {
 
         sheetsMap[providerId] = sheet
         let sheetRows = await fetchSheetRows(supabase, sheet.id)
-        if (patientAssignmentState) {
-          try {
-            await claimPrivatePatientIdsForProvider(supabase, clinicId, providerId, sheetRows, patientAssignmentState)
-          } catch (claimErr) {
-            console.error('[ClinicDetail] claim on provider sheets fetch failed', claimErr)
-          }
-        }
         sheetRows = enrichSheetRowsFromPatients(sheetRows, clinicPatientsList)
 
         // Add empty rows to reach 200 total rows per provider
@@ -1833,21 +1808,6 @@ export default function ClinicDetail() {
       return true
     })
 
-    let patientAssignmentState: Awaited<ReturnType<typeof loadPatientAssignmentState>>
-    try {
-      patientAssignmentState = await loadPatientAssignmentState(supabase, clinicId)
-    } catch (e) {
-      console.error('[ClinicDetail] loadPatientAssignmentState failed', e)
-      alert('Could not verify patient assignments. Please try again.')
-      return
-    }
-
-    const validation = validatePatientIdsForProviderSheet(rowsToProcess, providerId, patientAssignmentState)
-    if (!validation.ok) {
-      alertPatientIdWrongProviderDeduped(validation.conflictingPatientId)
-      return
-    }
-
     // Serialize: only one save per provider at a time so an older save cannot overwrite a newer one in the DB
     if (saveProviderSheetInProgressRef.current.has(providerId)) {
       pendingProviderSheetSaveRef.current[providerId] = rowsToSave
@@ -1874,11 +1834,6 @@ export default function ClinicDetail() {
         providerId,
         savedRows: savedRows.length,
       })
-      try {
-        await claimPrivatePatientIdsForProvider(supabase, clinicId, providerId, rowsToProcess, patientAssignmentState)
-      } catch (claimErr) {
-        console.error('[ClinicDetail] claimPrivatePatientIdsForProvider', claimErr)
-      }
       // Always sync from the full saved provider rows: co-patients are filtered inside sync util,
       // and this avoids missing edits when optimistic state already changed before diffing.
       await syncCoPatientsFromProviderSheetRows(supabase, clinicId, rowsToProcess)
