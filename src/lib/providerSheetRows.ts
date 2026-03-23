@@ -144,6 +144,28 @@ function isUuid(id: string): boolean {
   return UUID_REGEX.test(id)
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const limit = Math.max(1, Math.floor(concurrency))
+  const results: R[] = new Array(items.length)
+  let nextIndex = 0
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const currentIndex = nextIndex
+      nextIndex += 1
+      if (currentIndex >= items.length) return
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex)
+    }
+  })
+
+  await Promise.all(workers)
+  return results
+}
+
 /**
  * Fetch all rows for a provider sheet from provider_sheet_rows, ordered by sort_order.
  */
@@ -169,10 +191,8 @@ export async function saveSheetRows(
   sheetId: string,
   rows: SheetRow[]
 ): Promise<SheetRow[]> {
-  const saved: SheetRow[] = []
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
+  const ROW_SAVE_CONCURRENCY = 12
+  const saved = await mapWithConcurrency(rows, ROW_SAVE_CONCURRENCY, async (row, i) => {
     const payload = sheetRowToDbPayload(row, sheetId, i)
 
     if (isUuid(row.id)) {
@@ -185,8 +205,8 @@ export async function saveSheetRows(
         .select()
 
       if (error) throw error
-      if (data && data.length > 0) saved.push(dbToSheetRow(data[0] as ProviderSheetRowDb))
-      else saved.push(row)
+      if (data && data.length > 0) return dbToSheetRow(data[0] as ProviderSheetRowDb)
+      return row
     } else {
       const { data, error } = await supabase
         .from('provider_sheet_rows')
@@ -195,9 +215,9 @@ export async function saveSheetRows(
         .single()
 
       if (error) throw error
-      saved.push(dbToSheetRow(data))
+      return dbToSheetRow(data)
     }
-  }
+  })
 
   // Delete any rows in the DB for this sheet that are no longer in our list (so deletes persist)
   const idsToKeep = saved.map(r => r.id)

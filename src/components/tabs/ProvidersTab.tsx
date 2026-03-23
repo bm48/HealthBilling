@@ -200,6 +200,8 @@ interface ProvidersTabProps {
   backupVersionKey?: number
   /** Bumped when co-patients or private patient claims change (ClinicDetail); keeps ID validation in sync. */
   patientAssignmentRevision?: number
+  /** Register a flush function to run before leaving Providers tab. */
+  onRegisterFlushBeforeTabLeave?: (flush: () => Promise<void>) => void
 }
 
 export default function ProvidersTab({
@@ -242,6 +244,7 @@ export default function ProvidersTab({
   isViewingBackup = false,
   backupVersionKey = 0,
   patientAssignmentRevision = 0,
+  onRegisterFlushBeforeTabLeave,
 }: ProvidersTabProps) {
   
   const { userProfile } = useAuth()
@@ -2239,6 +2242,27 @@ export default function ProvidersTab({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: unmount-only flush; refs hold latest callback/ids
   }, [])
+
+  // Expose flush so parent can persist provider rows before switching away from Providers tab.
+  useEffect(() => {
+    if (!onRegisterFlushBeforeTabLeave) return
+    const flush = async () => {
+      if (saveProviderSheetTimeoutRef.current) {
+        clearTimeout(saveProviderSheetTimeoutRef.current)
+        saveProviderSheetTimeoutRef.current = null
+      }
+      const pending = pendingProviderSheetSaveRef.current
+      const latest = latestProviderRowsRef.current
+      const providerIdToSave = pending?.providerId ?? latest?.providerId
+      const rowsToSave = (latest?.providerId === providerIdToSave && latest?.rows?.length)
+        ? latest.rows
+        : pending?.rows
+      if (!providerIdToSave || !rowsToSave?.length) return
+      pendingProviderSheetSaveRef.current = null
+      await onSaveProviderSheetRowsDirectRef.current(providerIdToSave, rowsToSave)
+    }
+    onRegisterFlushBeforeTabLeave(flush)
+  }, [onRegisterFlushBeforeTabLeave])
 
   // Apply custom header colors after table renders
   useEffect(() => {

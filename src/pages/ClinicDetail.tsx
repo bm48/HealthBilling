@@ -101,6 +101,8 @@ export default function ClinicDetail() {
   const patientsTabFlushRef = useRef<(() => Promise<void>) | null>(null)
   /** Flush Billing To-Do save before switching tab; registered by BillingTodoTab */
   const billingTodoTabFlushRef = useRef<(() => Promise<void>) | null>(null)
+  /** Flush Providers save before switching tab; registered by ProvidersTab */
+  const providersTabFlushRef = useRef<(() => Promise<void>) | null>(null)
 
   // Month filter for provider tab (and pay-period half when clinic has payroll=2)
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date())
@@ -2514,12 +2516,14 @@ export default function ClinicDetail() {
         setSplitScreen({ left: splitScreen.left, right: tab })
       }
     } else {
-      // When leaving Patient Info or Billing To-Do, flush save (finish editor + persist) before switching — same pattern as PatientsTab
+      // Flush save (finish editor + persist) before switching away from tabs that support a pre-leave flush.
       const flushBeforeTabLeave =
         activeTab === 'patients' && tab !== 'patients'
           ? patientsTabFlushRef.current
           : activeTab === 'todo' && tab !== 'todo'
             ? billingTodoTabFlushRef.current
+            : activeTab === 'providers' && tab !== 'providers'
+              ? providersTabFlushRef.current
             : null
       if (flushBeforeTabLeave) {
         setLoading(true)
@@ -2878,6 +2882,7 @@ export default function ClinicDetail() {
               isViewingBackup={!!selectedBackupVersion}
               backupVersionKey={backupViewKey}
               patientAssignmentRevision={patientAssignmentRevision}
+              onRegisterFlushBeforeTabLeave={(flush) => { providersTabFlushRef.current = flush }}
             />
           </>
         )
