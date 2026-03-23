@@ -597,6 +597,13 @@ providers-handsontable} */
   text-align: center !important;
 }
 
+/* Providers tab: read-only cells use Handsontable .htDimmed (gray text). Keep readOnly but match editable cell text color. */
+.providers-handsontable td.htDimmed {
+  color: #000000 !important;
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  opacity: 1;
+}
+
 /* Row header column: min-height only so it can grow with row when select/dropdown increases height */
 .handsontable-custom .ht_clone_left table.htCore tbody tr th,
 .handsontable-custom .ht_clone_left table.htCore thead tr th {
