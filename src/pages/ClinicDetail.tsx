@@ -1849,15 +1849,29 @@ export default function ClinicDetail() {
     // Serialize: only one save per provider at a time so an older save cannot overwrite a newer one in the DB
     if (saveProviderSheetInProgressRef.current.has(providerId)) {
       pendingProviderSheetSaveRef.current[providerId] = rowsToSave
+      console.log('[ClinicDetail:ProvidersSave] queued while in-progress', {
+        providerId,
+        rows: rowsToSave.length,
+      })
       return
     }
     saveProviderSheetInProgressRef.current.add(providerId)
+    console.log('[ClinicDetail:ProvidersSave] start', {
+      providerId,
+      rows: rowsToSave.length,
+      processRows: rowsToProcess.length,
+      monthKey: selectedMonthKey,
+    })
 
     // Optimistic update: apply full rows to state immediately so the row (e.g. patient fill) appears right away
     setProviderSheetRowsByMonth(prev => ({ ...prev, [selectedMonthKey]: { ...(prev[selectedMonthKey] ?? {}), [providerId]: rowsToSave } }))
 
     try {
       const savedRows = await saveSheetRows(supabase, sheet.id, rowsToProcess)
+      console.log('[ClinicDetail:ProvidersSave] db save done', {
+        providerId,
+        savedRows: savedRows.length,
+      })
       try {
         await claimPrivatePatientIdsForProvider(supabase, clinicId, providerId, rowsToProcess, patientAssignmentState)
       } catch (claimErr) {
@@ -1898,6 +1912,10 @@ export default function ClinicDetail() {
             }
           }
           return row
+        })
+        console.log('[ClinicDetail:ProvidersSave] merge saved ids only', {
+          providerId,
+          mappedRows: updatedRows.length,
         })
 
         const nonEmptyRows = updatedRows.filter((r) => !r.id.startsWith('empty-'))
@@ -1972,8 +1990,16 @@ export default function ClinicDetail() {
     } finally {
       saveProviderSheetInProgressRef.current.delete(providerId)
       const pending = pendingProviderSheetSaveRef.current[providerId]
+      console.log('[ClinicDetail:ProvidersSave] finish', {
+        providerId,
+        hasPending: Boolean(pending),
+      })
       if (pending) {
         delete pendingProviderSheetSaveRef.current[providerId]
+        console.log('[ClinicDetail:ProvidersSave] replay pending', {
+          providerId,
+          rows: pending.length,
+        })
         saveProviderSheetRows(providerId, pending)
       }
     }

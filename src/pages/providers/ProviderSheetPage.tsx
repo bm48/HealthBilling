@@ -386,6 +386,10 @@ export default function ProviderSheetPage() {
       if (currentSheet.month !== month || currentSheet.year !== year) return
       if (saveProviderSheetInProgressRef.current.has(providerId)) {
         pendingProviderSheetSaveRef.current[providerId] = rowsToSave
+        console.log('[ProviderSheetPage:ProvidersSave] queued while in-progress', {
+          providerId,
+          rows: rowsToSave.length,
+        })
         return
       }
       saveProviderSheetInProgressRef.current.add(providerId)
@@ -432,7 +436,16 @@ export default function ProviderSheetPage() {
       }
 
       try {
+        console.log('[ProviderSheetPage:ProvidersSave] start', {
+          providerId,
+          rows: rowsToSave.length,
+          processRows: rowsToProcess.length,
+        })
         await saveSheetRows(supabase, currentSheet.id, rowsToProcess)
+        console.log('[ProviderSheetPage:ProvidersSave] db save done', {
+          providerId,
+          processRows: rowsToProcess.length,
+        })
         try {
           await claimPrivatePatientIdsForProvider(supabase, clinicId, providerId, rowsToProcess, patientAssignmentState)
         } catch (claimErr) {
@@ -451,8 +464,16 @@ export default function ProviderSheetPage() {
       } finally {
         saveProviderSheetInProgressRef.current.delete(providerId)
         const pending = pendingProviderSheetSaveRef.current[providerId]
+        console.log('[ProviderSheetPage:ProvidersSave] finish', {
+          providerId,
+          hasPending: Boolean(pending),
+        })
         if (pending) {
           delete pendingProviderSheetSaveRef.current[providerId]
+          console.log('[ProviderSheetPage:ProvidersSave] replay pending', {
+            providerId,
+            rows: pending.length,
+          })
           saveProviderSheetRows(providerId, pending).catch((err) =>
             console.error('[ProviderSheetPage] pending save retry failed:', err)
           )

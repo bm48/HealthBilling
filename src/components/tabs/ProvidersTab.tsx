@@ -30,6 +30,11 @@ function isHandsontableUndoRedoSource(source?: string) {
   return source === 'UndoRedo.undo' || source === 'UndoRedo.redo'
 }
 
+function logProvidersTab(event: string, payload?: Record<string, unknown>) {
+  if (payload) console.log(`[ProvidersTab] ${event}`, payload)
+  else console.log(`[ProvidersTab] ${event}`)
+}
+
 const PROVIDER_GRID_DATE_FIELDS: (keyof SheetRow)[] = ['appointment_date', 'submit_date', 'payment_date', 'ar_date']
 
 /** Map visible grid columns → SheetRow fields for undo/redo sync (matches handleProviderRowsHandsontableChange layout). */
@@ -2005,12 +2010,22 @@ export default function ProvidersTab({
     
     // Debounce save and flush on unmount so data isn't lost when switching tabs
     pendingProviderSheetSaveRef.current = { providerId: activeProvider.id, rows: updatedRows }
+    logProvidersTab('pending save scheduled', {
+      providerId: activeProvider.id,
+      rows: updatedRows.length,
+      source,
+      changedCells: changes.length,
+    })
     if (saveProviderSheetTimeoutRef.current) clearTimeout(saveProviderSheetTimeoutRef.current)
     saveProviderSheetTimeoutRef.current = setTimeout(() => {
       saveProviderSheetTimeoutRef.current = null
       const pending = pendingProviderSheetSaveRef.current
       if (pending) {
         pendingProviderSheetSaveRef.current = null
+        logProvidersTab('debounced save firing', {
+          providerId: pending.providerId,
+          rows: pending.rows.length,
+        })
         onSaveProviderSheetRowsDirect(pending.providerId, pending.rows).catch(err => {
           console.error('[handleProviderRowsHandsontableChange] Error in saveProviderSheetRowsDirect:', err)
         })
@@ -2147,6 +2162,10 @@ export default function ProvidersTab({
       latestProviderRowsRef.current = { providerId: activeProvider.id, rows: merged }
       latestTableDataRef.current = getTableDataFromRows(merged)
       pendingProviderSheetSaveRef.current = { providerId: activeProvider.id, rows: merged }
+      logProvidersTab('undo/redo immediate save', {
+        providerId: activeProvider.id,
+        rows: merged.length,
+      })
       void onSaveProviderSheetRowsDirect(activeProvider.id, merged).catch((err) =>
         console.error('saveProviders after HOT undo/redo sync', err)
       )
@@ -2188,6 +2207,10 @@ export default function ProvidersTab({
       if (providerIdToSave && rowsToSave?.length) {
         pendingProviderSheetSaveRef.current = null
         latestProviderRowsRef.current = null
+        logProvidersTab('unmount flush save', {
+          providerId: providerIdToSave,
+          rows: rowsToSave.length,
+        })
 
         const cid = clinicIdForPendingRef.current
         const mk = selectedMonthKeyForPendingRef.current
