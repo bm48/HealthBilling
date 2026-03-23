@@ -7,12 +7,12 @@ const BUCKET = 'provider-sheet-backups'
 
 // CSV: UI headers and corresponding DB column names (same order). Tele = visit_type, between cpt code and appt/note status.
 const CSV_HEADERS = [
-  'ID', 'First Name', 'LI', 'Ins', 'Co-pay', 'Co-ins', 'Date of Service', 'Cpt Code', 'Tele', 'Appt/Note Status',
+  'ID', 'Date of Service', 'Cpt Code', 'Tele', 'Appt/Note Status',
   'Claim Status', 'Most Recent', 'Ins Pay', 'Ins Pay Date', 'Pt Res', 'Pt Paid', 'Pt Pay Status',
   'Pt Payment Ar Ref Date', 'Total', 'Notes',
 ]
 const CSV_DB_COLUMNS = [
-  'patient_id', 'patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance',
+  'patient_id',
   'appointment_date', 'cpt_code', 'visit_type', 'appointment_status', 'claim_status', 'submit_date', 'insurance_payment',
   'payment_date', 'invoice_amount', 'collected_from_patient', 'patient_pay_status', 'payment_date_color',
   'total', 'notes',
@@ -28,9 +28,9 @@ function escapeCsvCell(val: unknown): string {
   return s
 }
 
-const USD_COLUMNS = new Set(['patient_copay', 'insurance_payment', 'invoice_amount', 'collected_from_patient', 'total'])
+const USD_COLUMNS = new Set(['insurance_payment', 'invoice_amount', 'collected_from_patient', 'total'])
 
-/** Format value for CSV to match UI: copay/ins pay/pt paid/total as USD ($0.00), coinsurance as percentage (0%). Null/empty/"null" → empty cell. */
+/** Format value for CSV to match UI: money columns as USD ($0.00). Null/empty/"null" -> empty cell. */
 function formatCsvValue(col: string, val: unknown): unknown {
   if (val === null || val === undefined || val === '') return null
   const str = String(val).trim()
@@ -38,9 +38,6 @@ function formatCsvValue(col: string, val: unknown): unknown {
   const num = parseFloat(str)
   if (USD_COLUMNS.has(col) && !Number.isNaN(num)) {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num)
-  }
-  if (col === 'patient_coinsurance' && !Number.isNaN(num)) {
-    return `${num}%`
   }
   return val
 }

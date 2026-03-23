@@ -1,18 +1,12 @@
 import type { SheetRow } from '@/types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-/** DB row shape for provider_sheet_rows (snake_case, id is UUID). Patient fields are denormalized on the row. */
+/** DB row shape for provider_sheet_rows (snake_case, id is UUID). Patient demographics live in `patients`. */
 export interface ProviderSheetRowDb {
   id: string
   sheet_id: string
   sort_order: number
   patient_id: string | null
-  patient_first_name: string | null
-  patient_last_name: string | null
-  last_initial: string | null
-  patient_insurance: string | null
-  patient_copay: string | null
-  patient_coinsurance: string | null
   appointment_date: string | null
   appointment_time: string | null
   visit_type: string | null
@@ -52,12 +46,12 @@ function dbToSheetRow(db: ProviderSheetRowDb): SheetRow {
   return {
     id: db.id,
     patient_id: db.patient_id,
-    patient_first_name: db.patient_first_name ?? null,
-    patient_last_name: db.patient_last_name ?? null,
-    last_initial: db.last_initial ?? null,
-    patient_insurance: db.patient_insurance ?? null,
-    patient_copay: db.patient_copay ?? null,
-    patient_coinsurance: db.patient_coinsurance ?? null,
+    patient_first_name: null,
+    patient_last_name: null,
+    last_initial: null,
+    patient_insurance: null,
+    patient_copay: null,
+    patient_coinsurance: null,
     appointment_date: db.appointment_date,
     appointment_time: db.appointment_time,
     visit_type: db.visit_type,
@@ -99,12 +93,6 @@ function sheetRowToDbPayload(row: SheetRow, sheetId: string, sortOrder: number):
     sheet_id: sheetId,
     sort_order: sortOrder,
     patient_id: row.patient_id ?? null,
-    patient_first_name: row.patient_first_name ?? null,
-    patient_last_name: row.patient_last_name ?? null,
-    last_initial: row.last_initial ?? null,
-    patient_insurance: row.patient_insurance ?? null,
-    patient_copay: row.patient_copay != null ? String(row.patient_copay) : null,
-    patient_coinsurance: row.patient_coinsurance != null ? String(row.patient_coinsurance) : null,
     appointment_date: row.appointment_date ?? null,
     appointment_time: row.appointment_time ?? null,
     visit_type: row.visit_type ?? null,
