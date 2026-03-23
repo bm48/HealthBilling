@@ -100,8 +100,6 @@ export interface Provider {
 export interface Patient {
   id: string
   clinic_id: string
-  /** Set when patient is first saved on a provider sheet; blocks same patient_id on another provider in the clinic. */
-  provider_id?: string | null
   patient_id: string
   first_name: string
   last_name: string

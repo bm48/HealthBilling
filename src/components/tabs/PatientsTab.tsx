@@ -718,14 +718,15 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
     if (!canEdit || !onLockColumn || !isColumnLocked) return
     let timeoutId: ReturnType<typeof setTimeout> | null = null
     let menuEl: HTMLElement | null = null
-    let closeListener: (() => void) | null = null
+    let closeListener: ((e: Event) => void) | null = null
+    let openedAt = 0
 
     const hideMenu = () => {
       if (menuEl?.parentNode) menuEl.parentNode.removeChild(menuEl)
       menuEl = null
       if (closeListener) {
-        document.removeEventListener('click', closeListener)
-        document.removeEventListener('contextmenu', closeListener)
+        document.removeEventListener('pointerdown', closeListener, true)
+        document.removeEventListener('contextmenu', closeListener, true)
         closeListener = null
       }
     }
@@ -748,13 +749,20 @@ export default function PatientsTab({ clinicId, canEdit, onDelete, isLockPatient
       menu.appendChild(item)
       document.body.appendChild(menu)
       menuEl = menu
+      openedAt = Date.now()
       const x = Math.min(e.clientX, window.innerWidth - 150)
       const y = Math.min(e.clientY, window.innerHeight - 40)
       menu.style.left = `${x}px`
       menu.style.top = `${y}px`
-      closeListener = () => { hideMenu() }
+      closeListener = (evt: Event) => {
+        // Ignore same-tick follow-up events from the opener and only close on true outside clicks.
+        if (Date.now() - openedAt < 120) return
+        const target = evt.target as Node | null
+        if (menuEl && target && menuEl.contains(target)) return
+        hideMenu()
+      }
       setTimeout(() => {
-        document.addEventListener('click', closeListener!, true)
+        document.addEventListener('pointerdown', closeListener!, true)
         document.addEventListener('contextmenu', closeListener!, true)
       }, 0)
     }

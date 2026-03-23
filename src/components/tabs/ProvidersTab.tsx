@@ -1,5 +1,5 @@
 import { Provider, SheetRow, BillingCode, StatusColor, Patient, IsLockProviders } from '@/types'
-import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import HandsontableWrapper from '@/components/HandsontableWrapper'
 import Handsontable from 'handsontable'
 import { createBubbleDropdownRenderer, createMultiBubbleDropdownRenderer, MultiSelectCptEditor, DateOfServiceEditor, currencyCellRenderer, copayTextCellRenderer, coinsuranceTextCellRenderer } from '@/lib/handsontableCustomRenderers'
@@ -7,9 +7,14 @@ import { useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { toDisplayValue, toDisplayDate, parseDateOfServiceInput } from '@/lib/utils'
+import { toDisplayValue, toDisplayDate, parseDateOfServiceInput, toStoredString } from '@/lib/utils'
 import { computeBillingMetrics } from '@/lib/billingMetrics'
-import { alertPatientIdWrongProviderDeduped } from '@/lib/providerSheetPatientAssignment'
+import {
+  alertPatientIdWrongProviderDeduped,
+  loadPatientAssignmentState,
+  isPatientIdAllowedForProviderSheet,
+  type PatientAssignmentState,
+} from '@/lib/providerSheetPatientAssignment'
 
 /** Only defer patient_id to DB validation for paste / fill / multi-cell — not per-keystroke cell edits. */
 function shouldBatchDeferPatientId(source: string, nonNullChangeCount: number): boolean {
@@ -19,6 +24,82 @@ function shouldBatchDeferPatientId(source: string, nonNullChangeCount: number): 
   if (s.includes('Autofill')) return true
   if (s === 'fill') return true
   return false
+}
+
+function isHandsontableUndoRedoSource(source?: string) {
+  return source === 'UndoRedo.undo' || source === 'UndoRedo.redo'
+}
+
+const PROVIDER_GRID_DATE_FIELDS: (keyof SheetRow)[] = ['appointment_date', 'submit_date', 'payment_date', 'ar_date']
+
+/** Map visible grid columns → SheetRow fields for undo/redo sync (matches handleProviderRowsHandsontableChange layout). */
+function mergeProviderRowFromGridRowForSync(
+  prev: SheetRow,
+  gridRow: (string | number | boolean | null | undefined)[],
+  fields: Array<keyof SheetRow>
+): SheetRow {
+  const next: SheetRow = { ...prev }
+  for (let col = 0; col < fields.length && col < gridRow.length; col++) {
+    const field = fields[col]
+    const raw = gridRow[col]
+    if (field === 'visit_type') {
+      if (raw === true || raw === false) {
+        next.visit_type = raw === true ? 'Telehealth' : 'In-person'
+      } else if (raw === '' || raw == null) {
+        next.visit_type = null
+      } else {
+        next.visit_type = String(raw) === 'Telehealth' ? 'Telehealth' : 'In-person'
+      }
+      continue
+    }
+    if (field === 'patient_id') {
+      const s = String(raw ?? '').trim()
+      const pid = s ? (s.split(' - ')[0]?.trim() || s) : ''
+      next.patient_id = toStoredString(pid) ?? null
+      continue
+    }
+    if (field === 'total') {
+      const num =
+        raw === '' || raw == null || raw === 'null'
+          ? null
+          : typeof raw === 'number'
+            ? raw
+            : parseFloat(String(raw))
+      next.total = num != null && Number.isFinite(num) ? String(num) : null
+      continue
+    }
+    if (field === 'insurance_payment' || field === 'collected_from_patient') {
+      const num =
+        raw === '' || raw == null || raw === 'null' || raw === undefined
+          ? null
+          : typeof raw === 'number'
+            ? raw
+            : parseFloat(String(raw))
+      const n = num != null && Number.isFinite(num) ? String(num) : null
+      if (field === 'insurance_payment') next.insurance_payment = n
+      else next.collected_from_patient = n
+      continue
+    }
+    if (PROVIDER_GRID_DATE_FIELDS.includes(field)) {
+      const d = raw === '' || raw == null || raw === 'null' ? null : parseDateOfServiceInput(String(raw))
+      if (field === 'appointment_date') next.appointment_date = d
+      else if (field === 'submit_date') next.submit_date = d
+      else if (field === 'payment_date') next.payment_date = d
+      else if (field === 'ar_date') next.ar_date = d
+      continue
+    }
+    if (field === 'appointment_status') {
+      if (raw === true || raw === false) continue
+      const strVal = raw === '' || raw == null || raw === 'null' ? null : String(raw)
+      next.appointment_status = strVal as SheetRow['appointment_status']
+      continue
+    }
+    const str =
+      raw === '' || raw == null || raw === 'null' || raw === undefined ? null : String(raw)
+    ;(next as unknown as Record<string, string | null>)[field] = str
+  }
+  next.updated_at = new Date().toISOString()
+  return next
 }
 
 function buildSheetRowWithPatientIdMerge(baseRow: SheetRow, patientId: string, db: Patient | null): SheetRow {
@@ -82,6 +163,8 @@ interface ProvidersTabProps {
   /** Provider level (1 or 2). Level 1 (partial) sees columns up to Appt/Note Status; level 2 (full access) sees all columns. Both can edit only Date of Service, CPT Code, Appt/Note Status. */
   providerLevel?: 1 | 2
   onUpdateProviderSheetRow: (providerId: string, rowId: string, field: string, value: any) => void
+  /** Atomic row replacement path (preferred): avoids row-id race when empty- row becomes new- during multi-cell edit. */
+  onReplaceProviderSheetRows?: (providerId: string, rows: SheetRow[]) => void
   onSaveProviderSheetRowsDirect: (providerId: string, rows: SheetRow[]) => Promise<void>
   onDeleteRow?: (providerId: string, rowId: string) => void
   onAddRowBelow?: (providerId: string, afterRowId: string) => void
@@ -110,6 +193,8 @@ interface ProvidersTabProps {
   isViewingBackup?: boolean
   /** When viewing backup, a value that changes when the user selects a different version (e.g. version number), so the grid refreshes. */
   backupVersionKey?: number
+  /** Bumped when co-patients or private patient claims change (ClinicDetail); keeps ID validation in sync. */
+  patientAssignmentRevision?: number
 }
 
 export default function ProvidersTab({
@@ -130,6 +215,7 @@ export default function ProvidersTab({
   isProviderView = false,
   providerLevel = 1,
   onUpdateProviderSheetRow,
+  onReplaceProviderSheetRows,
   onSaveProviderSheetRowsDirect,
   onDeleteRow,
   onAddRowBelow,
@@ -150,9 +236,20 @@ export default function ProvidersTab({
   showVisitTypeColumn = false,
   isViewingBackup = false,
   backupVersionKey = 0,
+  patientAssignmentRevision = 0,
 }: ProvidersTabProps) {
   
   const { userProfile } = useAuth()
+  const assignmentStateRef = useRef<PatientAssignmentState>({
+    coPatientIdKeys: new Set(),
+    privateClaimByPatientIdKey: new Map(),
+  })
+  useEffect(() => {
+    if (!clinicId) return
+    void loadPatientAssignmentState(supabase, clinicId).then((s) => {
+      assignmentStateRef.current = s
+    })
+  }, [clinicId, patients, patientAssignmentRevision])
   // Use isLockProviders from props directly - it will update when parent refreshes
   const lockData = isLockProviders || null
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set())
@@ -183,12 +280,11 @@ export default function ProvidersTab({
 
   /** Bumps Handsontable dataVersion when Patient Info (or elsewhere) updates patients so rows with matching ID show filled fields — without auto-adding provider rows. */
   const patientsDisplayRevision = useMemo(() => {
-    let h = 0
+    let h = patientAssignmentRevision * 1000003
     const s = patients
       .map((p) =>
         [
           p.patient_id ?? '',
-          p.provider_id ?? '',
           p.first_name ?? '',
           p.last_name ?? '',
           p.insurance ?? '',
@@ -200,7 +296,7 @@ export default function ProvidersTab({
       .join('\n')
     for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0
     return h
-  }, [patients])
+  }, [patients, patientAssignmentRevision])
 
   const handleProviderRowMove = useCallback((movedRows: number[], finalIndex: number) => {
     if (!activeProvider || !onReorderProviderRows) return
@@ -213,6 +309,18 @@ export default function ProvidersTab({
   const latestProviderRowsRef = useRef<{ providerId: string; rows: SheetRow[] } | null>(null)
   const saveProviderSheetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingProviderSheetSaveRef = useRef<{ providerId: string; rows: SheetRow[] } | null>(null)
+  /** Local co-patient draft values while typing; prevents stale patients-table values from overriding in-flight edits. */
+  const coPatientDraftByIdKeyRef = useRef<
+    Map<
+      string,
+      {
+        patient_first_name: string | null
+        patient_insurance: string | null
+        patient_copay: string | number | null
+        patient_coinsurance: string | number | null
+      }
+    >
+  >(new Map())
   /** Always latest — flush-on-unmount must not depend on callback identity (parent save fn changes when providerSheets updates). */
   const onSaveProviderSheetRowsDirectRef = useRef(onSaveProviderSheetRowsDirect)
   onSaveProviderSheetRowsDirectRef.current = onSaveProviderSheetRowsDirect
@@ -248,6 +356,7 @@ export default function ProvidersTab({
     latestTableDataRef.current = null
     latestProviderRowsRef.current = null
     localRowsProviderKeyRef.current = null
+    coPatientDraftByIdKeyRef.current.clear()
     patientIdDeferredQueueRef.current = []
     patientIdFlushScheduledRef.current = false
     pendingPatientMergeByRowRef.current.clear()
@@ -329,18 +438,72 @@ export default function ProvidersTab({
     return null
   }, [statusColors])
 
+  const coPatientByIdKey = useMemo(() => {
+    const m = new Map<string, Patient>()
+    for (const p of patients) {
+      const k = String(p.patient_id ?? '').trim().toLowerCase()
+      if (k) m.set(k, p)
+    }
+    return m
+  }, [patients])
+
+  useEffect(() => {
+    // Clear drafts once DB catches up (or patient no longer exists), so source-of-truth returns to patients table.
+    const drafts = coPatientDraftByIdKeyRef.current
+    if (drafts.size === 0) return
+    const byKey = new Map<string, Patient>()
+    for (const p of patients) {
+      const k = String(p.patient_id ?? '').trim().toLowerCase()
+      if (k) byKey.set(k, p)
+    }
+    const norm = (v: unknown): string => (v == null ? '' : String(v).trim())
+    const keysToDelete: string[] = []
+    for (const [k, d] of drafts.entries()) {
+      const p = byKey.get(k)
+      if (!p) {
+        keysToDelete.push(k)
+        continue
+      }
+      if (
+        norm(d.patient_first_name) === norm(p.first_name) &&
+        norm(d.patient_insurance) === norm(p.insurance) &&
+        norm(d.patient_copay) === norm(p.copay) &&
+        norm(d.patient_coinsurance) === norm(p.coinsurance)
+      ) {
+        keysToDelete.push(k)
+      }
+    }
+    if (keysToDelete.length > 0) {
+      for (const k of keysToDelete) drafts.delete(k)
+    }
+  }, [patients])
+
   // Map rows to Handsontable 2D array format (shared by getProviderRowsHandsontableData and change handler); never show "null"
   // When isProviderView and providerLevel 2, show full columns; when providerLevel 1, show only up to Appt/Note Status
   // When officeStaffView, show ID through Appt/Note Status (0-8) and Collected from PT through PT Payment AR Ref Date (14-16)
   const getTableDataFromRows = useCallback((rows: SheetRow[]) => {
     return rows.map(row => {
       const patientDisplay = toDisplayValue(row.patient_id)
-      // Providers tab should always reflect provider_sheet_rows values for patient-related columns.
-      const firstNameDisplay = toDisplayValue(row.patient_first_name)
-      const lastInitialDisplay = toDisplayValue(row.last_initial)
-      const insuranceDisplay = toDisplayValue(row.patient_insurance)
-      const copayDisplay = toDisplayValue(row.patient_copay)
-      const coinsuranceDisplay = toDisplayValue(row.patient_coinsurance)
+      // Co-patients are source-of-truth from patients table; private patients remain row-driven.
+      const pidKey = String(row.patient_id ?? '').trim().toLowerCase()
+      const coPatient = pidKey ? coPatientByIdKey.get(pidKey) : undefined
+      const draft = pidKey ? coPatientDraftByIdKeyRef.current.get(pidKey) : undefined
+      const firstNameDisplay = toDisplayValue(
+        draft?.patient_first_name ?? (coPatient ? coPatient.first_name : row.patient_first_name)
+      )
+      const lastNameSource = coPatient ? coPatient.last_name : row.patient_last_name
+      const lastInitialDisplay = toDisplayValue(
+        lastNameSource ? String(lastNameSource).charAt(0) : row.last_initial
+      )
+      const insuranceDisplay = toDisplayValue(
+        draft?.patient_insurance ?? (coPatient ? coPatient.insurance : row.patient_insurance)
+      )
+      const copayDisplay = toDisplayValue(
+        draft?.patient_copay ?? (coPatient ? coPatient.copay : row.patient_copay)
+      )
+      const coinsuranceDisplay = toDisplayValue(
+        draft?.patient_coinsurance ?? (coPatient ? coPatient.coinsurance : row.patient_coinsurance)
+      )
       const visitTypeVal = () => row.visit_type === 'Telehealth'
       const insertVisitType = (arr: (string | number)[]) => showVisitTypeColumn ? [...arr.slice(0, 9), visitTypeVal(), ...arr.slice(9)] : arr
       if (officeStaffView) {
@@ -423,7 +586,7 @@ export default function ProvidersTab({
       if (showCondenseButton && isCondensed) return withVisitType.slice(0, showVisitTypeColumn ? 10 : 9)
       return withVisitType
     })
-  }, [isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, showVisitTypeColumn])
+  }, [isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, showVisitTypeColumn, coPatientByIdKey])
 
   // Convert rows to Handsontable data format; prefer latest from change handler, then props, to avoid losing typed data when parent re-renders after load (like PatientsTab).
   // When viewing backup, always use backup rows from props. When not viewing backup and ref is null, use props (activeProviderRows) so "Back to current" shows current data immediately instead of stale local state.
@@ -433,6 +596,69 @@ export default function ProvidersTab({
     if (latestTableDataRef.current != null) return latestTableDataRef.current
     return getTableDataFromRows(activeProviderRows)
   }, [activeProvider, activeProviderRows, getTableDataFromRows, isViewingBackup])
+
+  /** Column → SheetRow field mapping for current grid layout (must match handleProviderRowsHandsontableChange). */
+  const providerSheetColumnFieldsForSync = useMemo((): Array<keyof SheetRow> => {
+    const fieldsFullBase: Array<keyof SheetRow> = [
+      'patient_id',
+      'patient_first_name',
+      'last_initial',
+      'patient_insurance',
+      'patient_copay',
+      'patient_coinsurance',
+      'appointment_date',
+      'cpt_code',
+      'appointment_status',
+      'claim_status',
+      'submit_date',
+      'insurance_payment',
+      'payment_date',
+      'insurance_adjustment',
+      'collected_from_patient',
+      'patient_pay_status',
+      'ar_date',
+      'total',
+      'notes',
+    ]
+    const fieldsFull = showVisitTypeColumn
+      ? ([...fieldsFullBase.slice(0, 9), 'visit_type', ...fieldsFullBase.slice(9)] as Array<keyof SheetRow>)
+      : fieldsFullBase
+    const fieldsProviderViewBase: Array<keyof SheetRow> = [
+      'patient_id',
+      'patient_first_name',
+      'last_initial',
+      'patient_insurance',
+      'patient_copay',
+      'patient_coinsurance',
+      'appointment_date',
+      'cpt_code',
+      'appointment_status',
+    ]
+    const fieldsProviderView = showVisitTypeColumn
+      ? ([...fieldsProviderViewBase, 'visit_type'] as Array<keyof SheetRow>)
+      : fieldsProviderViewBase
+    const fieldsOfficeStaffBase: Array<keyof SheetRow> = [
+      'patient_id',
+      'patient_first_name',
+      'last_initial',
+      'patient_insurance',
+      'patient_copay',
+      'patient_coinsurance',
+      'appointment_date',
+      'cpt_code',
+      'appointment_status',
+      'collected_from_patient',
+      'patient_pay_status',
+      'ar_date',
+    ]
+    const fieldsOfficeStaff = showVisitTypeColumn
+      ? ([...fieldsOfficeStaffBase.slice(0, 9), 'visit_type', ...fieldsOfficeStaffBase.slice(9)] as Array<keyof SheetRow>)
+      : fieldsOfficeStaffBase
+    if (officeStaffView) return fieldsOfficeStaff
+    if (isProviderView) return providerLevel === 2 ? fieldsFull : fieldsProviderView
+    if (showCondenseButton && isCondensed) return fieldsFull.slice(0, showVisitTypeColumn ? 10 : 9) as Array<keyof SheetRow>
+    return fieldsFull
+  }, [officeStaffView, isProviderView, providerLevel, showCondenseButton, isCondensed, showVisitTypeColumn])
 
   // Sum of Ins Pay, Collected from PT, AR, Total (computed from current rows; not stored in DB)
   // For provider level 2 (full) we show full tally; for admin/billing we show insPay, collectedFromPt, total; AR only for provider level 2
@@ -575,14 +801,15 @@ export default function ProvidersTab({
 
     let timeoutId: NodeJS.Timeout | null = null
     let menuEl: HTMLElement | null = null
-    let closeListener: (() => void) | null = null
+    let closeListener: ((e: Event) => void) | null = null
+    let openedAt = 0
 
     const hideMenu = () => {
       if (menuEl?.parentNode) menuEl.parentNode.removeChild(menuEl)
       menuEl = null
       if (closeListener) {
-        document.removeEventListener('click', closeListener)
-        document.removeEventListener('contextmenu', closeListener)
+        document.removeEventListener('pointerdown', closeListener, true)
+        document.removeEventListener('contextmenu', closeListener, true)
         closeListener = null
       }
     }
@@ -605,13 +832,20 @@ export default function ProvidersTab({
       menu.appendChild(item)
       document.body.appendChild(menu)
       menuEl = menu
+      openedAt = Date.now()
       const x = Math.min(e.clientX, window.innerWidth - 150)
       const y = Math.min(e.clientY, window.innerHeight - 40)
       menu.style.left = `${x}px`
       menu.style.top = `${y}px`
-      closeListener = () => { hideMenu() }
+      closeListener = (evt: Event) => {
+        // Ignore immediate follow-up events emitted by Handsontable after opening.
+        if (Date.now() - openedAt < 120) return
+        const target = evt.target as Node | null
+        if (menuEl && target && menuEl.contains(target)) return
+        hideMenu()
+      }
       setTimeout(() => {
-        document.addEventListener('click', closeListener!, true)
+        document.addEventListener('pointerdown', closeListener!, true)
         document.addEventListener('contextmenu', closeListener!, true)
       }, 0)
     }
@@ -940,7 +1174,7 @@ export default function ProvidersTab({
       const base = [
         { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyForColumn(0, !canEdit || getReadOnly('patient_id')) },
         { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: getReadOnlyForColumn(1, !canEdit || getReadOnly('first_name')) },
-        { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: getReadOnlyForColumn(2, !canEdit || getReadOnly('last_initial')) },
+        { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: true },
         { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: getReadOnlyForColumn(3, !canEdit || getReadOnly('insurance')) },
         { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyForColumn(4, !canEdit || getReadOnly('copay')) },
         { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyForColumn(5, !canEdit || getReadOnly('coinsurance')) },
@@ -959,7 +1193,7 @@ export default function ProvidersTab({
       const base = [
         { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyProviderView(0) },
         { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(1) },
-        { data: 2, title: 'LI', type: 'text' as const, width: 80, readOnly: getReadOnlyProviderView(2) },
+        { data: 2, title: 'LI', type: 'text' as const, width: 80, readOnly: true },
         // { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(3) },
         // { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
         // { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyProviderView(5) },
@@ -974,7 +1208,7 @@ export default function ProvidersTab({
       return [
         { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyProviderView(0) },
         { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(1) },
-        { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: getReadOnlyProviderView(2) },
+        { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: true },
         { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(3) },
         { data: 4, title: 'Co-pay', type: 'text' as const, width: 80, renderer: copayTextCellRenderer, readOnly: getReadOnlyProviderView(4) },
         { data: 5, title: 'Co-Ins', type: 'text' as const, width: 80, renderer: coinsuranceTextCellRenderer, readOnly: getReadOnlyProviderView(5) },
@@ -1015,7 +1249,7 @@ export default function ProvidersTab({
         title: 'LI', 
         type: 'text' as const, 
         width: 40,
-        readOnly: getReadOnlyForColumn(2, !canEdit || getReadOnly('last_initial'))
+        readOnly: true
       },
       { 
         data: 3, 
@@ -1205,11 +1439,15 @@ export default function ProvidersTab({
               const cid = clinicIdForValidationRef.current
               if (!hot.isDestroyed && ap && cid && batch.length > 0) {
                 void (async () => {
-                  const { data, error } = await supabase.from('patients').select('*').eq('clinic_id', cid)
+                  const [{ data, error }, assignmentState] = await Promise.all([
+                    supabase.from('patients').select('*').eq('clinic_id', cid),
+                    loadPatientAssignmentState(supabase, cid),
+                  ])
                   if (error) {
                     console.error('[ProvidersTab] patient ID validation (DB) failed', error)
                     return
                   }
+                  assignmentStateRef.current = assignmentState
                   const byKey = new Map<string, Patient>()
                   for (const p of data || []) {
                     const k = String(p.patient_id ?? '').trim().toLowerCase()
@@ -1223,10 +1461,10 @@ export default function ProvidersTab({
                   for (const [row, { col, newVal }] of byRow) {
                     const key = newVal.trim().toLowerCase()
                     const rec = byKey.get(key)
-                    if (rec?.provider_id && rec.provider_id !== ap.id) {
+                    if (!isPatientIdAllowedForProviderSheet(newVal, ap.id, assignmentState)) {
                       if (!alerted.has(key)) {
                         alerted.add(key)
-                        alertPatientIdWrongProviderDeduped(rec.patient_id)
+                        alertPatientIdWrongProviderDeduped(newVal)
                       }
                       try {
                         hot.setDataAtCell(row, col as number, '', 'clearInvalidOtherProviderPatientId')
@@ -1317,6 +1555,21 @@ export default function ProvidersTab({
     let hadDateColumnEdit = false
     let hadTotalAutoUpdate = false
     const deleteRowIds: string[] = []
+    const setDraftFromRow = (rowObj: SheetRow) => {
+      const key = String(rowObj.patient_id ?? '').trim().toLowerCase()
+      if (!key) return
+      coPatientDraftByIdKeyRef.current.set(key, {
+        patient_first_name: rowObj.patient_first_name ?? null,
+        patient_insurance: rowObj.patient_insurance ?? null,
+        patient_copay: rowObj.patient_copay ?? null,
+        patient_coinsurance: rowObj.patient_coinsurance ?? null,
+      })
+    }
+    const clearDraftByPid = (pid: string | null | undefined) => {
+      const key = String(pid ?? '').trim().toLowerCase()
+      if (!key) return
+      coPatientDraftByIdKeyRef.current.delete(key)
+    }
     /** Track (rowIndex, field) for each cell changed in this batch so we always notify parent (including when user clears a cell and stored value was already null) */
     const changedCells = new Set<string>()
 
@@ -1389,6 +1642,7 @@ export default function ProvidersTab({
           // When user clears patient ID: clear only patient-related fields; keep all other columns (appointment_date, cpt_code, etc.)
           if (patientIdOrNull == null || patientIdOrNull === '') {
             hadPatientIdClear = true
+            clearDraftByPid(sheetRow.patient_id)
             if (String(source) === 'clearInvalidOtherProviderPatientId') hadRejectedPatientId = true
             const t = patientIdEditDebounceRef.current.get(row)
             if (t) clearTimeout(t)
@@ -1413,7 +1667,9 @@ export default function ProvidersTab({
           if (String(source) === 'patientIdDbValidated') {
             const dbPatient = pendingPatientMergeByRowRef.current.get(row)
             pendingPatientMergeByRowRef.current.delete(row)
-            if (dbPatient?.provider_id && dbPatient.provider_id !== activeProvider.id) {
+            if (
+              !isPatientIdAllowedForProviderSheet(patientIdOrNull, activeProvider.id, assignmentStateRef.current)
+            ) {
               hadRejectedPatientId = true
               hadPatientIdClear = true
               updatedRows[row] = sheetRowAfterInvalidOtherProviderPatient(sheetRow, newId)
@@ -1421,6 +1677,7 @@ export default function ProvidersTab({
             }
             if (dbPatient) hadPatientIdMerge = true
             updatedRows[row] = buildSheetRowWithPatientIdMerge(sheetRow, patientIdOrNull, dbPatient ?? null)
+            setDraftFromRow(updatedRows[row] as SheetRow)
             return
           }
           if (String(source) === 'revertInvalidPatientId') {
@@ -1435,7 +1692,7 @@ export default function ProvidersTab({
             const patient = patients.find(
               (p) => String(p.patient_id ?? '').trim().toLowerCase() === patientIdOrNull.trim().toLowerCase()
             )
-            if (patient?.provider_id && patient.provider_id !== activeProvider.id) {
+            if (!isPatientIdAllowedForProviderSheet(patientIdOrNull, activeProvider.id, assignmentStateRef.current)) {
               hadRejectedPatientId = true
               hadPatientIdClear = true
               updatedRows[row] = sheetRowAfterInvalidOtherProviderPatient(sheetRow, newId)
@@ -1456,6 +1713,7 @@ export default function ProvidersTab({
               merged.patient_coinsurance = patient.coinsurance ?? null
             }
             updatedRows[row] = merged as SheetRow
+            setDraftFromRow(updatedRows[row] as SheetRow)
             return
           }
           // Normal typing / single-cell edit: keep patient_id in the row; debounce async DB validation (batch paste uses beforeChange defer).
@@ -1469,6 +1727,7 @@ export default function ProvidersTab({
             patient_id: patientIdOrNull,
             updated_at: new Date().toISOString(),
           }
+          setDraftFromRow(updatedRows[row] as SheetRow)
           const apIdForDebounce = activeProvider.id
           const prevDeb = patientIdEditDebounceRef.current.get(row)
           if (prevDeb) clearTimeout(prevDeb)
@@ -1484,11 +1743,15 @@ export default function ProvidersTab({
                 if (!pidRaw) return
                 const key = pidRaw.toLowerCase()
 
-                const { data, error } = await supabase.from('patients').select('*').eq('clinic_id', clinic)
+                const [{ data, error }, assignmentState] = await Promise.all([
+                  supabase.from('patients').select('*').eq('clinic_id', clinic),
+                  loadPatientAssignmentState(supabase, clinic),
+                ])
                 if (error) {
                   console.error('[ProvidersTab] patient ID validation (edit) failed', error)
                   return
                 }
+                assignmentStateRef.current = assignmentState
                 const rec =
                   (data || []).find((p) => String(p.patient_id ?? '').trim().toLowerCase() === key) ?? null
 
@@ -1497,7 +1760,7 @@ export default function ProvidersTab({
                 const baseRow = cur[row]
                 if (!baseRow || String(baseRow.patient_id ?? '').trim().toLowerCase() !== key) return
 
-                if (rec?.provider_id && rec.provider_id !== ap.id) {
+                if (!isPatientIdAllowedForProviderSheet(pidRaw, ap.id, assignmentState)) {
                   pendingInvalidPatientRowRef.current.delete(row)
                   patientIdEditLatestPidRef.current.delete(row)
                   const br = baseRow
@@ -1511,12 +1774,21 @@ export default function ProvidersTab({
                     console.error('[ProvidersTab] save after invalid patient id (edit)', e)
                   )
                   setStructureVersion((v) => v + 1)
-                  alertPatientIdWrongProviderDeduped(rec.patient_id)
+                  alertPatientIdWrongProviderDeduped(pidRaw)
                   return
                 }
 
                 const merged = buildSheetRowWithPatientIdMerge(baseRow, pidRaw, rec)
                 cur[row] = merged
+                const draftKey = String(merged.patient_id ?? '').trim().toLowerCase()
+                if (draftKey) {
+                  coPatientDraftByIdKeyRef.current.set(draftKey, {
+                    patient_first_name: merged.patient_first_name ?? null,
+                    patient_insurance: merged.patient_insurance ?? null,
+                    patient_copay: merged.patient_copay ?? null,
+                    patient_coinsurance: merged.patient_coinsurance ?? null,
+                  })
+                }
                 latestProviderRowsRef.current = { providerId: ap.id, rows: cur }
                 latestTableDataRef.current = getTableDataFromRows(cur)
                 pendingProviderSheetSaveRef.current = { providerId: ap.id, rows: cur }
@@ -1532,6 +1804,7 @@ export default function ProvidersTab({
         } else if (field === 'patient_copay' || field === 'patient_coinsurance') {
           const strValue = (newValue === '' || newValue === null || newValue === 'null' || newValue === undefined) ? null : String(newValue)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: strValue, updated_at: new Date().toISOString() } as SheetRow
+          setDraftFromRow(updatedRows[row] as SheetRow)
         } else if (field === 'total') {
           const numValue = (newValue === '' || newValue === null || newValue === 'null') ? null : (typeof newValue === 'number' ? newValue : parseFloat(String(newValue)) || null)
           updatedRows[row] = { ...sheetRow, id: newId, [field]: numValue, updated_at: new Date().toISOString() } as SheetRow
@@ -1570,6 +1843,9 @@ export default function ProvidersTab({
             if (s !== '' && /^-?\d*\.?\d*$/.test(s)) value = sheetRow.submit_date ?? null
           }
           updatedRows[row] = { ...sheetRow, id: newId, [field]: value, updated_at: new Date().toISOString() } as SheetRow
+          if (field === 'patient_first_name' || field === 'patient_insurance') {
+            setDraftFromRow(updatedRows[row] as SheetRow)
+          }
         }
       }
       // Auto highlight when 0 or "00" is entered in Ins Pay or PT Paid (Collected from PT). PT Paid: any 0 → yellow. Ins Pay: 0 → user color.
@@ -1702,65 +1978,30 @@ export default function ProvidersTab({
       })()
     }
     
-    // Apply all changes to parent state (for cells in changedCells always notify parent so clears are persisted to patients table)
-    updatedRows.forEach((row, index) => {
-      const originalRow = activeProviderRows[index]
-      if (originalRow) {
-        // Update each changed field
+    // Apply all changes to parent state atomically to prevent row-id races (empty-* -> new-*)
+    // when multiple cells are edited quickly on the same row.
+    if (onReplaceProviderSheetRows) {
+      onReplaceProviderSheetRows(activeProvider.id, updatedRows)
+    } else {
+      // Backward compatibility fallback for legacy parent integrations.
+      updatedRows.forEach((row, index) => {
+        const originalRow = activeProviderRows[index]
+        if (!originalRow) return
         const fieldsToCheck: Array<keyof SheetRow> = [
           'patient_id', 'patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance',
           'appointment_date', 'cpt_code', 'appointment_status', 'claim_status', 'submit_date', 'insurance_payment',
           'payment_date', 'insurance_adjustment', 'collected_from_patient', 'patient_pay_status', 'ar_date', 'total', 'notes'
         ]
-        
         fieldsToCheck.forEach(field => {
           const cellKey = `${index}:${field}`
           const valueChanged = row[field] !== originalRow[field]
           const wasExplicitlyEdited = changedCells.has(cellKey)
           if (valueChanged || wasExplicitlyEdited) {
-            if (field === 'patient_id') {
-              onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as string | null)
-            } else if (field === 'patient_copay' || field === 'patient_coinsurance') {
-              onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as string | null)
-            } else if (field === 'total') {
-              onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as string | null)
-            } else if (field === 'appointment_date') {
-              onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as string | null)
-            } else {
-              onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as any)
-            }
+            onUpdateProviderSheetRow(activeProvider.id, originalRow.id, field, row[field] as any)
           }
         })
-        
-        // Handle ID change (empty- to new-)
-        if (row.id !== originalRow.id && row.id.startsWith('new-')) {
-          // The parent's handleUpdateProviderSheetRow already handles this when we update any field
-        }
-      } else if (!originalRow && row) {
-        // New row - update all non-null fields
-        const fieldsToUpdate: Array<keyof SheetRow> = [
-          'patient_id', 'patient_first_name', 'last_initial', 'patient_insurance', 'patient_copay', 'patient_coinsurance',
-          'appointment_date', 'cpt_code', 'appointment_status', 'claim_status', 'submit_date', 'insurance_payment',
-          'payment_date', 'insurance_adjustment', 'collected_from_patient', 'patient_pay_status', 'ar_date', 'total', 'notes'
-        ]
-        
-        fieldsToUpdate.forEach(field => {
-          if (row[field] !== null && row[field] !== '') {
-            if (field === 'patient_id') {
-              onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
-            } else if (field === 'patient_copay' || field === 'patient_coinsurance') {
-              onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | number | null)
-            } else if (field === 'total') {
-              onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
-            } else if (field === 'appointment_date') {
-              onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as string | null)
-    } else {
-              onUpdateProviderSheetRow(activeProvider.id, row.id, field, row[field] as any)
-            }
-          }
-        })
-      }
-    })
+      })
+    }
     
     // Debounce save and flush on unmount so data isn't lost when switching tabs
     pendingProviderSheetSaveRef.current = { providerId: activeProvider.id, rows: updatedRows }
@@ -1781,7 +2022,148 @@ export default function ProvidersTab({
     if (hadPatientIdMerge || hadPatientIdClear || hadDateColumnEdit || hadTotalAutoUpdate || uniqueDeleteIds.length > 0) {
       setStructureVersion((v) => v + 1)
     }
-  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onSaveProviderSheetRowsDirect, onDeleteRow, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, showVisitTypeColumn, patients, getTableDataFromRows, clinicId, userHighlightColor, userProfile?.id])
+  }, [activeProvider, activeProviderRows, onUpdateProviderSheetRow, onReplaceProviderSheetRows, onSaveProviderSheetRowsDirect, onDeleteRow, isProviderView, providerLevel, officeStaffView, showCondenseButton, isCondensed, showVisitTypeColumn, patients, getTableDataFromRows, clinicId, userHighlightColor, userProfile?.id])
+
+  const createEmptySheetRowForSync = useCallback(
+    (providerId: string, emptySuffix: number): SheetRow => ({
+      id: `empty-${providerId}-${emptySuffix}`,
+      patient_id: null,
+      patient_first_name: null,
+      patient_last_name: null,
+      last_initial: null,
+      patient_insurance: null,
+      patient_copay: null,
+      patient_coinsurance: null,
+      appointment_date: null,
+      appointment_time: null,
+      visit_type: null,
+      notes: null,
+      billing_code: null,
+      billing_code_color: null,
+      appointment_status: null,
+      appointment_status_color: null,
+      claim_status: null,
+      claim_status_color: null,
+      submit_date: null,
+      insurance_payment: null,
+      insurance_adjustment: null,
+      invoice_amount: null,
+      collected_from_patient: null,
+      patient_pay_status: null,
+      patient_pay_status_color: null,
+      payment_date: null,
+      payment_date_color: null,
+      ar_type: null,
+      ar_amount: null,
+      ar_date: null,
+      ar_date_color: null,
+      ar_notes: null,
+      provider_payment_amount: null,
+      provider_payment_date: null,
+      provider_payment_notes: null,
+      highlight_color: null,
+      total: null,
+      cpt_code: null,
+      cpt_code_color: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }),
+    []
+  )
+
+  const handleProviderAfterCreateRow = useCallback(
+    (index: number, amount: number, source?: string) => {
+      if (!canEdit || !activeProvider) return
+      if (source === 'loadData' || source === 'updateData') return
+      if (isHandsontableUndoRedoSource(source)) return
+      if (amount !== 1) return
+      const ref = latestProviderRowsRef.current
+      const rows = ref?.providerId === activeProvider.id ? ref.rows : activeProviderRows
+      if (source === 'ContextMenu.rowAbove' && onAddRowAbove) {
+        const beforeId = rows[index]?.id
+        if (beforeId) {
+          onAddRowAbove(activeProvider.id, beforeId)
+          latestTableDataRef.current = null
+          latestProviderRowsRef.current = null
+          setStructureVersion((v) => v + 1)
+        }
+      } else if (source === 'ContextMenu.rowBelow' && onAddRowBelow) {
+        const afterIdx = index - 1
+        const afterId = afterIdx >= 0 ? rows[afterIdx]?.id : undefined
+        if (afterId) {
+          onAddRowBelow(activeProvider.id, afterId)
+          latestTableDataRef.current = null
+          latestProviderRowsRef.current = null
+          setStructureVersion((v) => v + 1)
+        }
+      }
+    },
+    [canEdit, activeProvider, activeProviderRows, onAddRowAbove, onAddRowBelow]
+  )
+
+  const handleProviderAfterRemoveRow = useCallback(
+    (_index: number, _amount: number, physicalRows: number[], source?: string) => {
+      if (!canEdit || !activeProvider) return
+      if (source === 'loadData' || source === 'updateData') return
+      if (isHandsontableUndoRedoSource(source)) return
+      const ref = latestProviderRowsRef.current
+      const snap =
+        ref?.providerId === activeProvider.id ? [...ref.rows] : [...activeProviderRows]
+      const removed = physicalRows.map((i) => snap[i]).filter(Boolean)
+      removed.forEach((r) => {
+        if (r.id.startsWith('empty-') || r.id.startsWith('new-')) return
+        if (onDeleteRow) onDeleteRow(activeProvider.id, r.id)
+      })
+      latestTableDataRef.current = null
+      latestProviderRowsRef.current = null
+      setStructureVersion((v) => v + 1)
+    },
+    [canEdit, activeProvider, activeProviderRows, onDeleteRow]
+  )
+
+  const syncProvidersFromHotAfterUndoRedo = useCallback(() => {
+    const hot = hotInstanceRef.current as (Handsontable & { isDestroyed?: boolean }) | null
+    if (!hot || hot.isDestroyed) return
+    if (!canEdit || !activeProvider || isViewingBackup) return
+    try {
+      const grid = hot.getData() as (string | number | boolean | null | undefined)[][]
+      const fields = providerSheetColumnFieldsForSync
+      const ref = latestProviderRowsRef.current
+      const prevRows =
+        ref?.providerId === activeProvider.id ? ref.rows : activeProviderRows
+      const merged: SheetRow[] = []
+      for (let i = 0; i < grid.length; i++) {
+        const row = grid[i]
+        const p = prevRows[i] ?? createEmptySheetRowForSync(activeProvider.id, i)
+        merged.push(mergeProviderRowFromGridRowForSync(p, row, fields))
+      }
+      if (merged.length < 200) {
+        const emptyRowsNeeded = 200 - merged.length
+        const existingEmptyCount = merged.filter((r) => r.id.startsWith('empty-')).length
+        for (let i = 0; i < emptyRowsNeeded; i++) {
+          merged.push(createEmptySheetRowForSync(activeProvider.id, existingEmptyCount + i))
+        }
+      }
+      latestProviderRowsRef.current = { providerId: activeProvider.id, rows: merged }
+      latestTableDataRef.current = getTableDataFromRows(merged)
+      pendingProviderSheetSaveRef.current = { providerId: activeProvider.id, rows: merged }
+      void onSaveProviderSheetRowsDirect(activeProvider.id, merged).catch((err) =>
+        console.error('saveProviders after HOT undo/redo sync', err)
+      )
+      setStructureVersion((v) => v + 1)
+    } catch (e) {
+      console.error('syncProvidersFromHotAfterUndoRedo', e)
+    }
+  }, [
+    canEdit,
+    activeProvider,
+    isViewingBackup,
+    providerSheetColumnFieldsForSync,
+    activeProviderRows,
+    createEmptySheetRowForSync,
+    getTableDataFromRows,
+    onSaveProviderSheetRowsDirect,
+  ])
 
   // Flush pending save when tab is left so data isn't lost on switch (prefer latest ref like PatientsTab flush).
   // On page refresh the browser aborts in-flight requests (AbortError) so we also backup to localStorage;
@@ -1835,68 +2217,10 @@ export default function ProvidersTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: unmount-only flush; refs hold latest callback/ids
   }, [])
 
-  const handleDeleteProviderSheetRow = useCallback((providerId: string, rowId: string) => {
-    if (onDeleteRow) onDeleteRow(providerId, rowId)
-  }, [onDeleteRow])
-
-  const [tableContextMenu, setTableContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
-  const tableContextMenuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!tableContextMenu) return
-    const handleClickOutside = (event: MouseEvent) => {
-      if (tableContextMenuRef.current && !tableContextMenuRef.current.contains(event.target as Node)) {
-        setTableContextMenu(null)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [tableContextMenu])
-
-  const handleProviderRowsHandsontableContextMenu = useCallback((row: number, _col: number, event: MouseEvent) => {
-    event.preventDefault()
-    if (!canEdit || !activeProvider) return
-    const sheetRow = activeProviderRows[row]
-    if (sheetRow) {
-      setTableContextMenu({ x: event.clientX, y: event.clientY, rowIndex: row })
-    }
-  }, [activeProvider, activeProviderRows, canEdit])
-
-  const handleContextMenuAddRowBelow = useCallback(() => {
-    if (tableContextMenu == null || !activeProvider || !onAddRowBelow) return
-    const sheetRow = activeProviderRows[tableContextMenu.rowIndex]
-    if (sheetRow) {
-      onAddRowBelow(activeProvider.id, sheetRow.id)
-      setStructureVersion(v => v + 1)
-    }
-    setTableContextMenu(null)
-  }, [tableContextMenu, activeProvider, activeProviderRows, onAddRowBelow])
-
-  const handleContextMenuAddRowAbove = useCallback(() => {
-    if (tableContextMenu == null || !activeProvider || !onAddRowAbove) return
-    const sheetRow = activeProviderRows[tableContextMenu.rowIndex]
-    if (sheetRow) {
-      onAddRowAbove(activeProvider.id, sheetRow.id)
-      setStructureVersion(v => v + 1)
-    }
-    setTableContextMenu(null)
-  }, [tableContextMenu, activeProvider, activeProviderRows, onAddRowAbove])
-
-  const handleContextMenuDeleteRow = useCallback(() => {
-    if (tableContextMenu == null || !activeProvider || !onDeleteRow) return
-    const sheetRow = activeProviderRows[tableContextMenu.rowIndex]
-    if (sheetRow) {
-      handleDeleteProviderSheetRow(activeProvider.id, sheetRow.id)
-      setStructureVersion(v => v + 1)
-    }
-    setTableContextMenu(null)
-  }, [tableContextMenu, activeProvider, activeProviderRows, onDeleteRow, handleDeleteProviderSheetRow])
-
   // Apply custom header colors after table renders
-  const hotTableRef = useRef<any>(null)
   useEffect(() => {
-    if (hotTableRef.current?.hotInstance) {
-      const hotInstance = hotTableRef.current.hotInstance
+    if (hotInstanceRef.current) {
+      const hotInstance = hotInstanceRef.current
       const fullHeaderColors = [
         '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', '#f5cbcc', // Patient info columns
         '#fce5cd', '#fce5cd', // CPT and Appointment status
@@ -1914,11 +2238,15 @@ export default function ProvidersTab({
       
       // Apply header colors
       setTimeout(() => {
-        const headerCells = hotInstance.rootElement.querySelectorAll('.ht_clone_top th, table.htCore thead th')
-        headerCells.forEach((th: HTMLElement, index: number) => {
+        if (!hotInstance || (hotInstance as any).isDestroyed) return
+        const root = hotInstance.rootElement
+        if (!root) return
+        const headerCells = root.querySelectorAll('.ht_clone_top th, table.htCore thead th')
+        headerCells.forEach((th, index) => {
+          const el = th as HTMLElement
           if (headerColors[index]) {
-            th.style.backgroundColor = headerColors[index]
-            th.style.color = '#000000'
+            el.style.backgroundColor = headerColors[index]
+            el.style.color = '#000000'
           }
         })
       }, 100)
@@ -2031,11 +2359,14 @@ export default function ProvidersTab({
             beforeChangeCorrect={beforeChangeCorrectProviderRows}
             afterChange={handleProviderRowsHandsontableChange}
             onAfterRowMove={handleProviderRowMove}
-            onContextMenu={handleProviderRowsHandsontableContextMenu}
+            afterCreateRow={handleProviderAfterCreateRow}
+            afterRemoveRow={handleProviderAfterRemoveRow}
+            onAfterUndoRedoSync={syncProvidersFromHotAfterUndoRedo}
+            contextMenuWithNativeRows
             onCellHighlight={handleCellHighlight}
             getCellIsHighlighted={getCellIsHighlighted}
             onCellSeeComment={clinicId && canEditComment ? handleCellSeeComment : undefined}
-            hotInstanceRef={clinicId && canEditComment ? hotInstanceRef : undefined}
+            hotInstanceRef={hotInstanceRef}
             getCellTitle={getCellTitle}
             cells={providerCellsCallback}
             enableFormula={true}
@@ -2165,40 +2496,6 @@ export default function ProvidersTab({
               </>
             )}
           </div>
-        </div>,
-        document.body
-      )}
-
-      {tableContextMenu != null && createPortal(
-        <div
-          ref={tableContextMenuRef}
-          className="fixed bg-slate-800 border border-white/20 rounded-lg shadow-xl z-[9999] py-1 min-w-[160px]"
-          style={{ left: tableContextMenu.x, top: tableContextMenu.y }}
-        >
-          <button
-            type="button"
-            onClick={handleContextMenuAddRowAbove}
-            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
-          >
-            <Plus size={16} />
-            Add row above
-          </button>
-          <button
-            type="button"
-            onClick={handleContextMenuAddRowBelow}
-            className="w-full text-left px-4 py-2 text-white hover:bg-white/10 flex items-center gap-2"
-          >
-            <Plus size={16} />
-            Add row below
-          </button>
-          <button
-            type="button"
-            onClick={handleContextMenuDeleteRow}
-            className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 flex items-center gap-2"
-          >
-            <Trash2 size={16} />
-            Delete row
-          </button>
         </div>,
         document.body
       )}

@@ -1,15 +1,23 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SheetRow } from '@/types'
 
-export type PatientAssignmentRecord = { id: string; patient_id: string; provider_id: string | null }
+/** Co-patient IDs (rows in `patients`) + private ID claims (first provider in clinic to use a non-co-patient ID). */
+export type PatientAssignmentState = {
+  coPatientIdKeys: Set<string>
+  privateClaimByPatientIdKey: Map<string, string>
+}
 
 /** Prevents double alerts when the grid rejects an ID and the debounced save validates the same ID moments later. */
 const WRONG_PROVIDER_ALERT_DEDUPE_MS = 4000
 let wrongProviderAlertLastKey = ''
 let wrongProviderAlertLastAt = 0
 
+export function normalizePatientIdKey(patientId: string): string {
+  return String(patientId ?? '').trim().toLowerCase()
+}
+
 export function alertPatientIdWrongProviderDeduped(patientIdDisplay: string): void {
-  const key = String(patientIdDisplay ?? '').trim().toLowerCase()
+  const key = normalizePatientIdKey(patientIdDisplay)
   if (!key) return
   const t = Date.now()
   if (key === wrongProviderAlertLastKey && t - wrongProviderAlertLastAt < WRONG_PROVIDER_ALERT_DEDUPE_MS) return
@@ -20,84 +28,132 @@ export function alertPatientIdWrongProviderDeduped(patientIdDisplay: string): vo
   )
 }
 
-export async function loadPatientsAssignmentMap(
+export async function loadPatientAssignmentState(
   supabase: SupabaseClient,
   clinicId: string
-): Promise<Map<string, PatientAssignmentRecord>> {
-  const { data, error } = await supabase
-    .from('patients')
-    .select('id, patient_id, provider_id')
-    .eq('clinic_id', clinicId)
+): Promise<PatientAssignmentState> {
+  const [patientsRes, claimsRes] = await Promise.all([
+    supabase.from('patients').select('patient_id').eq('clinic_id', clinicId),
+    supabase.from('private_patient_claims').select('patient_id, provider_id').eq('clinic_id', clinicId),
+  ])
+  if (patientsRes.error) throw patientsRes.error
+  if (claimsRes.error) throw claimsRes.error
 
-  if (error) throw error
-
-  const map = new Map<string, PatientAssignmentRecord>()
-  for (const p of data || []) {
-    const key = String(p.patient_id ?? '').trim().toLowerCase()
-    if (!key) continue
-    map.set(key, {
-      id: p.id as string,
-      patient_id: String(p.patient_id),
-      provider_id: (p.provider_id as string | null) ?? null,
-    })
+  const coPatientIdKeys = new Set<string>()
+  for (const p of patientsRes.data || []) {
+    const k = normalizePatientIdKey(String(p.patient_id ?? ''))
+    if (k) coPatientIdKeys.add(k)
   }
-  return map
+  const privateClaimByPatientIdKey = new Map<string, string>()
+  for (const c of claimsRes.data || []) {
+    const k = normalizePatientIdKey(String(c.patient_id ?? ''))
+    if (k) privateClaimByPatientIdKey.set(k, String(c.provider_id))
+  }
+  return { coPatientIdKeys, privateClaimByPatientIdKey }
+}
+
+/** Returns whether this patient_id may appear on the given provider's sheet (co-patient or own private claim). */
+export function isPatientIdAllowedForProviderSheet(
+  patientIdDisplay: string,
+  sheetProviderId: string,
+  state: PatientAssignmentState
+): boolean {
+  const key = normalizePatientIdKey(patientIdDisplay)
+  if (!key) return true
+  if (state.coPatientIdKeys.has(key)) return true
+  const owner = state.privateClaimByPatientIdKey.get(key)
+  if (!owner) return true
+  return owner === sheetProviderId
 }
 
 export function validatePatientIdsForProviderSheet(
   rows: SheetRow[],
   sheetProviderId: string,
-  patientMap: Map<string, PatientAssignmentRecord>
+  state: PatientAssignmentState
 ): { ok: true } | { ok: false; conflictingPatientId: string } {
   const checked = new Set<string>()
   for (const row of rows) {
     const pid =
       row.patient_id != null && String(row.patient_id).trim() !== '' ? String(row.patient_id).trim() : ''
     if (!pid) continue
-    const key = pid.toLowerCase()
+    const key = normalizePatientIdKey(pid)
     if (checked.has(key)) continue
     checked.add(key)
 
-    const rec = patientMap.get(key)
-    if (rec?.provider_id && rec.provider_id !== sheetProviderId) {
+    if (state.coPatientIdKeys.has(key)) continue
+    const owner = state.privateClaimByPatientIdKey.get(key)
+    if (owner && owner !== sheetProviderId) {
       return {
         ok: false,
-        conflictingPatientId: rec.patient_id,
+        conflictingPatientId: pid,
       }
     }
   }
   return { ok: true }
 }
 
-export async function claimUnassignedPatientsForProvider(
+/**
+ * For each patient_id on the sheet that is not a co-patient, insert a private claim if none exists yet.
+ * Mutates `state.privateClaimByPatientIdKey` on success so callers stay in sync.
+ */
+export async function claimPrivatePatientIdsForProvider(
   supabase: SupabaseClient,
   clinicId: string,
   sheetProviderId: string,
   rows: SheetRow[],
-  patientMap: Map<string, PatientAssignmentRecord>
+  state: PatientAssignmentState
 ): Promise<void> {
   const keys = new Set<string>()
+  const keyToDisplayPid = new Map<string, string>()
   for (const row of rows) {
     const pid =
       row.patient_id != null && String(row.patient_id).trim() !== '' ? String(row.patient_id).trim() : ''
-    if (pid) keys.add(pid.toLowerCase())
+    if (!pid) continue
+    const key = normalizePatientIdKey(pid)
+    keys.add(key)
+    if (!keyToDisplayPid.has(key)) keyToDisplayPid.set(key, pid)
   }
 
   for (const key of keys) {
-    const rec = patientMap.get(key)
-    if (!rec || rec.provider_id) continue
-
-    const { error } = await supabase
-      .from('patients')
-      .update({ provider_id: sheetProviderId, updated_at: new Date().toISOString() })
-      .eq('id', rec.id)
-      .eq('clinic_id', clinicId)
-      .is('provider_id', null)
-
-    if (error) {
-      console.error('[claimUnassignedPatientsForProvider]', error)
+    if (state.coPatientIdKeys.has(key)) continue
+    const existing = state.privateClaimByPatientIdKey.get(key)
+    if (existing === sheetProviderId) continue
+    if (existing && existing !== sheetProviderId) {
+      console.error('[claimPrivatePatientIdsForProvider] unexpected foreign claim after validation', { key, existing })
       continue
     }
-    rec.provider_id = sheetProviderId
+
+    const displayPid = keyToDisplayPid.get(key) ?? key
+
+    const { error } = await supabase.from('private_patient_claims').insert({
+      clinic_id: clinicId,
+      patient_id: displayPid,
+      provider_id: sheetProviderId,
+    })
+
+    if (!error) {
+      state.privateClaimByPatientIdKey.set(key, sheetProviderId)
+      continue
+    }
+
+    if (error.code === '23505') {
+      const { data: claims, error: fetchErr } = await supabase
+        .from('private_patient_claims')
+        .select('patient_id, provider_id')
+        .eq('clinic_id', clinicId)
+      if (fetchErr) {
+        console.error('[claimPrivatePatientIdsForProvider] refetch after conflict', fetchErr)
+        continue
+      }
+      const row = (claims || []).find((c) => normalizePatientIdKey(String(c.patient_id ?? '')) === key)
+      if (row && String(row.provider_id) === sheetProviderId) {
+        state.privateClaimByPatientIdKey.set(key, sheetProviderId)
+      } else if (row) {
+        console.error('[claimPrivatePatientIdsForProvider] lost race to another provider', { key, row })
+      }
+      continue
+    }
+
+    console.error('[claimPrivatePatientIdsForProvider]', error)
   }
 }

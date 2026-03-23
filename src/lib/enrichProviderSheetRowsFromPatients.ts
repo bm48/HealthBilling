@@ -60,3 +60,48 @@ export function enrichSheetRowsFromPatients(rows: SheetRow[], patients: Patient[
     return changed ? next : row
   })
 }
+
+function demographicsFromPatient(p: Patient): Pick<
+  SheetRow,
+  'patient_first_name' | 'last_initial' | 'patient_last_name' | 'patient_insurance' | 'patient_copay' | 'patient_coinsurance'
+> {
+  const fn = p.first_name != null && String(p.first_name).trim() !== '' ? String(p.first_name).trim() : null
+  const lnRaw = p.last_name != null && String(p.last_name).trim() !== '' ? String(p.last_name).trim() : null
+  return {
+    patient_first_name: fn,
+    last_initial: lnRaw ? lnRaw.charAt(0) : null,
+    patient_last_name: lnRaw,
+    patient_insurance: p.insurance != null && String(p.insurance).trim() !== '' ? String(p.insurance).trim() : null,
+    patient_copay: p.copay ?? null,
+    patient_coinsurance: p.coinsurance ?? null,
+  }
+}
+
+/**
+ * For rows whose patient_id matches a co-patient in `patients`, overwrite denormalized patient columns
+ * from the DB snapshot (after sync). Use so all providers' sheets show the same co-patient demographics.
+ */
+export function applyCoPatientSnapshotToSheetRows(rows: SheetRow[], patients: Patient[]): SheetRow[] {
+  if (!rows.length || !patients.length) return rows
+
+  const byPatientId = new Map<string, Patient>()
+  for (const p of patients) {
+    const k = String(p.patient_id ?? '').trim().toLowerCase()
+    if (k) byPatientId.set(k, p)
+  }
+
+  return rows.map((row) => {
+    const pid = row.patient_id != null ? String(row.patient_id).trim() : ''
+    if (!pid) return row
+    const patient = byPatientId.get(pid.toLowerCase())
+    if (!patient) return row
+
+    const d = demographicsFromPatient(patient)
+    const next: SheetRow = {
+      ...row,
+      ...d,
+      updated_at: new Date().toISOString(),
+    }
+    return next
+  })
+}
