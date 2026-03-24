@@ -763,6 +763,44 @@ export default function ProvidersTab({
     : isProviderView
       ? (providerLevel === 2 ? columnTitlesFull : columnTitlesProviderView)
       : (showCondenseButton && isCondensed ? columnTitlesFull.slice(0, 9) : columnTitlesFull)
+
+  /** Bumps when lock flags change so Handsontable re-renders headers (see `afterGetColHeader` + `colHeaderRefreshKey`). */
+  const providerLocksKey = useMemo(() => {
+    if (!lockData) return 'none'
+    return columnFields
+      .map((f) => {
+        if (!f || f === 'visit_type') return '-'
+        return lockData[f as keyof IsLockProviders] ? '1' : '0'
+      })
+      .join('')
+  }, [lockData, columnFields])
+
+  const lockIconSrc = `${import.meta.env.BASE_URL.replace(/\/?$/, '/')}lock_icon.png`
+
+  const afterGetProviderColHeader = useCallback(
+    (col: number, TH: HTMLTableCellElement, headerLevel?: number) => {
+      if (headerLevel != null && headerLevel !== 0) return
+      TH.querySelector('.providers-col-header-lock-wrap')?.remove()
+      if (col < 0) return
+      const field = columnFields[col] as string | undefined
+      if (!field || field === 'visit_type') return
+      if (!lockData || !lockData[field as keyof IsLockProviders]) return
+      const wrap = document.createElement('span')
+      wrap.className = 'providers-col-header-lock-wrap'
+      wrap.title = 'Column locked'
+      const img = document.createElement('img')
+      img.className = 'providers-col-header-lock-img'
+      img.src = lockIconSrc
+      img.alt = ''
+      img.width = 18
+      img.height = 18
+      wrap.appendChild(img)
+      const inner = (TH.querySelector('div') as HTMLElement | null) || TH
+      inner.appendChild(wrap)
+    },
+    [columnFields, lockData, lockIconSrc]
+  )
+
   /** In provider view (full and partial), providers can edit Date of Service (6), CPT Code (7), Appt/Note Status (8), and when enabled Visit Type (9) */
   const isProviderEditableColumn = (dataIndex: number) =>
     dataIndex === 6 || dataIndex === 7 || dataIndex === 8 || (showVisitTypeColumn && dataIndex === 9)
@@ -786,7 +824,7 @@ export default function ProvidersTab({
     return baseReadOnly || (restrictEditToSchedulingColumns && !isSchedulingColumn(dataIndex) && !isMostRecentColumn(dataIndex))
   }
 
-  // Right-click on column headers to lock/unlock (no lock icon in header)
+  // Right-click on column headers to lock/unlock; locked columns show public/lock_icon.png via afterGetColHeader
   useEffect(() => {
     if (isProviderView || !canEdit || !onLockProviderColumn || !isProviderColumnLocked) return
 
@@ -2330,6 +2368,8 @@ export default function ProvidersTab({
             dataVersion={(providerRowsVersion ?? 0) + structureVersion + selectedMonth.getTime() + patientsDisplayRevision + (isViewingBackup ? 1000000 + backupVersionKey : 0)}
             columns={providerColumnsWithLocks}
             colHeaders={columnTitles}
+            colHeaderRefreshKey={providerLocksKey}
+            afterGetColHeader={afterGetProviderColHeader}
             rowHeaders={true}
             width="100%"
             height={isInSplitScreen ? tableHeight : 600}

@@ -66,9 +66,11 @@ interface AccountsReceivableTabProps {
   isViewingBackup?: boolean
   /** When viewing backup, a value that changes when the user selects a different version, so the grid refreshes. */
   backupVersionKey?: number
+  /** Notifies parent of the month key used for AR data (and column locks): "Y-M" or "Y-M-P" when payroll=2. */
+  onLocksMonthKeyChange?: (monthKey: string) => void
 }
 
-export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, canEdit, onDelete, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen, overrideFullAR = null, isViewingBackup = false, backupVersionKey = 0 }: AccountsReceivableTabProps) {
+export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, canEdit, onDelete, isLockAccountsReceivable, onLockColumn, isColumnLocked, isInSplitScreen, overrideFullAR = null, isViewingBackup = false, backupVersionKey = 0, onLocksMonthKeyChange }: AccountsReceivableTabProps) {
   const { userProfile } = useAuth()
   const [statusColors, setStatusColors] = useState<StatusColor[]>([])
   const [loading, setLoading] = useState(true)
@@ -127,6 +129,16 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
 
   // Use isLockAccountsReceivable from props directly - it will update when parent refreshes
   const lockData = isLockAccountsReceivable || null
+
+  const arLocksMonthKeyForView = useMemo(() => {
+    const y = selectedMonth.getFullYear()
+    const m = selectedMonth.getMonth() + 1
+    return clinicPayroll === 2 ? `${y}-${m}-${selectedPayroll}` : `${y}-${m}`
+  }, [selectedMonth, clinicPayroll, selectedPayroll])
+
+  useEffect(() => {
+    onLocksMonthKeyChange?.(arLocksMonthKeyForView)
+  }, [arLocksMonthKeyForView, onLocksMonthKeyChange])
 
   /** Build displayed list (200 rows) for selected month from a full list. Used for both live (fullListRef) and backup override. */
   const buildDisplayedFromList = useCallback((list: AccountsReceivable[]): AccountsReceivable[] => {
@@ -629,7 +641,37 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
   const columnFields: Array<keyof IsLockAccountsReceivable> = ['ar_id', 'name', 'date_of_service', 'amount', 'date_recorded', 'type', 'notes']
   const columnTitles = ['ID #', 'Name', 'Date of Service', 'Amount', 'Date Recorded', 'Type', 'Notes']
 
-  // Right-click on column headers to lock/unlock (no lock icon in header)
+  const arLocksHeaderKey = useMemo(() => {
+    if (!lockData) return 'none'
+    return columnFields.map((f) => (lockData[f] ? '1' : '0')).join('')
+  }, [lockData, columnFields])
+
+  const lockIconSrc = `${import.meta.env.BASE_URL.replace(/\/?$/, '/')}lock_icon.png`
+
+  const afterGetARColHeader = useCallback(
+    (col: number, TH: HTMLTableCellElement, headerLevel?: number) => {
+      if (headerLevel != null && headerLevel !== 0) return
+      TH.querySelector('.ar-col-header-lock-wrap')?.remove()
+      if (col < 0) return
+      const field = columnFields[col]
+      if (!field || !lockData || !lockData[field]) return
+      const wrap = document.createElement('span')
+      wrap.className = 'ar-col-header-lock-wrap'
+      wrap.title = 'Column locked'
+      const img = document.createElement('img')
+      img.className = 'ar-col-header-lock-img'
+      img.src = lockIconSrc
+      img.alt = ''
+      img.width = 18
+      img.height = 18
+      wrap.appendChild(img)
+      const inner = (TH.querySelector('div') as HTMLElement | null) || TH
+      inner.appendChild(wrap)
+    },
+    [columnFields, lockData, lockIconSrc]
+  )
+
+  // Right-click on column headers to lock/unlock; locked columns show public/lock_icon.png via afterGetColHeader
   useEffect(() => {
     if (!canEdit || !onLockColumn || !isColumnLocked) return
 
@@ -699,9 +741,9 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
 
     const attachAll = () => {
       if (timeoutId) { clearTimeout(timeoutId); timeoutId = null }
-      const table = document.querySelector('.handsontable-custom table.htCore')
+      const table = document.querySelector('.ar-handsontable table.htCore')
       if (table) attachContextMenuToHeader(table.querySelector('thead tr'))
-      const cloneTop = document.querySelector('.handsontable-custom .ht_clone_top table.htCore')
+      const cloneTop = document.querySelector('.ar-handsontable .ht_clone_top table.htCore')
       if (cloneTop) attachContextMenuToHeader(cloneTop.querySelector('thead tr'))
     }
 
@@ -710,14 +752,14 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
       if (timeoutId) clearTimeout(timeoutId)
       timeoutId = setTimeout(attachAll, 200)
     })
-    const tableContainer = document.querySelector('.handsontable-custom')
+    const tableContainer = document.querySelector('.ar-handsontable')
     if (tableContainer) observer.observe(tableContainer, { childList: true, subtree: true })
 
     return () => {
       if (timeoutId) clearTimeout(timeoutId)
       observer.disconnect()
       hideMenu()
-      document.querySelectorAll('.handsontable-custom th').forEach((th) => {
+      document.querySelectorAll('.ar-handsontable th').forEach((th) => {
         const h = (th as any)._arHeaderContext
         if (h) th.removeEventListener('contextmenu', h)
       })
@@ -1042,6 +1084,8 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
           scrollToRowAfterUpdateRef={scrollToRowAfterUpdateRef}
           columns={arColumns}
           colHeaders={columnTitles}
+          colHeaderRefreshKey={arLocksHeaderKey}
+          afterGetColHeader={afterGetARColHeader}
           rowHeaders={true}
           width="100%"
           height={isInSplitScreen ? tableHeight : 600}
@@ -1058,7 +1102,7 @@ export default function AccountsReceivableTab({ clinicId, clinicPayroll = 1, can
           enableFormula={true}
           readOnly={!canEdit}
           style={{ backgroundColor: '#d2dbe5' }}
-          className="handsontable-custom"
+          className="handsontable-custom ar-handsontable"
         />
       </div>
     </div>

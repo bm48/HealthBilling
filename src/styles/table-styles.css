@@ -331,6 +331,62 @@
   color: var(--header-text-color, #ffffff) !important;
 }
 
+/* Providers tab: lock icon pinned to the right of the header cell (label stays left/center block) */
+.providers-handsontable table.htCore thead th > div,
+.providers-handsontable .ht_clone_top table.htCore thead th > div {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-start !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  gap: 4px !important;
+}
+.providers-handsontable .providers-col-header-lock-wrap {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  flex-shrink: 0;
+}
+.providers-handsontable .providers-col-header-lock-img {
+  width: 18px;
+  height: 18px;
+  display: block;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+/* Accounts Receivable tab: same header lock layout as providers */
+.ar-handsontable table.htCore thead th > div,
+.ar-handsontable .ht_clone_top table.htCore thead th > div {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-start !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  gap: 4px !important;
+}
+.ar-handsontable .ar-col-header-lock-wrap {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  flex-shrink: 0;
+}
+.ar-handsontable .ar-col-header-lock-img {
+  width: 18px;
+  height: 18px;
+  display: block;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 /* Providers tab - custom header colors per column group */
 /* .providers-handsontable table.htCore thead th:nth-child(1), */
 .providers-handsontable table.htCore thead th:nth-child(2),

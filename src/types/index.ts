@@ -297,6 +297,8 @@ export interface IsLockBillingTodo {
 export interface IsLockAccountsReceivable {
   id: string
   clinic_id: string
+  /** Same month key as provider sheets / AR tab: "YYYY-M" or "YYYY-M-P". Value "legacy" for pre-migration rows. */
+  month_key: string
   ar_id: boolean
   name: boolean
   date_of_service: boolean
@@ -318,6 +320,8 @@ export interface IsLockAccountsReceivable {
 export interface IsLockProviders {
   id: string
   clinic_id: string
+  /** Provider sheet month key, e.g. "2025-3" or "2025-3-2". Value "legacy" is used for rows migrated from the old single-row-per-clinic model. */
+  month_key: string
   patient_id: boolean
   first_name: boolean
   last_initial: boolean

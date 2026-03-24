@@ -25,6 +25,52 @@ import ProviderPayTab, { type IsLockProviderPay } from '@/components/tabs/Provid
 
 type TabType = 'patients' | 'todo' | 'providers' | 'accounts_receivable' | 'provider_pay'
 
+/** Pre-migration `is_lock_providers` rows use this month_key; first open of a calendar month clones them into that month. */
+const IS_LOCK_PROVIDERS_LEGACY_MONTH_KEY = 'legacy'
+
+/** Pre-migration `is_lock_accounts_receivable` rows use this month_key; first open of a month clones them into that month. */
+const IS_LOCK_AR_LEGACY_MONTH_KEY = 'legacy'
+
+function newARLockRowPayload(clinicId: string, monthKey: string) {
+  return {
+    clinic_id: clinicId,
+    month_key: monthKey,
+    ar_id: false,
+    name: false,
+    date_of_service: false,
+    amount: false,
+    date_recorded: false,
+    type: false,
+    notes: false,
+  }
+}
+
+function newProviderLockRowPayload(clinicId: string, monthKey: string) {
+  return {
+    clinic_id: clinicId,
+    month_key: monthKey,
+    patient_id: false,
+    first_name: false,
+    last_initial: false,
+    insurance: false,
+    copay: false,
+    coinsurance: false,
+    date_of_service: false,
+    cpt_code: false,
+    appointment_note_status: false,
+    claim_status: false,
+    most_recent_submit_date: false,
+    ins_pay: false,
+    ins_pay_date: false,
+    pt_res: false,
+    collected_from_pt: false,
+    pt_pay_status: false,
+    pt_payment_ar_ref_date: false,
+    total: false,
+    notes: false,
+  }
+}
+
 export default function ClinicDetail() {
   const { clinicId, tab, providerId } = useParams<{ clinicId: string; tab?: string; providerId?: string }>()
   const navigate = useNavigate()
@@ -52,6 +98,8 @@ export default function ClinicDetail() {
   const [isLockBillingTodo, setIsLockBillingTodo] = useState<IsLockBillingTodo | null>(null)
   const [isLockProviders, setIsLockProviders] = useState<IsLockProviders | null>(null)
   const [isLockAccountsReceivable, setIsLockAccountsReceivable] = useState<IsLockAccountsReceivable | null>(null)
+  /** Month key for AR column locks — driven by AccountsReceivableTab’s month/payroll (not provider toolbar). */
+  const [arLocksMonthKey, setArLocksMonthKey] = useState<string | null>(null)
   const [isLockProviderPay, setIsLockProviderPay] = useState<IsLockProviderPay | null>(null)
   const [showLockDialog, setShowLockDialog] = useState(false)
   const [selectedLockColumn, setSelectedLockColumn] = useState<{ columnName: string; providerId: string | null; isPatientColumn?: boolean; isBillingTodoColumn?: boolean; isProviderColumn?: boolean; isARColumn?: boolean; isProviderPayColumn?: boolean } | null>(null)
@@ -156,6 +204,10 @@ export default function ClinicDetail() {
     setSelectedBackupVersion(null)
   }, [providerId, selectedMonthKey])
 
+  useEffect(() => {
+    setArLocksMonthKey(null)
+  }, [clinicId])
+
   // Billing staff and official staff may only access clinics permitted by super admin / admin
   const isBillingStaff = userProfile?.role === 'billing_staff'
   const isOfficialStaff = userProfile?.role === 'official_staff'
@@ -236,16 +288,19 @@ export default function ClinicDetail() {
           fetchStatusColors()
           fetchColumnLocks()
           fetchProviders()
+          if (selectedMonthKey) fetchIsLockProviders(selectedMonthKey)
         } else if (activeTab === 'provider_pay') {
           fetchStatusColors()
           fetchProviders()
+        } else if (activeTab === 'accounts_receivable' && selectedMonthKey) {
+          fetchIsLockAccountsReceivable(selectedMonthKey)
         }
       } else {
         // When no providerId, fetch data for the active tab normally (pass selectedMonthKey for provider_pay so loading stays until sheets load)
         fetchData(selectedMonthKey)
       }
     }
-  }, [clinicId, activeTab, providerId, selectedMonthKey])
+  }, [clinicId, activeTab, providerId, selectedMonthKey, splitScreen])
 
   const prevMonthKeyRef = useRef<string | null>(null)
   /** Tracks (clinicId, providerId, monthKey) so we only skip fetch when cache is for this clinic (fixes same content across clinics). */
@@ -300,6 +355,7 @@ export default function ClinicDetail() {
         if (lastProviderSheetDataFetchRef.current?.providerId === providerId && lastProviderSheetDataFetchRef.current?.monthKey === selectedMonthKey) {
           await fetchProviderSheetData(isMonthChangeOnly, true)
         }
+        if (activeTab === 'providers' && selectedMonthKey) await fetchIsLockProviders(selectedMonthKey)
       })()
       return
     }
@@ -312,6 +368,7 @@ export default function ClinicDetail() {
         if (lastProviderSheetsFetchMonthKeyRef.current === selectedMonthKey) {
           await fetchProviderSheets(selectedMonthKey, isMonthChangeOnly, true)
         }
+        if (activeTab === 'providers' && selectedMonthKey) await fetchIsLockProviders(selectedMonthKey)
       })()
     }
   }, [selectedMonthKey, activeTab, clinicId, providerId])
@@ -346,6 +403,8 @@ export default function ClinicDetail() {
         await fetchStatusColors()
         await fetchColumnLocks()
         await fetchProviders()
+        const mk = monthKeyForProviderSheets ?? selectedMonthKey
+        if (mk) await fetchIsLockProviders(mk)
       } else if (activeTab === 'provider_pay') {
         await fetchStatusColors()
         await fetchProviders()
@@ -356,8 +415,20 @@ export default function ClinicDetail() {
       } else if (activeTab === 'patients') {
         await fetchIsLockPatients()
         await fetchIsLockBillingTodo()
-        await fetchIsLockProviders()
-        await fetchIsLockAccountsReceivable()
+        if (selectedMonthKey) await fetchIsLockProviders(selectedMonthKey)
+        if (selectedMonthKey) await fetchIsLockAccountsReceivable(selectedMonthKey)
+      } else if (activeTab === 'accounts_receivable') {
+        if (selectedMonthKey) await fetchIsLockAccountsReceivable(selectedMonthKey)
+      }
+      // Split view: AR on a pane while primary tab is e.g. todo or providers — still load locks for selected month.
+      if (
+        selectedMonthKey &&
+        splitScreen &&
+        (splitScreen.left === 'accounts_receivable' || splitScreen.right === 'accounts_receivable') &&
+        activeTab !== 'patients' &&
+        activeTab !== 'accounts_receivable'
+      ) {
+        await fetchIsLockAccountsReceivable(selectedMonthKey)
       }
     } catch (error) {
       console.error('Error fetching data:', error)
@@ -701,57 +772,78 @@ export default function ClinicDetail() {
     }
   }
 
-  const fetchIsLockProviders = async () => {
+  const fetchIsLockProviders = async (monthKeyForLocks?: string) => {
     if (!clinicId) return
-    
+    const monthKey = monthKeyForLocks ?? selectedMonthKey
+    if (!monthKey) return
+
     try {
       const { data, error } = await supabase
         .from('is_lock_providers')
         .select('*')
         .eq('clinic_id', clinicId)
+        .eq('month_key', monthKey)
         .maybeSingle()
-      
+
       if (error) {
         setIsLockProviders(null)
         return
       }
-      
+
       if (data) {
-        setIsLockProviders(data)
-      } else {
-        // Create default record if it doesn't exist
-        const { data: newData, error: insertError } = await supabase
+        setIsLockProviders(data as IsLockProviders)
+        return
+      }
+
+      const { data: legacy } = await supabase
+        .from('is_lock_providers')
+        .select('*')
+        .eq('clinic_id', clinicId)
+        .eq('month_key', IS_LOCK_PROVIDERS_LEGACY_MONTH_KEY)
+        .maybeSingle()
+
+      if (legacy) {
+        const { id: _id, created_at: _c, updated_at: _u, month_key: _mk, ...cloneFields } = legacy as IsLockProviders
+        const { data: inserted, error: insertError } = await supabase
           .from('is_lock_providers')
           .insert({
+            ...cloneFields,
             clinic_id: clinicId,
-            patient_id: false,
-            first_name: false,
-            last_initial: false,
-            insurance: false,
-            copay: false,
-            coinsurance: false,
-            date_of_service: false,
-            cpt_code: false,
-            appointment_note_status: false,
-            claim_status: false,
-            most_recent_submit_date: false,
-            ins_pay: false,
-            ins_pay_date: false,
-            pt_res: false,
-            collected_from_pt: false,
-            pt_pay_status: false,
-            pt_payment_ar_ref_date: false,
-            total: false,
-            notes: false,
+            month_key: monthKey,
           })
           .select()
           .maybeSingle()
-        
-        if (insertError) {
-          setIsLockProviders(null)
-        } else if (newData) {
-          setIsLockProviders(newData)
+
+        if (!insertError && inserted) {
+          setIsLockProviders(inserted as IsLockProviders)
+          return
         }
+        const { data: again } = await supabase
+          .from('is_lock_providers')
+          .select('*')
+          .eq('clinic_id', clinicId)
+          .eq('month_key', monthKey)
+          .maybeSingle()
+        setIsLockProviders((again as IsLockProviders) ?? null)
+        return
+      }
+
+      const { data: newData, error: insertError } = await supabase
+        .from('is_lock_providers')
+        .insert(newProviderLockRowPayload(clinicId, monthKey))
+        .select()
+        .maybeSingle()
+
+      if (insertError) {
+        const { data: again } = await supabase
+          .from('is_lock_providers')
+          .select('*')
+          .eq('clinic_id', clinicId)
+          .eq('month_key', monthKey)
+          .maybeSingle()
+        setIsLockProviders((again as IsLockProviders) ?? null)
+      } else if (newData) {
+        setIsLockProviders(newData as IsLockProviders)
       }
     } catch (error) {
       console.error('Error fetching is_lock_providers:', error)
@@ -761,6 +853,10 @@ export default function ClinicDetail() {
 
   const handleToggleProviderColumnLock = async (columnName: keyof IsLockProviders, isLocked: boolean, comment?: string) => {
     if (!clinicId || !userProfile?.id) return
+    if (!selectedMonthKey) {
+      alert('Select a month before changing provider column locks.')
+      return
+    }
 
     try {
       const currentLock = isLockProviders
@@ -803,6 +899,7 @@ export default function ClinicDetail() {
         // No row in state: upsert so we create or update (avoids 409 when row exists in DB but not in state)
         const upsertData: any = {
           clinic_id: clinicId,
+          month_key: selectedMonthKey,
           patient_id: columnName === 'patient_id' ? isLocked : false,
           first_name: columnName === 'first_name' ? isLocked : false,
           last_initial: columnName === 'last_initial' ? isLocked : false,
@@ -830,14 +927,14 @@ export default function ClinicDetail() {
 
         let { error } = await supabase
           .from('is_lock_providers')
-          .upsert(upsertData, { onConflict: 'clinic_id' })
+          .upsert(upsertData, { onConflict: 'clinic_id,month_key' })
 
         if (error && (error.message?.includes('column') || error.message?.includes('not found') || error.code === 'PGRST204')) {
           console.warn(`Comment column ${commentField} does not exist. Upserting without comment.`)
           delete upsertData[commentField]
           const { error: retryError } = await supabase
             .from('is_lock_providers')
-            .upsert(upsertData, { onConflict: 'clinic_id' })
+            .upsert(upsertData, { onConflict: 'clinic_id,month_key' })
           if (retryError) throw retryError
         } else if (error) {
           throw error
@@ -845,8 +942,8 @@ export default function ClinicDetail() {
       }
 
       // Refresh lock status immediately
-      await fetchIsLockProviders()
-      
+      if (selectedMonthKey) await fetchIsLockProviders(selectedMonthKey)
+
       // Close dialog
       setShowLockDialog(false)
       setSelectedLockColumn(null)
@@ -867,45 +964,78 @@ export default function ClinicDetail() {
     return isLockBillingTodo[columnName] === true
   }
 
-  const fetchIsLockAccountsReceivable = async () => {
+  const fetchIsLockAccountsReceivable = async (monthKeyForLocks?: string) => {
     if (!clinicId) return
-    
+    const monthKey = monthKeyForLocks ?? selectedMonthKey
+    if (!monthKey) return
+
     try {
       const { data, error } = await supabase
         .from('is_lock_accounts_receivable')
         .select('*')
         .eq('clinic_id', clinicId)
+        .eq('month_key', monthKey)
         .maybeSingle()
-      
+
       if (error) {
         setIsLockAccountsReceivable(null)
         return
       }
-      
+
       if (data) {
-        setIsLockAccountsReceivable(data)
-      } else {
-        // Create default record if it doesn't exist
-        const { data: newData, error: insertError } = await supabase
+        setIsLockAccountsReceivable(data as IsLockAccountsReceivable)
+        return
+      }
+
+      const { data: legacy } = await supabase
+        .from('is_lock_accounts_receivable')
+        .select('*')
+        .eq('clinic_id', clinicId)
+        .eq('month_key', IS_LOCK_AR_LEGACY_MONTH_KEY)
+        .maybeSingle()
+
+      if (legacy) {
+        const { id: _id, created_at: _c, updated_at: _u, month_key: _mk, ...cloneFields } = legacy as IsLockAccountsReceivable
+        const { data: inserted, error: insertError } = await supabase
           .from('is_lock_accounts_receivable')
           .insert({
+            ...cloneFields,
             clinic_id: clinicId,
-            ar_id: false,
-            name: false,
-            date_of_service: false,
-            amount: false,
-            date_recorded: false,
-            type: false,
-            notes: false,
+            month_key: monthKey,
           })
           .select()
           .maybeSingle()
-        
-        if (insertError) {
-          setIsLockAccountsReceivable(null)
-        } else if (newData) {
-          setIsLockAccountsReceivable(newData)
+
+        if (!insertError && inserted) {
+          setIsLockAccountsReceivable(inserted as IsLockAccountsReceivable)
+          return
         }
+        const { data: again } = await supabase
+          .from('is_lock_accounts_receivable')
+          .select('*')
+          .eq('clinic_id', clinicId)
+          .eq('month_key', monthKey)
+          .maybeSingle()
+        setIsLockAccountsReceivable((again as IsLockAccountsReceivable) ?? null)
+        return
+      }
+
+      const { data: newData, error: insertError } = await supabase
+        .from('is_lock_accounts_receivable')
+        .insert(newARLockRowPayload(clinicId, monthKey))
+        .select()
+        .maybeSingle()
+
+      if (insertError) {
+        const { data: again } = await supabase
+          .from('is_lock_accounts_receivable')
+          .select('*')
+          .eq('clinic_id', clinicId)
+          .eq('month_key', monthKey)
+          .maybeSingle()
+        setIsLockAccountsReceivable((again as IsLockAccountsReceivable) ?? null)
+      } else if (newData) {
+        setIsLockAccountsReceivable(newData as IsLockAccountsReceivable)
       }
     } catch (error) {
       console.error('Error fetching is_lock_accounts_receivable:', error)
@@ -913,8 +1043,23 @@ export default function ClinicDetail() {
     }
   }
 
+  useEffect(() => {
+    if (!clinicId || !arLocksMonthKey) return
+    const arPaneVisible =
+      activeTab === 'accounts_receivable' ||
+      (splitScreen != null &&
+        (splitScreen.left === 'accounts_receivable' || splitScreen.right === 'accounts_receivable'))
+    if (!arPaneVisible) return
+    void fetchIsLockAccountsReceivable(arLocksMonthKey)
+  }, [arLocksMonthKey, activeTab, splitScreen, clinicId])
+
   const handleToggleARColumnLock = async (columnName: keyof IsLockAccountsReceivable, isLocked: boolean, comment?: string) => {
     if (!clinicId || !userProfile?.id) return
+    const effectiveArLockMonthKey = arLocksMonthKey ?? selectedMonthKey
+    if (!effectiveArLockMonthKey) {
+      alert('Select a month in Accounts Receivable (or the clinic month) before changing column locks.')
+      return
+    }
 
     try {
       const currentLock = isLockAccountsReceivable
@@ -954,9 +1099,9 @@ export default function ClinicDetail() {
           throw error
         }
       } else {
-        // Create new record
-        const insertData: any = {
+        const upsertData: any = {
           clinic_id: clinicId,
+          month_key: effectiveArLockMonthKey,
           ar_id: columnName === 'ar_id' ? isLocked : false,
           name: columnName === 'name' ? isLocked : false,
           date_of_service: columnName === 'date_of_service' ? isLocked : false,
@@ -964,25 +1109,22 @@ export default function ClinicDetail() {
           date_recorded: columnName === 'date_recorded' ? isLocked : false,
           type: columnName === 'type' ? isLocked : false,
           notes: columnName === 'notes' ? isLocked : false,
+          updated_at: new Date().toISOString(),
         }
-        
-        // Only include comment if provided
         if (comment !== undefined && comment !== null && comment !== '') {
-          insertData[commentField] = comment
+          upsertData[commentField] = comment
         }
 
         let { error } = await supabase
           .from('is_lock_accounts_receivable')
-          .insert(insertData)
+          .upsert(upsertData, { onConflict: 'clinic_id,month_key' })
 
-        // If error is about missing comment column, retry without comment
         if (error && (error.message?.includes('column') || error.message?.includes('not found') || error.code === 'PGRST204')) {
-          console.warn(`Comment column ${commentField} does not exist. Creating without comment.`)
-          delete insertData[commentField]
+          console.warn(`Comment column ${commentField} does not exist. Upserting without comment.`)
+          delete upsertData[commentField]
           const { error: retryError } = await supabase
             .from('is_lock_accounts_receivable')
-            .insert(insertData)
-          
+            .upsert(upsertData, { onConflict: 'clinic_id,month_key' })
           if (retryError) throw retryError
         } else if (error) {
           throw error
@@ -990,8 +1132,8 @@ export default function ClinicDetail() {
       }
 
       // Refresh lock status immediately
-      await fetchIsLockAccountsReceivable()
-      
+      await fetchIsLockAccountsReceivable(effectiveArLockMonthKey)
+
       // Close dialog
       setShowLockDialog(false)
       setSelectedLockColumn(null)
@@ -2639,6 +2781,7 @@ export default function ClinicDetail() {
               clinicPayroll={clinic?.payroll ?? 1}
               canEdit={canEdit && !backupOverrideAR}
               isInSplitScreen={!!splitScreen}
+              onLocksMonthKeyChange={setArLocksMonthKey}
               isLockAccountsReceivable={isLockAccountsReceivable}
               onLockColumn={canLockColumns ? (columnName: string) => {
                 const existingComment = isLockAccountsReceivable && isARColumnLocked(columnName as keyof IsLockAccountsReceivable)

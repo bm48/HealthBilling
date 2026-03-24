@@ -194,6 +194,10 @@ interface HandsontableWrapperProps {
   readOnly?: boolean
   /** Bump when rows are added/removed so the grid refreshes (e.g. context-menu add/delete) */
   dataVersion?: number
+  /** When this value changes, forces a full table render so column headers refresh (e.g. lock icons). */
+  colHeaderRefreshKey?: string | number
+  /** After each column header cell is built; use to inject icons (runs again after render). headerLevel is 0 for a single header row. */
+  afterGetColHeader?: (col: number, TH: HTMLTableCellElement, headerLevel?: number) => void
   /** Forward Handsontable row structure hooks (e.g. sync React state after native context menu insert/remove). */
   afterCreateRow?: (index: number, amount: number, source?: string) => void
   afterRemoveRow?: (index: number, amount: number, physicalRows: number[], source?: string) => void
@@ -245,6 +249,8 @@ export default function HandsontableWrapper({
   getCellTitle,
   readOnly = false,
   dataVersion = 0,
+  colHeaderRefreshKey,
+  afterGetColHeader,
   afterCreateRow,
   afterRemoveRow,
   contextMenuWithNativeRows = false,
@@ -255,6 +261,8 @@ export default function HandsontableWrapper({
   hotInstanceRef,
   onAfterUndoRedoSync,
 }: HandsontableWrapperProps) {
+  const decorateColHeaderRef = useRef(afterGetColHeader)
+  decorateColHeaderRef.current = afterGetColHeader
   const hotTableRef = useRef<any>(null)
   const hyperformulaInstanceRef = useRef<HyperFormula | null>(null)
   const isBatchOperationRef = useRef<boolean>(false)
@@ -429,6 +437,14 @@ export default function HandsontableWrapper({
       prevDataVersionRef.current = dataVersion
     }
   }, [data.length, dataVersion, scrollToRowAfterUpdateRef])
+
+  // Lock icons / custom header markup: HOT does not always rebuild headers when only labels change.
+  useEffect(() => {
+    const hot = hotTableRef.current?.hotInstance
+    if (hot && typeof hot.render === 'function') {
+      hot.render()
+    }
+  }, [colHeaderRefreshKey])
   
   // Process columns to handle numeric type and custom renderers/editors
   const processedColumns = useMemo(() => columns.map(col => {
@@ -917,6 +933,13 @@ export default function HandsontableWrapper({
         requestAnimationFrame(() => syncColHeaderHeightForProviders(this))
       })
     },
+    ...(afterGetColHeader
+      ? {
+          afterGetColHeader(_col: number, TH: HTMLTableCellElement, headerLevel?: number) {
+            decorateColHeaderRef.current?.(_col, TH, headerLevel)
+          },
+        }
+      : {}),
   }
   
   // Add Ctrl+D (or Cmd+D on Mac) keyboard shortcut for fill down
