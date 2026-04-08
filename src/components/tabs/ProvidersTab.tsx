@@ -159,7 +159,7 @@ interface ProvidersTabProps {
   isInSplitScreen: boolean
   /** When true, show provider columns. providerLevel 1 = columns up to Appt/Note Status; providerLevel 2 = all columns. */
   isProviderView?: boolean
-  /** Provider level (1 or 2). Level 1 (partial) sees columns up to Appt/Note Status; level 2 (full access) sees all columns. Both can edit only Date of Service, CPT Code, Appt/Note Status. */
+  /** Provider level (1 or 2). Level 1 (partial) sees columns up to Appt/Note Status; level 2 (full access) sees all columns. Providers can edit ID (patient_id), Date of Service, CPT Code, Appt/Note Status, and Visit Type when shown (subject to column locks). */
   providerLevel?: 1 | 2
   onUpdateProviderSheetRow: (providerId: string, rowId: string, field: string, value: any) => void
   /** Atomic row replacement path (preferred): avoids row-id race when empty- row becomes new- during multi-cell edit. */
@@ -801,9 +801,9 @@ export default function ProvidersTab({
     [columnFields, lockData, lockIconSrc]
   )
 
-  /** In provider view (full and partial), providers can edit Date of Service (6), CPT Code (7), Appt/Note Status (8), and when enabled Visit Type (9) */
+  /** In provider view (full and partial), providers can edit ID (0), Date of Service (6), CPT Code (7), Appt/Note Status (8), and when enabled Visit Type (9) */
   const isProviderEditableColumn = (dataIndex: number) =>
-    dataIndex === 6 || dataIndex === 7 || dataIndex === 8 || (showVisitTypeColumn && dataIndex === 9)
+    dataIndex === 0 || dataIndex === 6 || dataIndex === 7 || dataIndex === 8 || (showVisitTypeColumn && dataIndex === 9)
   const getReadOnlyProviderView = (dataIndex: number) =>
     !canEdit || !isProviderEditableColumn(dataIndex)
 
@@ -1220,7 +1220,7 @@ export default function ProvidersTab({
     const pvOffset = showVisitTypeColumn ? 1 : 0
     if (isProviderView && providerLevel !== 2) {
       const base = [
-        { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyProviderView(0) },
+        { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyProviderView(0) || getReadOnly('patient_id') },
         { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: true },
         { data: 2, title: 'LI', type: 'text' as const, width: 80, readOnly: true },
         // { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: getReadOnlyProviderView(3) },
@@ -1235,7 +1235,7 @@ export default function ProvidersTab({
     }
     if (isProviderView && providerLevel === 2) {
       return [
-        { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyProviderView(0) },
+        { data: 0, title: 'ID', type: 'text' as const, width: 60, readOnly: getReadOnlyProviderView(0) || getReadOnly('patient_id') },
         { data: 1, title: 'First Name', type: 'text' as const, width: 90, readOnly: true },
         { data: 2, title: 'LI', type: 'text' as const, width: 40, readOnly: true },
         { data: 3, title: 'Ins', type: 'text' as const, width: 90, readOnly: true },
